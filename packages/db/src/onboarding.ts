@@ -1,4 +1,4 @@
-import {eq} from 'drizzle-orm';
+import {and,eq} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
@@ -21,17 +21,49 @@ function snapshot(userId:string,row:typeof schema.userOnboarding.$inferSelect|un
     interests:row?.interests??[],version:row?.version??0};
 }
 
-/** INTERNAL: only an authenticated, email-verified principal may read user preferences. */
-export async function getVerifiedUserOnboarding(db:OnboardingDb,trustedUserId:string){
-  const userId=id.parse(trustedUserId);
-  const [user]=await db.select().from(schema.userAccounts)
-    .where(eq(schema.userAccounts.id,userId)).limit(1);
-  if(!user||user.status!=='active'||!user.emailVerifiedAt){
-    throw new Error('Verified user required for onboarding');
+/**
+ * A session verified earlier in HTTP middleware can be revoked before the
+ * actual database operation starts. Lock the account FIRST, then the exact
+ * owned session row, preserving the owner-before-session lock ordering of
+ * verified device revocation. The lock serializes revocation vs. mutation.
+ *
+ * The optional session ID is for trusted internal CLI/test usage only.
+ * Every real /v1/me API call MUST supply a DB-verified guard principal.
+ */
+async function assertActiveTrustedSession(
+  tx:Parameters<Parameters<OnboardingDb['transaction']>[0]>[0],
+  userId:string,sessionId:string|undefined,
+):Promise<void>{
+  if(sessionId===undefined)return;
+  const [session]=await tx.select({
+    revokedAt:schema.userSessions.revokedAt,
+    expiresAt:schema.userSessions.expiresAt,
+  }).from(schema.userSessions).where(and(
+    eq(schema.userSessions.userId,userId),
+    eq(schema.userSessions.id,sessionId),
+  )).limit(1).for('share');
+  if(!session||session.revokedAt||session.expiresAt.getTime()<=Date.now()){
+    throw new Error('Verified session required');
   }
-  const [row]=await db.select().from(schema.userOnboarding)
-    .where(eq(schema.userOnboarding.userId,userId)).limit(1);
-  return snapshot(userId,row);
+}
+
+/** INTERNAL: only an authenticated, email-verified principal may read user preferences. */
+export async function getVerifiedUserOnboarding(
+  db:OnboardingDb,trustedUserId:string,trustedSessionId?:string,
+){
+  const userId=id.parse(trustedUserId);
+  const sessionId=trustedSessionId===undefined?undefined:id.parse(trustedSessionId);
+  return db.transaction(async tx=>{
+    const [user]=await tx.select().from(schema.userAccounts)
+      .where(eq(schema.userAccounts.id,userId)).limit(1).for('share');
+    if(!user||user.status!=='active'||!user.emailVerifiedAt){
+      throw new Error('Verified user required for onboarding');
+    }
+    await assertActiveTrustedSession(tx,userId,sessionId);
+    const [row]=await tx.select().from(schema.userOnboarding)
+      .where(eq(schema.userOnboarding.userId,userId)).limit(1);
+    return snapshot(userId,row);
+  });
 }
 
 /**
@@ -39,16 +71,21 @@ export async function getVerifiedUserOnboarding(db:OnboardingDb,trustedUserId:st
  * overwriting each other's language/interests silently. A conflict is explicit.
  */
 export async function updateVerifiedUserOnboarding(
-  db:OnboardingDb,trustedUserId:string,rawUpdate:unknown,requestId?:string
+  db:OnboardingDb,trustedUserId:string,rawUpdate:unknown,
+  requestId?:string,trustedSessionId?:string,
 ){
   const userId=id.parse(trustedUserId),input=updateSchema.parse(rawUpdate);
   const trustedRequestId=requestId?z.uuid().parse(requestId):undefined;
+  const sessionId=trustedSessionId===undefined?undefined:id.parse(trustedSessionId);
   return db.transaction(async tx=>{
     const [account]=await tx.select().from(schema.userAccounts)
       .where(eq(schema.userAccounts.id,userId)).limit(1).for('update');
     if(!account||account.status!=='active'||!account.emailVerifiedAt){
       throw new Error('Verified user required for onboarding');
     }
+    // Must revalidate the same session *inside* the state transaction:
+    // a token verified before revocation cannot update preferences after it.
+    await assertActiveTrustedSession(tx,userId,sessionId);
     await tx.insert(schema.userOnboarding).values({userId}).onConflictDoNothing();
     const [current]=await tx.select().from(schema.userOnboarding)
       .where(eq(schema.userOnboarding.userId,userId)).limit(1).for('update');
