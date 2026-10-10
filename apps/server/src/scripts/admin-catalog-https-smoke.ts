@@ -262,6 +262,74 @@ async function main():Promise<void>{
     check(names.status===200&&adminCatalogAuthorPageSchema.parse(
       JSON.parse(names.body)).items[0]?.id===author.id,
       'Author alias search could not read authorized metadata');
+    // A legitimate read-only administrator can inspect the DRAFT, without
+    // catalog:edit, in exactly the same session-scoped permission boundary.
+    const detailReadOnly={authorization:'Bearer '+viewerSession.sessionToken};
+    const safeAuthor=await call(true,port,authorDetailPath,detailReadOnly);
+    check(safeAuthor.status===200&&
+      safeAuthor.headers['cache-control']==='private, no-store'&&
+      !safeAuthor.headers['set-cookie'],
+      'Real MFA read-only role could not fetch author editorial metadata');
+    const authorDetails=adminCatalogAuthorDetailSchema.parse(
+      JSON.parse(safeAuthor.body));
+    check(authorDetails.author.id===author.id&&
+      authorDetails.author.canonicalName==='Folio Canonical Writer '+suffix&&
+      authorDetails.aliases.length===1&&
+      authorDetails.aliases[0]?.name==='Other Signature '+suffix&&
+      authorDetails.externalIds.length===0,
+      'Author aliases or canonical metadata were inconsistent across snapshot');
+    const safeWork=await call(true,port,firstDetailPath,detailReadOnly);
+    check(safeWork.status===200&&
+      safeWork.headers['cache-control']==='private, no-store'&&
+      !safeWork.headers['set-cookie'],
+      'MFA read-only role could not fetch unpublished work metadata');
+    const firstDetails=adminCatalogWorkDetailSchema.parse(
+      JSON.parse(safeWork.body));
+    check(firstDetails.work.id===first.id&&
+      firstDetails.work.originalLanguage==='tr'&&
+      firstDetails.work.publicationStatus==='draft'&&
+      firstDetails.authors.length===1&&firstDetails.authors[0]?.id===author.id&&
+      firstDetails.titles.length===1&&firstDetails.titles[0]?.kind==='original'&&
+      firstDetails.editions.length===0,
+      'Canonical work snapshot lost author/title relationships or leaked content');
+    const repeated=await call(true,port,firstDetailPath,detailReadOnly);
+    check(repeated.status===200&&repeated.body===safeWork.body,
+      'Stable canonical work metadata changed without an editorial mutation');
+    const leakProbe=JSON.stringify([firstDetails,authorDetails]);
+    check(!leakProbe.includes('rawArtifactKey')&&
+      !leakProbe.includes('sourceText')&&
+      !leakProbe.includes('userAccount')&&
+      !leakProbe.includes(editor.email)&&
+      !leakProbe.includes(viewerSession.sessionToken),
+      'Canonical snapshot returned source text, user data or session secrets');
+
+    for(const target of [
+      root+'/works/'+randomUUID(),
+      root+'/authors/'+randomUUID(),
+    ]){
+      const missing=await call(true,port,target,detailReadOnly);
+      check(missing.status===404&&
+        missing.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(missing.body)).error.code==='NOT_FOUND',
+        'Unknown canonical UUID did not safely return uncached 404');
+      check((await call(true,port,target,{
+        authorization:'Bearer '+guestSession.sessionToken,
+      })).status===403,
+        'A guest could infer whether a canonical detail UUID exists');
+    }
+    for(const target of [
+      root+'/works/not-a-uuid',
+      root+'/authors/not-a-uuid',
+      firstDetailPath+'?role=superadmin',
+      authorDetailPath+'?userId='+guest.userId,
+    ]){
+      const invalid=await call(true,port,target,detailReadOnly);
+      check(invalid.status===400&&
+        invalid.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(invalid.body)).error.code==='BAD_REQUEST',
+        'Malformed canonical ID or caller-controlled query was accepted');
+    }
+
     const pct=await call(true,port,
       root+'/works?q='+encodeURIComponent('% '+suffix),bearer);
     const percent=adminCatalogWorkPageSchema.parse(JSON.parse(pct.body));
