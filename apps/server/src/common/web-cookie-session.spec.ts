@@ -42,13 +42,16 @@ describe('web session transport is isolated from native bearer',()=>{
     expect(()=>issueWebSessionCookie(req({origin:policy.origin}),'weak',policy)).toThrow(UnauthorizedException);
   });
   it('creates a key- and session-bound opaque CSRF value',async()=>{
-    const one=await webSessionCsrfToken(req(),lookup,policy);
+    await expect(webSessionCsrfToken(req(),lookup,policy))
+      .rejects.toThrow(ForbiddenException);
+    const sameOrigin=req({'sec-fetch-site':'same-origin'});
+    const one=await webSessionCsrfToken(sameOrigin,lookup,policy);
     expect(one).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(await webSessionCsrfToken(req(),lookup,policy)).toBe(one);
-    expect(await webSessionCsrfToken(req(),lookup,{...policy,csrfKeyHex:'c'.repeat(64)}))
+    expect(await webSessionCsrfToken(sameOrigin,lookup,policy)).toBe(one);
+    expect(await webSessionCsrfToken(sameOrigin,lookup,{...policy,csrfKeyHex:'c'.repeat(64)}))
       .not.toBe(one);
     const other=randomBytes(32).toString('base64url');
-    expect(await webSessionCsrfToken(req({cookie:FOLIO_WEB_SESSION_COOKIE+'='+other}),async()=>principal,policy))
+    expect(await webSessionCsrfToken(req({cookie:FOLIO_WEB_SESSION_COOKIE+'='+other,'sec-fetch-site':'same-origin'}),async()=>principal,policy))
       .not.toBe(one);
   });
   it('rejects fake X-Forwarded-Proto and missing security policy',async()=>{
@@ -80,7 +83,7 @@ describe('web session transport is isolated from native bearer',()=>{
       lookup,policy,'GET')).toEqual(principal);
   });
   it('requires exact origin, fetch-site and HMAC token for unsafe methods',async()=>{
-    const csrf=await webSessionCsrfToken(req(),lookup,policy);
+    const csrf=await webSessionCsrfToken(req({'sec-fetch-site':'same-origin'}),lookup,policy);
     const headers={origin:policy.origin!,'sec-fetch-site':'same-origin','x-folio-csrf':csrf};
     for(const bad of [
       {...headers,origin:'https://evil.example.org'},

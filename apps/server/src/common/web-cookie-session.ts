@@ -122,7 +122,8 @@ function csrfValue(rawBearer:string,policy:WebCookiePolicy):string {
 export async function webSessionCsrfToken(
   request:WebCookieRequest,lookup:BearerSessionLookup,policy:WebCookiePolicy,
 ):Promise<string> {
-  // Cannot issue CSRF bootstrap for a fabricated or revoked bearer.
+  // Enforce same-origin proof in the token issuer itself, not only callers.
+  assertSafeWebCsrfBootstrap(request,policy);
   await verifyWebCookieSession(request,lookup,policy,'GET');
   return csrfValue(cookieBearer(request),policy);
 }
