@@ -108,7 +108,7 @@ function LanguageSwitch({colors}:{colors:Palette}){
   </View>;
 }
 export function MobileShell({section}:{section:MobileSection}){
-  const {locale}=useSettings();
+  const {locale,setLocale}=useSettings();
   const {width}=useWindowDimensions();
   const mode=responsiveMode(Math.max(0,width));
   const scheme=useColorScheme();
@@ -159,7 +159,7 @@ export function MobileShell({section}:{section:MobileSection}){
                 </Text>
               </View>
               {section==='profile'
-                ? <WebSignInPanel locale={locale} colors={colors}/>
+                ? <WebSignInPanel locale={locale} colors={colors} onLocaleSaved={setLocale}/>
                 : <View style={{backgroundColor:colors.surface,borderColor:colors.line,
                     borderWidth:1,borderRadius:18,padding:20,gap:10}}>
                   <Text style={{fontSize:16,fontWeight:'700',color:colors.ink}}>
