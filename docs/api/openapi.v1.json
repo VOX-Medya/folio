@@ -362,6 +362,77 @@
           "account"
         ]
       }
+    },
+    "/v1/auth/web/login": {
+      "post": {
+        "operationId": "WebAuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 254
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Gated direct-TLS only web login (disabled unless explicitly configured)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/web/csrf": {
+      "get": {
+        "operationId": "WebAuthController_csrf",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Bootstrap HMAC CSRF header for a verified HTTPS web cookie",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/web/logout": {
+      "post": {
+        "operationId": "WebAuthController_logout",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "CSRF-protected logout for exactly the current web device",
+        "tags": [
+          "auth"
+        ]
+      }
     }
   },
   "info": {
