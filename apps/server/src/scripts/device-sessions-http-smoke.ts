@@ -100,7 +100,7 @@ async function main(){
     const matching=audits.rows.filter(a=>a.entity_id===android.sessionId);
     check(matching.length===1,'Concurrent deletes created repeated audit events');
     const ids=new Set([first.headers.get('x-request-id'),second.headers.get('x-request-id')]);
-    check(ids.has(matching[0]?.request_id),
+    check(ids.has(matching[0]?.request_id??null),
       'Audit request ID did not originate from HTTP middleware');
     check(!JSON.stringify(audits.rows).includes(android.sessionToken),
       'Audit contained raw bearer token');
