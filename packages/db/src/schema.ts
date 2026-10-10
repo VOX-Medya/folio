@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, varchar, timestamp, integer, primaryKey, index, jsonb, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, varchar, timestamp, integer, primaryKey, index, jsonb, boolean, uniqueIndex, foreignKey } from 'drizzle-orm/pg-core';
 
 /** Minimal catalog storage baseline. Rights and revision modules follow their own V1 issues. */
 export const authors = pgTable('authors', {
@@ -96,3 +96,59 @@ export const editionContributors = pgTable('edition_contributors', {
   role: varchar('role', {length: 32}).notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
 }, t => [primaryKey({columns: [t.editionId, t.authorId, t.role]}), index('edition_contributors_author_idx').on(t.authorId)]);
+
+/** Provenance stores immutable source claims; rights approval remains a separate gate. */
+export const sourceProvenance = pgTable('source_provenance', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceName: text('source_name').notNull(),
+  sourceUrl: text('source_url'),
+  sourceExternalId: text('source_external_id'),
+  licenseClaim: text('license_claim'),
+  sourceSnapshot: jsonb('source_snapshot'),
+  createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
+});
+
+/** Text revisions point at immutable raw artifact hash/key; no original text is overwritten. */
+export const contentRevisions = pgTable('content_revisions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  editionId: uuid('edition_id').notNull().references(() => editions.id, {onDelete:'restrict'}),
+  language: varchar('language', {length: 12}).notNull(),
+  parentRevisionId: uuid('parent_revision_id'),
+  rawArtifactKey: text('raw_artifact_key').notNull(),
+  rawSha256: varchar('raw_sha256', {length:64}).notNull(),
+  normalizedSha256: varchar('normalized_sha256', {length:64}).notNull(),
+  parserVersion: text('parser_version').notNull(),
+  provenanceId: uuid('provenance_id').notNull().references(() => sourceProvenance.id,{onDelete:'restrict'}),
+  status: varchar('status', {length:24}).notNull().default('draft'),
+  createdBy: uuid('created_by').notNull(),
+  createdAt: timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t => [index('content_revisions_edition_idx').on(t.editionId)]);
+
+export const contentChapters = pgTable('content_chapters', {
+  revisionId: uuid('revision_id').notNull().references(() => contentRevisions.id, {onDelete:'restrict'}),
+  chapterId: uuid('chapter_id').notNull(),
+  ordinal: integer('ordinal').notNull(),
+  heading: text('heading').notNull(),
+},t => [
+  primaryKey({columns:[t.revisionId,t.chapterId]}),
+  uniqueIndex('content_chapter_order_unique').on(t.revisionId,t.ordinal),
+]);
+
+export const contentBlocks = pgTable('content_blocks', {
+  revisionId: uuid('revision_id').notNull().references(() => contentRevisions.id,{onDelete:'restrict'}),
+  blockId: uuid('block_id').notNull(),
+  chapterId: uuid('chapter_id').notNull(),
+  parentBlockId: uuid('parent_block_id'),
+  ordinal: integer('ordinal').notNull(),
+  kind: varchar('kind',{length:32}).notNull(),
+  sourceLocator: jsonb('source_locator').notNull(),
+  textSha256: varchar('text_sha256',{length:64}).notNull(),
+  sourceText: text('source_text').notNull(),
+  includeNormal: boolean('include_normal').notNull().default(true),
+  includeRsvp: boolean('include_rsvp').notNull().default(false),
+  includeAudio: boolean('include_audio').notNull().default(false),
+},t => [
+  primaryKey({columns:[t.revisionId,t.blockId]}),
+  uniqueIndex('content_block_order_unique').on(t.revisionId,t.chapterId,t.ordinal),
+  foreignKey({columns:[t.revisionId,t.chapterId],foreignColumns:[contentChapters.revisionId,contentChapters.chapterId],name:'content_blocks_chapter_fk'}).onDelete('restrict'),
+]);

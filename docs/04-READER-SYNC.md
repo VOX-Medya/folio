@@ -34,3 +34,6 @@ progress key = user_id + selected content_revision_id + reading intent (work ref
 8. Audio missing/corrupt segment yükleme bloklar ve player hata yönetimi.
 9. Arka plan audio lock screen, sleep timer, hız, kulaklık/Bluetooth odak kaybı.
 10. Uzun başlık, sıfır bölümlü bozuk kitap, iki kolonlu PDF, scanner PDF, DRM: güvenli reddetme.
+
+## First implemented semantic revision storage
+The foundational tables and immutable-source tests for #13 are documented in `docs/14-IMMUTABLE-CONTENT.md`. Source text is persisted verbatim with SHA-256 and stable block IDs, while footnote/page number/running header/publisher note blocks can be excluded from RSVP/audio without deletion. This does **not** imply that the complete reading, language switch, audio cursor, or offline sync system is implemented.
