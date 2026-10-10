@@ -145,6 +145,9 @@ async function main(){
       'x-user-id':web.userId,'x-admin-role':'superadmin','x-request-id':'client-chosen',
     },{});
     check(malicious.status===401,'Spoofed principal created TOTP enrollment');
+    const spoofError=apiErrorSchema.parse(JSON.parse(malicious.body));
+    check(spoofError.error.requestId===malicious.headers['x-request-id'],
+      'Admin MFA denial omitted genuine server-side request correlation');
     const unavailableKey=process.env.FOLIO_ADMIN_TOTP_KEY_HEX;
     delete process.env.FOLIO_ADMIN_TOTP_KEY_HEX;
     check((await call(true,port,root+'/enroll','POST',bearer,{})).status===503,
