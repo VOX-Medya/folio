@@ -63,3 +63,7 @@ Kaynak HTML prototiplerindeki 58 mobil ve 30 admin ekran kimliği, V1/gelecek ay
 
 ## Tasarim sozlesmesi kabul kaniti (#8, 10 Ekim 2026)
 Paperbound kapsam matrisi, 88 kaynak referansi / 74 V1 / 14 AFTER-V1 kisitini ve her V1 ekraninin eylem/durum/cihaz yerlesimi politikasini otomatik test eder. `docs/18-DESIGN-CONTRACT-ACCEPTANCE.md` 320/390/768/1024/1440/1920 Chrome E2E, dark/light ve kontrast test kanitlarini listeler. Bu tasarim kontratinin dondurulmasidir; 74 ekrani yapilmis, butun gercek hata/offline/yetki akislari denenmis veya insan son tasarim onayi alinmis anlamina gelmez.
+
+## Admin Settings MFA UX kısmi kanıtı (#30)
+
+`/admin/settings` altındaki `AdminMfaPanel` Paperbound semantik renk tokenlarıyla TR/EN, açık/koyu tema, 390px mobil/desktop responsive ve >=44px etkileşim hedeflerine uyar. HTTP/SSR'da parola, TOTP kodu ve gizli kurulum anahtarını göstermez; gerçek admin oturumu için dogrudan HTTPS, HttpOnly cookie, ayni origin CSRF gerekir. Kayıt/confirm/verify/logout yalnız backend sonucu üzerine durum değiştirir; başarısız sunucu, yetki, offline ve loading durumlarını açık gösterir. E2E ve Vitest sözleşmesi `docs/48-ADMIN-MFA-WEB-UX.md` altında. **Geri kalan 30 admin ekranının uygulanmış olduğu, production erişimi, onaylı MFA recovery veya native uyum iddiası değildir.**
