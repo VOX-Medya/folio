@@ -32,6 +32,9 @@ importers:
 
   apps/admin:
     dependencies:
+      '@folio/ui-tokens':
+        specifier: workspace:*
+        version: link:../../packages/ui-tokens
       react:
         specifier: ^19.0.0
         version: 19.1.0
@@ -57,6 +60,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@folio/ui-tokens':
+        specifier: workspace:*
+        version: link:../../packages/ui-tokens
       expo:
         specifier: ~54.0.0
         version: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
@@ -138,7 +144,11 @@ importers:
 
   packages/db: {}
 
-  packages/ui-tokens: {}
+  packages/ui-tokens:
+    devDependencies:
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.20.5)(vite@6.4.4(@types/node@22.20.5)(lightningcss@1.33.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   tools/folioctl: {}
 
