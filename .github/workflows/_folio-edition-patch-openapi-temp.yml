@@ -1,0 +1,30 @@
+name: Temporary Folio Edition Metadata OpenAPI Refresh
+on:
+  push:
+    branches: [feat/12-admin-edition-metadata-patch]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    if: github.repository == 'VOX-Medya/folio' && github.ref == 'refs/heads/feat/12-admin-edition-metadata-patch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @folio/contracts build
+      - run: pnpm --filter @folio/db build
+      - run: pnpm --filter @folio/server typecheck
+      - run: pnpm --filter @folio/server openapi:write
+      - name: Commit swagger snapshot and erase temporary workflow
+        run: |
+          rm .github/workflows/_folio-edition-patch-openapi-temp.yml
+          git add docs/api/openapi.v1.json .github/workflows/_folio-edition-patch-openapi-temp.yml
+          git -c user.name='folio-ci' -c user.email='folio-ci@users.noreply.github.com' commit -m 'chore(#12): refresh edition metadata PATCH OpenAPI'
+          git push origin HEAD:refs/heads/feat/12-admin-edition-metadata-patch
