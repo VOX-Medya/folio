@@ -1,0 +1,59 @@
+name: Folio private asset volume QA
+on:
+  pull_request:
+    paths:
+      - infra/compose.lab.yml
+      - .github/workflows/folio-private-vault.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: folio-private-vault-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-volume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate disposable Folio-only credentials
+        shell: bash
+        run: |
+          umask 077
+          printf 'FOLIO_DB_PASSWORD=%s\nFOLIO_DB_PORT=55432\n' "$(openssl rand -hex 24)" > infra/.env.lab
+      - name: Validate isolated Folio Compose mounts
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml config --quiet
+          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml config --format json | python3 -c '
+          import json,sys
+          config=json.load(sys.stdin)
+          services=config["services"]
+          for name in ("api","worker"):
+              mounts=services[name].get("volumes",[])
+              if not any(v.get("source")=="folio_private_assets" and v.get("target")=="/opt/folio-private" for v in mounts):
+                  raise SystemExit(f"Missing private Folio mount for {name}")
+          if services["storage-init"].get("network_mode")!="none":
+              raise SystemExit("Private storage initializer must have no network")
+          if config["volumes"]["folio_private_assets"]["name"]!="folio_lab_private_assets":
+              raise SystemExit("Private volume escaped Folio namespace")
+          print("Only Folio API/worker receive the private asset mount")
+          '
+      - name: Create Folio-only volume and verify node UID permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml run --rm --no-deps storage-init
+          docker run --rm --read-only --network none -v folio_lab_private_assets:/vault:ro alpine:3.21 sh -ec '
+            test "$(stat -c "%u:%g" /vault)" = "1000:1000"
+            test "$(stat -c "%a" /vault)" = "700"
+            echo "Folio private volume owner and permissions verified"
+          '
+      - name: Stop only Folio CI services (never remove persistent volumes)
+        if: always()
+        shell: bash
+        run: |
+          if test -f infra/.env.lab; then
+            docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml down
+          fi
