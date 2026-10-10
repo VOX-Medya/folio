@@ -138,4 +138,80 @@ describe('HttpOnly browser device session management',()=>{
     await expect(revokeWebDeviceSession(options(denied),id))
       .rejects.toMatchObject({status:404,code:'NOT_FOUND',requestId});
   });
+
+  it('probes once to retire a remotely revoked cookie after owner inventory 401',async()=>{
+    browser();
+    const calls:string[]=[];
+    const denied=()=>new Response(JSON.stringify({
+      error:{code:'UNAUTHORIZED',message:'Verified session required',requestId},
+    }),{status:401});
+    const fetcher:typeof fetch=async(url,init)=>{
+      calls.push(String(url));
+      expect(init?.credentials).toBe('same-origin');
+      expect(init?.cache).toBe('no-store');
+      expect(init?.headers).toEqual({accept:'application/json'});
+      return denied();
+    };
+    await expect(fetchWebDeviceSessions(options(fetcher)))
+      .rejects.toMatchObject({status:401,code:'UNAUTHORIZED',requestId});
+    expect(calls).toEqual([
+      origin+'/v1/me/sessions',
+      origin+'/v1/auth/web/csrf',
+    ]);
+  });
+
+  it('probes revoked cookie once after DELETE 401 without retrying a mutation',async()=>{
+    browser();
+    const urls:string[]=[];
+    const fetcher:typeof fetch=async(url,init)=>{
+      urls.push(String(url));
+      expect(init?.credentials).toBe('same-origin');
+      if(urls.length===1){
+        return new Response(null,{status:204,headers:{'x-folio-csrf':csrf}});
+      }
+      if(urls.length===2){
+        expect(init?.method).toBe('DELETE');
+        expect(init?.headers).toEqual({
+          accept:'application/json','x-folio-csrf':csrf,
+        });
+      }else{
+        expect(init?.method).toBe('GET');
+        expect(init?.headers).toEqual({accept:'application/json'});
+      }
+      return new Response(JSON.stringify({
+        error:{code:'UNAUTHORIZED',message:'Revoked',requestId},
+      }),{status:401});
+    };
+    await expect(revokeWebDeviceSession(options(fetcher),id))
+      .rejects.toMatchObject({status:401,code:'UNAUTHORIZED',requestId});
+    expect(urls).toEqual([
+      origin+'/v1/auth/web/csrf',
+      origin+'/v1/me/sessions/'+id,
+      origin+'/v1/auth/web/csrf',
+    ]);
+  });
+
+  it('never performs an extra bootstrap for 403, and preserves 401 after bootstrap outage',async()=>{
+    browser();
+    let calls=0;
+    await expect(fetchWebDeviceSessions(options(async()=>{
+      calls++;
+      return new Response(JSON.stringify({
+        error:{code:'FORBIDDEN',message:'Denied',requestId},
+      }),{status:403});
+    }))).rejects.toMatchObject({status:403,code:'FORBIDDEN'});
+    expect(calls).toBe(1);
+    const seen:string[]=[];
+    const outage:typeof fetch=async(url)=>{
+      seen.push(String(url));
+      return new Response(JSON.stringify({
+        error:{code:seen.length===1?'UNAUTHORIZED':'SERVICE_UNAVAILABLE',
+          message:'Not available',requestId},
+      }),{status:seen.length===1?401:503});
+    };
+    await expect(fetchWebDeviceSessions(options(outage)))
+      .rejects.toMatchObject({status:401,code:'UNAUTHORIZED',requestId});
+    expect(seen).toEqual([origin+'/v1/me/sessions',origin+'/v1/auth/web/csrf']);
+  });
+
 });
