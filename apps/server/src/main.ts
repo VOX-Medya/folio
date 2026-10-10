@@ -153,6 +153,6 @@ export async function createFolioApp(): Promise<INestApplication> {
 
 async function bootstrap(): Promise<void> {
   const app = await createFolioApp();
-  await app.listen(Number(process.env.PORT ?? 3100), '127.0.0.1');
+  await app.listen(Number(process.env.PORT ?? 3100), process.env.HOST ?? '127.0.0.1');
 }
 if (require.main === module) { void bootstrap(); }

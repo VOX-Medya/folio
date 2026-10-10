@@ -2,7 +2,7 @@
 
 Türkçe ve İngilizce odaklı, iOS / Android / Web üzerinde çalışan dijital kitap, hızlı okuma, sesli kitap ve sosyal okuma platformu.
 
-> **Durum: planlama.** Bu depoda ilk aşamada yalnızca kapsam, mimari, tasarım referansları ve ayrıntılı GitHub Issues oluşturulmaktadır. Prototip HTML dosyaları çalışan ürün değildir.
+> **Durum: V1 geliştirme laboratuvarı.** Temel uygulama iskeletleri, ortak sözleşmeler ve yerel PostgreSQL/API Docker laboratuvarı hazırlanmıştır. V1 ürün ekranları ve işlevlerinin çoğu henüz tamamlanmamıştır; HTML dosyaları çalışan ürün değildir. Production dağıtımı yapılmamıştır.
 
 ## V1 sınırı (değişiklik yönetimine tabi)
 - Tek monorepo; tek VPS üzerinde Docker Compose, NestJS modüler monolit + PostgreSQL + worker, Expo/React Native Web ve ayrı React web admin.
@@ -44,3 +44,6 @@ GitHub Issues üzerinde `P0` (temel), `P1` (V1 özellik), `P2` (V1 sertleştirme
 - Docker Compose/PostgreSQL/pg-boss #10 ve #11 ile izole kurulacaktır; ilgili olmayan konteynerlere, ağlara ve verilere dokunulmaz.
 - İlgili bağımlılık riskleri `docs/09-DEPENDENCY-RISKS.md` içinde izlenir; tarama geçmeden #7 kapatılmaz.
 - Gerçek Ubuntu Chrome smoke testleri: `pnpm e2e`. Kontrol edilen başlangıç görünümü genişlikleri: 320, 390, 768 ve 1440 px. Bu testler tüm ürün ekranlarının işlevselliği yerine başlangıç kabuğu ve yatay taşma durumunu doğrular.
+
+## Folio izole Ubuntu laboratuvarı (#11)
+`bash infra/lab.sh up` API + PostgreSQL konteynerlerini yalnız `folio_lab` projesinde kurar; API `127.0.0.1:3310`, PostgreSQL `127.0.0.1:55432`. `bash infra/lab.sh health`, `migrate`, `test-db`, `smoke`, `api-smoke`, `down` komutları ve korunacak veri volume bilgisi [lab runbook](docs/12-DB-LAB.md) içindedir. Mevcut başka Docker kaynaklarına dokunulmaz.
