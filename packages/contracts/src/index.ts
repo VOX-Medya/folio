@@ -238,3 +238,7 @@ export const audioVariantInputSchema=z.object({
   }
 });
 export type AudioVariantInput=z.infer<typeof audioVariantInputSchema>;
+
+// Canonical admin authorization map; no client-supplied role or user search.
+export {adminRoles,adminPermissions,hasAdminPermission} from './admin-rbac.js';
+export type {AdminRole,AdminPermission} from './admin-rbac.js';
