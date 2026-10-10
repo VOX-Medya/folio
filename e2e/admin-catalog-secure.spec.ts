@@ -595,3 +595,86 @@ test('HTTPS admin edition revision reviewer is read-only, paginated, bilingual a
   await expect(panel).toHaveCount(0);
   expect(requests.every(x=>x.startsWith('GET '))).toBe(true);
 });
+
+test('real HTTPS rights:read claim ledger is paginated, read-only and evicts revoked access',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const work='40e07813-487e-411c-a5fd-98859098512b';
+  const first='7c2b438c-6ee9-45ad-b817-8ef58ab54c5e';
+  const second='2bbdef86-2af8-4666-9b27-3e9d44bfb222';
+  const calls:string[]=[];
+  let rightsReads=0;
+  await page.route('**/v1/**',async route=>{
+    const req=route.request(),url=new URL(req.url());
+    calls.push(req.method()+' '+url.pathname);
+    if(url.pathname==='/v1/admin/catalog/works'&&req.method()==='GET'){
+      await route.fulfill(respond({
+        items:[{id:work,originalTitle:'Rights Review Fixture',
+          originalLanguage:'tr',publicationStatus:'draft'}],nextCursor:null,
+      }));
+    }else if(url.pathname==='/v1/admin/catalog/works/'+work&&req.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:work,originalTitle:'Rights Review Fixture',
+          originalLanguage:'tr',firstPublicationYear:null,
+          publicationStatus:'draft',metadataVersion:1},
+        authors:[{id:first,name:'Şule İpek',role:'author',sortOrder:0}],
+        titles:[],editions:[],
+      }));
+    }else if(url.pathname==='/v1/admin/catalog/works/'+work+'/rights'&&req.method()==='GET'){
+      expect(url.searchParams.get('limit')).toBe('20');
+      expect(req.headers()['authorization']).toBeUndefined();
+      expect(req.headers()['x-folio-csrf']).toBeUndefined();
+      expect(req.postData()).toBeNull();
+      rightsReads++;
+      if(rightsReads===3){
+        await route.fulfill(respond({error:{code:'FORBIDDEN'}},403));
+      }else if(rightsReads===1){
+        expect(url.searchParams.get('cursor')).toBeNull();
+        await route.fulfill(respond({
+          workId:work,items:[{id:first,editionId:null,revisionId:null,
+            reviewStatus:'pending',territories:['TR','GB'],
+            claims:{display:true,translation:false,audio:false,sharing:false},
+            expiresAt:null}],
+          nextCursor:first,isMetadataOnly:true,
+        }));
+      }else{
+        expect(url.searchParams.get('cursor')).toBe(first);
+        await route.fulfill(respond({
+          workId:work,items:[{id:second,editionId:first,revisionId:second,
+            reviewStatus:'withdrawn',territories:['US'],
+            claims:{display:false,translation:false,audio:false,sharing:false},
+            expiresAt:'2026-10-10T00:00:00.000Z'}],
+          nextCursor:null,isMetadataOnly:true,
+        }));
+      }
+    }else{
+      await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+    }
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Rights');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Rights Review Fixture/}).click();
+  await page.getByRole('button',{name:'Hak kayıtları'}).click();
+  const ledger=page.getByTestId('admin-rights-ledger');
+  await expect(ledger).toContainText('salt okunur metadata');
+  await ledger.getByRole('button',{name:'Hak kayıtlarını getir'}).click();
+  await expect(ledger).toContainText(first);
+  await expect(ledger).toContainText('Beklemede');
+  await expect(ledger).toContainText('TR, GB');
+  await expect(ledger).not.toContainText('PRIVATE LEGAL EVIDENCE');
+  await ledger.getByRole('button',{name:'Sonraki kayıtlar'}).click();
+  await expect(ledger).toContainText(second);
+  await expect(ledger).not.toContainText('TR, GB');
+  await expect(ledger).toContainText('Geri çekildi');
+  await ledger.getByRole('button',{name:'İlk sayfaya dön'}).click();
+  await expect(ledger.getByRole('alert')).toContainText('Yönetici rolü');
+  await expect(ledger).not.toContainText(second);
+  expect(rightsReads).toBe(3);
+  expect(calls.every(x=>x.startsWith('GET '))).toBe(true);
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(ledger).toContainText('Rights and territory claims');
+  await page.getByRole('button',{name:'Rights ledger'}).click();
+  await expect(ledger).toHaveCount(0);
+});
