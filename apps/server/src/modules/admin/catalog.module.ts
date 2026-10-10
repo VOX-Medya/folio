@@ -1,18 +1,21 @@
 import {
-  BadRequestException,CanActivate,Controller,ForbiddenException,ExecutionContext,
-  Get,Header,Inject,Injectable,Module,NotFoundException,OnModuleDestroy,
-  Query,Req,ServiceUnavailableException,UnauthorizedException,UseGuards,
+  BadRequestException,Body,CanActivate,ConflictException,Controller,
+  ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
+  NotFoundException,OnModuleDestroy,Post,Query,Req,ServiceUnavailableException,
+  UnauthorizedException,UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,ApiOkResponse,ApiOperation,ApiQuery,ApiSecurity,ApiTags,
+  ApiBearerAuth,ApiBody,ApiCreatedResponse,ApiOkResponse,
+  ApiOperation,ApiQuery,ApiSecurity,ApiTags,
 } from '@nestjs/swagger';
 import {
-  authenticateUserSession,createFolioDb,searchVerifiedAdminAuthors,
-  searchVerifiedAdminWorks,
+  authenticateUserSession,createFolioDb,createVerifiedAdminDraftAuthor,
+  createVerifiedAdminDraftWork,searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
-  adminCatalogAuthorPageSchema,adminCatalogSearchQuerySchema,
-  adminCatalogWorkPageSchema,
+  adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
+  adminCatalogSearchQuerySchema,adminCatalogWorkCreatedSchema,
+  adminCatalogWorkPageSchema,authorCreateSchema,workCreateSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -24,6 +27,7 @@ interface CatalogRequest {
   socket?:{encrypted?:boolean};
   headers?:Record<string,string|string[]|undefined>;
   method?:string;
+  requestId?:string;
   auth?:{userId:string;sessionId:string};
 }
 
@@ -46,6 +50,17 @@ export class AdminCatalogOptInGuard implements CanActivate {
   }
 }
 
+/** An independent explicit opt-in: enabling catalog READ never enables writes. */
+@Injectable()
+export class AdminCatalogWriteGuard implements CanActivate {
+  canActivate():boolean{
+    if(process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE!=='direct-tls-only'){
+      throw new NotFoundException('Admin catalog draft creation unavailable');
+    }
+    return true;
+  }
+}
+
 @Injectable()
 export class AdminCatalogDb implements OnModuleDestroy {
   private readonly connection=process.env.DATABASE_URL
@@ -62,7 +77,24 @@ export class AdminCatalogDb implements OnModuleDestroy {
         error.message==='Verified administrator MFA permission required'){
         throw new ForbiddenException('Current administrator MFA permission required');
       }
-      throw new ServiceUnavailableException('Administrator catalog search unavailable');
+      // Drizzle may wrap a PostgreSQL error in a cause chain. Never include
+      // SQL, stack, token, constraint names or arbitrary PG details in HTTP.
+      let candidate:unknown=error;
+      for(let depth=0;depth<4;depth++){
+        if(!candidate||typeof candidate!=='object')break;
+        const code='code' in candidate?candidate.code:undefined;
+        if(code==='23503'){
+          throw new BadRequestException('Unknown canonical author or contributor');
+        }
+        if(code==='23505'){
+          throw new ConflictException('Canonical identifier already exists');
+        }
+        if(code==='23514'){
+          throw new BadRequestException('Invalid canonical catalog relationship');
+        }
+        candidate='cause' in candidate?candidate.cause:undefined;
+      }
+      throw new ServiceUnavailableException('Administrator catalog operation unavailable');
     }
   }
   works(bearer:string,input:unknown){
@@ -70,6 +102,14 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   authors(bearer:string,input:unknown){
     return this.authorized(()=>searchVerifiedAdminAuthors(this.db(),bearer,input));
+  }
+  createAuthor(bearer:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      createVerifiedAdminDraftAuthor(this.db(),bearer,input,requestId));
+  }
+  createWork(bearer:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      createVerifiedAdminDraftWork(this.db(),bearer,input,requestId));
   }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
@@ -111,6 +151,90 @@ const authorPageApi={
       },
     }},
     ...pageProps,
+  },
+};
+
+
+const authorInputApi={
+  type:'object',additionalProperties:false,required:['canonicalName'],
+  properties:{
+    canonicalName:{type:'string',minLength:1,maxLength:240},
+    sortName:{type:'string',minLength:1,maxLength:240},
+    aliases:{type:'array',maxItems:30,items:{
+      type:'object',additionalProperties:false,required:['name'],
+      properties:{
+        name:{type:'string',minLength:1,maxLength:240},
+        locale:{type:'string',minLength:2,maxLength:12},
+      },
+    }},
+    externalIds:{type:'array',maxItems:30,items:{
+      type:'object',additionalProperties:false,required:['source','externalId'],
+      properties:{
+        source:{type:'string',minLength:1,maxLength:80},
+        externalId:{type:'string',minLength:1,maxLength:400},
+      },
+    }},
+  },
+};
+const contributorId={type:'string',format:'uuid'};
+const workInputApi={
+  type:'object',additionalProperties:false,
+  required:['originalTitle','originalLanguage','authors'],
+  properties:{
+    originalTitle:{type:'string',minLength:1,maxLength:600},
+    originalLanguage:{type:'string',enum:['tr','en']},
+    firstPublicationYear:{type:'integer',minimum:-4000,maximum:2500,nullable:true},
+    authors:{type:'array',minItems:1,maxItems:50,items:{
+      type:'object',additionalProperties:false,required:['authorId'],
+      properties:{
+        authorId:contributorId,
+        contribution:{type:'string',enum:['author','co-author','editor'],default:'author'},
+        sortOrder:{type:'integer',minimum:0,maximum:10000,default:0},
+      },
+    }},
+    titles:{type:'array',maxItems:40,items:{
+      type:'object',additionalProperties:false,
+      required:['language','title','kind'],
+      properties:{
+        language:{type:'string',enum:['tr','en']},
+        title:{type:'string',minLength:1,maxLength:600},
+        kind:{type:'string',enum:['original','translation','alternate']},
+      },
+    }},
+    editions:{type:'array',maxItems:50,items:{
+      type:'object',additionalProperties:false,required:['language','label'],
+      properties:{
+        language:{type:'string',enum:['tr','en']},
+        label:{type:'string',minLength:1,maxLength:400},
+        publisher:{type:'string',maxLength:240},
+        identifiers:{type:'array',maxItems:30,items:{
+          type:'object',additionalProperties:false,required:['kind','value'],
+          properties:{
+            kind:{type:'string',enum:['isbn-10','isbn-13','other']},
+            value:{type:'string',minLength:1,maxLength:150},
+          },
+        }},
+        contributors:{type:'array',maxItems:50,items:{
+          type:'object',additionalProperties:false,required:['authorId','role'],
+          properties:{
+            authorId:contributorId,
+            role:{type:'string',enum:['author','translator','editor','illustrator']},
+            sortOrder:{type:'integer',minimum:0,default:0},
+          },
+        }},
+      },
+    }},
+  },
+};
+const authorCreatedApi={
+  type:'object',additionalProperties:false,required:['id'],
+  properties:{id:{type:'string',format:'uuid'}},
+};
+const workCreatedApi={
+  type:'object',additionalProperties:false,required:['id','publicationStatus'],
+  properties:{
+    id:{type:'string',format:'uuid'},
+    publicationStatus:{type:'string',enum:['draft']},
   },
 };
 
@@ -186,12 +310,58 @@ export class AdminCatalogController {
     const bearer=await this.bearer(request);
     return adminCatalogAuthorPageSchema.parse(await this.store.authors(bearer,input));
   }
+
+  private rejectWriteQuery(query:Record<string,unknown>):void{
+    if(Object.keys(query).length)throw new BadRequestException('Unexpected query parameters');
+  }
+  private trace(request:CatalogRequest):string{
+    if(!request.requestId){
+      throw new ServiceUnavailableException('Server request tracing unavailable');
+    }
+    return request.requestId;
+  }
+
+  @Post('authors')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Explicitly opted-in TLS + verified catalog:edit MFA; create an audited unpublished canonical author'})
+  @ApiBody({schema:authorInputApi})
+  @ApiCreatedResponse({schema:authorCreatedApi})
+  async createAuthor(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const body=authorCreateSchema.safeParse(raw);
+    if(!body.success)throw new BadRequestException('Invalid canonical author input');
+    const trace=this.trace(request);
+    const token=await this.bearer(request);
+    const created=await this.store.createAuthor(token,body.data,trace);
+    return adminCatalogAuthorCreatedSchema.parse({id:created.id});
+  }
+
+  @Post('works')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Explicitly opted-in TLS + verified catalog:edit MFA; create audited DRAFT work with authors and editions'})
+  @ApiBody({schema:workInputApi})
+  @ApiCreatedResponse({schema:workCreatedApi})
+  async createWork(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const body=workCreateSchema.safeParse(raw);
+    if(!body.success)throw new BadRequestException('Invalid canonical work input');
+    const trace=this.trace(request);
+    const token=await this.bearer(request);
+    const created=await this.store.createWork(token,body.data,trace);
+    return adminCatalogWorkCreatedSchema.parse({
+      id:created.id,publicationStatus:created.publicationStatus,
+    });
+  }
 }
 
 @Module({
   controllers:[AdminCatalogController],
   providers:[
-    AdminCatalogOptInGuard,AdminCatalogDb,VerifiedSelfSessionGuard,
+    AdminCatalogOptInGuard,AdminCatalogWriteGuard,AdminCatalogDb,VerifiedSelfSessionGuard,
     {provide:VERIFIED_SESSION_LOOKUP,
       useFactory:(store:AdminCatalogDb):BearerSessionLookup=>
         (bearer:string)=>store.verify(bearer),
