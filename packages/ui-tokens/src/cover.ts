@@ -32,12 +32,16 @@ export interface FolioCoverLayout {
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const safeText=(value:string):string=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;')
   .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-const xmlUnsafe=/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufffe\uffff]/u;
 function canonicalText(value:string,max:number,required:boolean):string{
-  if(typeof value!=='string'||value.length>max||xmlUnsafe.test(value)||
+  if(typeof value!=='string'||value.length>max||
     [...value].some(char=>{
-      const point=char.codePointAt(0)!;
-      return point>=0xd800&&point<=0xdfff;
+      const cp=char.codePointAt(0)!;
+      return (cp<0x20&&cp!==9&&cp!==10&&cp!==13)||
+        (cp>=0x7f&&cp<=0x9f)||
+        (cp>=0x202a&&cp<=0x202e)||
+        (cp>=0x2066&&cp<=0x2069)||
+        (cp>=0xd800&&cp<=0xdfff)||
+        cp===0xfffe||cp===0xffff;
     }))throw new Error('Unsafe cover metadata');
   const normalized=value.normalize('NFC').trim();
   if(required&&!normalized)throw new Error('Missing canonical cover metadata');
