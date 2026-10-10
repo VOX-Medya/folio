@@ -1,0 +1,44 @@
+name: Temporary Folio Dependency Root Cause
+on:
+  push:
+    branches: [fix/7-dependency-release-audit]
+permissions:
+  contents: read
+jobs:
+  dependency-root-cause:
+    if: github.repository == 'VOX-Medya/folio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - run: pnpm install --frozen-lockfile
+      - name: Find exact vulnerable dependency parents
+        run: |
+          echo '----- NODE FORGE DEPENDENCY WHY -----'
+          pnpm why -r node-forge --depth 30 | tail -n 140 || true
+          echo '----- BRACES DEPENDENCY WHY -----'
+          pnpm why -r braces --depth 30 | tail -n 200 || true
+          echo '----- LOCKFILE direct snapshot references -----'
+          grep -n -B 5 -A 4 'node-forge:' pnpm-lock.yaml | head -n 140 || true
+          echo '----- LOCKFILE braces references -----'
+          grep -n -B 5 -A 4 'braces:' pnpm-lock.yaml | head -n 160 || true
+      - name: Inspect npm advisory report without waivers
+        run: |
+          pnpm audit --json > /tmp/folio-dependency-audit.json || true
+          node <<'NODE'
+          const fs=require('node:fs');
+          const o=JSON.parse(fs.readFileSync('/tmp/folio-dependency-audit.json','utf8'));
+          console.log('TOTALS',JSON.stringify(o.metadata?.vulnerabilities));
+          for(const [id,v] of Object.entries(o.advisories||{})){
+            console.log('ADVISORY',JSON.stringify({id,name:v.module_name||v.name,severity:v.severity,findings:v.findings?.map(f=>f.version),url:v.url,range:v.vulnerable_versions,fix:v.patched_versions,via:v.via?.map(x=>x.name||x)}));
+          }
+          for(const [name,v] of Object.entries(o.vulnerabilities||{})){
+            console.log('VULNERABILITY',JSON.stringify({name,severity:v.severity,range:v.range,via:v.via,fixAvailable:v.fixAvailable,delete:v.effects}));
+          }
+          NODE
