@@ -2,7 +2,8 @@ import {randomUUID} from 'node:crypto';
 import {and,eq} from 'drizzle-orm';
 import {
   createFolioDb,createCanonicalAuthor,createCanonicalWork,getCanonicalWorkDetails,
-  createContentRevision,getRevisionBlocks,sha256Text,schema,
+  createContentRevision,getRevisionBlocks,getInternalRevisionMetadataDiff,
+  sha256Text,schema,
 } from '../src/index.js';
 
 function block(text:string, id:string, order:number,kind:string,rsvp:boolean,audio:boolean) {
@@ -45,6 +46,65 @@ async function main(): Promise<void> {
     const firstBlock=(await getRevisionBlocks(db,first.revision.id,'rsvp'))[0];
     const secondBlock=(await getRevisionBlocks(db,second.revision.id,'rsvp'))[0];
     if (firstBlock?.sourceText!==firstText || secondBlock?.sourceText!==laterText) throw new Error('Original source was silently rewritten');
+    // The editorial diff operates on immutable hashes + stable block UUIDs,
+    // not on inferred text alignments or raw source bodies.
+    const initialDiff=await getInternalRevisionMetadataDiff(db,{
+      editionId,fromRevisionId:first.revision.id,toRevisionId:second.revision.id,
+      limit:1,
+    });
+    if(!initialDiff||initialDiff.isMetadataOnly!==true||
+      initialDiff.summary.text_changed!==1||initialDiff.summary.unchanged!==3||
+      initialDiff.items.length!==1||initialDiff.items[0]?.blockId!==paraId||
+      initialDiff.items[0]?.kind!=='text_changed'||initialDiff.nextCursor!==null||
+      JSON.stringify(initialDiff).includes(firstText)||
+      JSON.stringify(initialDiff).includes(laterText)){
+      throw new Error('Revision SHA diff leaked raw text or lost stable block identity');
+    }
+    const thirdChapterA={...secondData.chapters[0]!,
+      blocks:secondData.chapters[0]!.blocks.filter(b=>b.blockId!==noteId)};
+    const thirdChapterB={...secondData.chapters[1]!,
+      blocks:[
+        block('New verified chapter block.',randomUUID(),0,'paragraph',true,true),
+        {...secondData.chapters[1]!.blocks[0]!,ordinal:1},
+      ],
+    };
+    const third=await createContentRevision(db,actor,{
+      ...secondData,
+      parentRevisionId:second.revision.id,rawArtifactKey:`private/lab/${randomUUID()}`,
+      rawSha256:'c'.repeat(64),chapters:[thirdChapterA,thirdChapterB],
+    });
+    const delta=await getInternalRevisionMetadataDiff(db,{
+      editionId,fromRevisionId:second.revision.id,toRevisionId:third.revision.id,
+      limit:1,
+    });
+    if(!delta||delta.summary.added!==1||delta.summary.removed!==1||
+      delta.summary.moved!==1||delta.summary.unchanged!==2||
+      delta.summary.text_changed!==0||delta.nextCursor===null){
+      throw new Error('Revision delta misclassified removed/added or stable moved block');
+    }
+    const all=[...delta.items];
+    let cursor=delta.nextCursor;
+    while(cursor){
+      const page=await getInternalRevisionMetadataDiff(db,{
+        editionId,fromRevisionId:second.revision.id,toRevisionId:third.revision.id,
+        cursor,limit:1,
+      });
+      if(!page)throw Error('Revision diff page disappeared');
+      all.push(...page.items);cursor=page.nextCursor;
+    }
+    if(all.length!==3||new Set(all.map(item=>item.blockId)).size!==3||
+      all.find(item=>item.blockId===nextId)?.kind!=='moved'||
+      all.find(item=>item.blockId===noteId)?.kind!=='removed'||
+      JSON.stringify(all).includes('New verified chapter block.')){
+      throw new Error('Stable diff pagination invented an alignment or disclosed source text');
+    }
+    const rejected=await getInternalRevisionMetadataDiff(db,{
+      editionId:randomUUID(),fromRevisionId:first.revision.id,
+      toRevisionId:third.revision.id,
+    });
+    if(rejected!==null)throw Error('Cross-edition diff leaked content metadata');
+    console.log('Content metadata diff PASS: stable SHA-only changes, moved/removed/added IDs, 1-item cursor, cross-edition denial, no sourceText.');
+
     let immutable=false;
     try { await db.update(schema.contentBlocks).set({sourceText:'tampered'}).where(and(eq(schema.contentBlocks.revisionId,first.revision.id),eq(schema.contentBlocks.blockId,paraId))); }
     catch {immutable=true;}
