@@ -26,6 +26,11 @@ export type {PreparedImport,ImportPlanItem} from './import-staging.js';
 export {LocalStorageAdapter, LOCAL_STORAGE_MAX_BYTES, PRIVATE_ORPHAN_GRACE_MS} from './local-storage.js';
 export type {AssetOwner, CandidateMime, QuarantinedBlob, StagePrivateBlob, StorageAdapter} from './local-storage.js';
 
+// INTERNAL antivirus byte-stream adapter. A clean verdict is NEVER a verified
+// media DB state, parser acceptance or publication/rights grant.
+export {ClamAvStdinScanner,PRIVATE_CLAMAV_ARGS,PRIVATE_CLAMAV_MAX_BYTES} from './quarantine-scanner.js';
+export type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
+
 // INTERNAL private-user quota gate. Requires trusted auth caller; never publishes staged bytes.
 export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota,sweepPrivateQuarantineOrphans} from './private-quota.js';
 

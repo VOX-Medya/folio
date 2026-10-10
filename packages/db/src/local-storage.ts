@@ -5,6 +5,8 @@ import type {FileHandle} from 'node:fs/promises';
 import {isAbsolute, join} from 'node:path';
 import {TextDecoder} from 'node:util';
 import {z} from 'zod';
+import {PRIVATE_CLAMAV_MAX_BYTES} from './quarantine-scanner.js';
+import type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
 
 /**
  * V1 local, private, QUARANTINE-ONLY storage boundary.
@@ -292,6 +294,67 @@ export class LocalStorageAdapter implements StorageAdapter {
       }
     }
     return results;
+  }
+
+  /**
+   * INTERNAL byte-bound malware inspection, not file verification/promotion.
+   * A trusted, previously persisted metadata row must supply owner/key/hash.
+   * The scanner receives an AsyncIterable of bytes from an O_NOFOLLOW file
+   * descriptor, NEVER a disk pathname. SHA and size are checked on the exact
+   * bytes delivered to the scanner; file metadata/inode is rechecked after.
+   * Any AV unavailability, truncated stream, concurrent mutation, symlink,
+   * permission, digest or size error fails closed. No DB write or URL.
+   */
+  async scanQuarantined(
+    record:QuarantinedBlob,scanner:QuarantineByteScanner,
+  ):Promise<{verdict:QuarantineScanVerdict;sha256:string;sizeBytes:number;
+    status:'pending_verify'}>{
+    const owner=ownerSchema.parse(record);
+    requireBlobKey(record.key);
+    requireSha256(record.sha256);
+    ensureLimit(record.sizeBytes);
+    if(record.status!=='pending_verify')throw new Error('Only quarantine scans are allowed');
+    if(record.sizeBytes>PRIVATE_CLAMAV_MAX_BYTES){
+      throw new Error('Private malware scan size cap exceeded');
+    }
+    const dir=await this.ensurePrivateDirectories(this.ownerSegments(owner));
+    const filename=join(dir,record.key+'.blob');
+    const handle=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try{
+      const before=await handle.stat();
+      const safe=(s:typeof before)=>s.isFile()&&s.nlink===1&&
+        s.size===record.sizeBytes&&(s.mode&0o777)===0o600&&
+        (typeof process.getuid!=='function'||s.uid===process.getuid());
+      if(!safe(before))throw new Error('Unsafe private quarantine inode or permissions');
+      const sha=createHash('sha256');
+      let size=0;
+      const source=async function*():AsyncGenerator<Uint8Array>{
+        for await(const chunk of handle.createReadStream({autoClose:false})){
+          size+=chunk.length;
+          if(size>record.sizeBytes||size>PRIVATE_CLAMAV_MAX_BYTES){
+            throw new Error('Quarantine bytes changed during malware scan');
+          }
+          sha.update(chunk);
+          yield chunk;
+        }
+      };
+      const verdict=await scanner.scan(source());
+      if(verdict!=='clean'&&verdict!=='infected'){
+        throw new Error('Invalid private malware scanner verdict');
+      }
+      if(size!==record.sizeBytes||sha.digest('hex')!==record.sha256){
+        throw new Error('Quarantine digest or length mismatched during malware scan');
+      }
+      const after=await handle.stat(),pathState=await lstat(filename);
+      if(!safe(after)||!pathState.isFile()||pathState.isSymbolicLink()||
+        after.ino!==before.ino||after.dev!==before.dev||
+        after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||
+        pathState.ino!==before.ino||pathState.dev!==before.dev||
+        pathState.mtimeMs!==before.mtimeMs||pathState.ctimeMs!==before.ctimeMs){
+        throw new Error('Private quarantine inode changed during malware scan');
+      }
+      return {verdict,sha256:record.sha256,sizeBytes:size,status:'pending_verify'};
+    }finally{await handle.close();}
   }
 
   async inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>{
