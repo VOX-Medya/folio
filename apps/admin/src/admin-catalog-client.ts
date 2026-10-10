@@ -6,12 +6,16 @@ import {
   authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
   canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
+  adminCatalogEditionAppendSchema,adminCatalogEditionAppendedSchema,
+  adminCatalogTitleAppendSchema,adminCatalogTitleAppendedSchema,
+  adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import type {
   AdminCatalogAuthorDetail,AdminCatalogAuthorPage,
   AdminCatalogWorkDetail,AdminCatalogWorkPage,
   AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,
-  CanonicalWorkMetadataPatch,
+  CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
+  AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
 
@@ -191,4 +195,28 @@ export async function patchAdminWork(id:string,input:CanonicalWorkMetadataPatch)
   if(!valid.success)throw new CatalogClientError('invalid');
   const raw=await request('/v1/admin/catalog/works/'+checkedId(id),'PATCH',200,valid.data);
   return parse(raw,data=>canonicalWorkMetadataUpdatedSchema.parse(data));
+}
+
+/** These strictly metadata-only commands never upload EPUB/PDF, alter rights
+ * or publish content. Every POST requires a fresh exact-origin Web CSRF. */
+export async function appendAdminWorkEdition(id:string,input:AdminCatalogEditionAppend){
+  const parsed=adminCatalogEditionAppendSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const raw=await request('/v1/admin/catalog/works/'+checkedId(id)+'/editions',
+    'POST',201,parsed.data);
+  return parse(raw,value=>adminCatalogEditionAppendedSchema.parse(value));
+}
+export async function appendAdminWorkTitle(id:string,input:AdminCatalogTitleAppend){
+  const parsed=adminCatalogTitleAppendSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const raw=await request('/v1/admin/catalog/works/'+checkedId(id)+'/titles',
+    'POST',201,parsed.data);
+  return parse(raw,value=>adminCatalogTitleAppendedSchema.parse(value));
+}
+export async function appendAdminWorkAuthor(id:string,input:AdminCatalogWorkAuthorAppend){
+  const parsed=adminCatalogWorkAuthorAppendSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const raw=await request('/v1/admin/catalog/works/'+checkedId(id)+'/authors',
+    'POST',201,parsed.data);
+  return parse(raw,value=>adminCatalogWorkAuthorAppendedSchema.parse(value));
 }
