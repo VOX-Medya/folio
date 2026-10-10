@@ -120,6 +120,10 @@ async function main(){
 
     const cross=await call(port,onboarding,'GET',{cookie,origin:'https://evil.test'});
     check(cross.status===403,'Cross-site cookie GET was allowed');
+    const crossError=apiErrorSchema.parse(JSON.parse(cross.body));
+    check(crossError.error.code==='FORBIDDEN'&&
+      crossError.error.requestId===cross.headers['x-request-id'],
+      'CSRF origin denial lost trusted request ID');
     check((await call(port,onboarding,'GET',{cookie,'sec-fetch-site':'cross-site'})).status===403,
       'Cross-site Fetch Metadata cookie GET was allowed');
     check((await call(port,onboarding,'GET',{
