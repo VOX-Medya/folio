@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import {describe,expect,it} from 'vitest';
 import {Controller,Get,MiddlewareConsumer,Module,NestMiddleware,NestModule,UseGuards} from '@nestjs/common';
 import {NestFactory} from '@nestjs/core';
