@@ -1,14 +1,14 @@
 import {
   BadRequestException,Body,Controller,Get,Header,Inject,Injectable,
-  Module,OnModuleDestroy,Patch,Query,
+  Delete,HttpCode,Module,NotFoundException,OnModuleDestroy,Param,Patch,Query,
   Req,ServiceUnavailableException,UnauthorizedException,ConflictException,UseGuards,
 } from '@nestjs/common';
-import {ApiBearerAuth,ApiBody,ApiOkResponse,ApiOperation,ApiTags} from '@nestjs/swagger';
+import {ApiBearerAuth,ApiBody,ApiNoContentResponse,ApiOkResponse,ApiOperation,ApiParam,ApiTags} from '@nestjs/swagger';
 import {
   authenticateUserSession,createFolioDb,getVerifiedUserOnboarding,
-  updateVerifiedUserOnboarding,
+  updateVerifiedUserOnboarding,listVerifiedDeviceSessions,revokeVerifiedDeviceSession,
 } from '@folio/db';
-import {onboardingUpdateRequestSchema} from '@folio/contracts';
+import {onboardingUpdateRequestSchema,deviceSessionIdSchema} from '@folio/contracts';
 import {VERIFIED_SESSION_LOOKUP,VerifiedSessionGuard} from '../../common/session-auth.js';
 import type {BearerSessionLookup} from '../../common/session-auth.js';
 
@@ -85,6 +85,31 @@ export class AccountOnboardingDb implements OnModuleDestroy {
       throw new ServiceUnavailableException('Onboarding unavailable');
     }
   }
+  async listSessions(userId:string,sessionId:string){
+    if(!this.connection)throw new ServiceUnavailableException('Database not configured');
+    try{return await listVerifiedDeviceSessions(this.connection.db,userId,sessionId);}
+    catch(error){
+      if(error instanceof Error&&error.message==='Verified session required'){
+        throw new UnauthorizedException('Verified session required');
+      }
+      throw new ServiceUnavailableException('Device sessions unavailable');
+    }
+  }
+  async revokeSession(userId:string,callerId:string,targetId:string,requestId?:string){
+    if(!this.connection)throw new ServiceUnavailableException('Database not configured');
+    try{
+      const outcome=await revokeVerifiedDeviceSession(
+        this.connection.db,userId,callerId,targetId,requestId,
+      );
+      if(!outcome.found)throw new NotFoundException('Session not found');
+    }catch(error){
+      if(error instanceof NotFoundException)throw error;
+      if(error instanceof Error&&error.message==='Verified session required'){
+        throw new UnauthorizedException('Verified session required');
+      }
+      throw new ServiceUnavailableException('Device revocation unavailable');
+    }
+  }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
 
@@ -122,8 +147,65 @@ export class OnboardingController {
   }
 }
 
+
+const sessionsOutputApiSchema={
+  type:'object',required:['items'],
+  properties:{items:{type:'array',maxItems:100,items:{
+    type:'object',required:['id','deviceLabel','createdAt','expiresAt','isCurrent'],
+    properties:{
+      id:{type:'string',format:'uuid'},deviceLabel:{type:'string'},
+      createdAt:{type:'string',format:'date-time'},
+      expiresAt:{type:'string',format:'date-time'},
+      isCurrent:{type:'boolean'},
+    },
+  }}},
+};
+
+@ApiTags('account')
+@ApiBearerAuth('folioSession')
+@Controller('v1/me/sessions')
+@UseGuards(VerifiedSessionGuard)
+export class DeviceSessionsController {
+  constructor(@Inject(AccountOnboardingDb) private readonly store:AccountOnboardingDb){}
+  private principal(request:AuthenticatedRequest){
+    if(!request.auth?.userId||!request.auth.sessionId){
+      throw new UnauthorizedException('Verified session required');
+    }
+    return request.auth;
+  }
+  private rejectQuery(query:Record<string,unknown>):void{
+    if(Object.keys(query).length)throw new BadRequestException('Unexpected query parameters');
+  }
+
+  @Get()
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'List verified account active devices without bearer tokens'})
+  @ApiOkResponse({schema:sessionsOutputApiSchema})
+  list(@Req() request:AuthenticatedRequest,@Query() query:Record<string,unknown>){
+    this.rejectQuery(query);
+    const principal=this.principal(request);
+    return this.store.listSessions(principal.userId,principal.sessionId);
+  }
+
+  @Delete(':sessionId')
+  @HttpCode(204)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Revoke one owned device session; repeat revocation is idempotent'})
+  @ApiParam({name:'sessionId',type:String,format:'uuid'})
+  @ApiNoContentResponse()
+  async revoke(@Req() request:AuthenticatedRequest,
+    @Query() query:Record<string,unknown>,@Param('sessionId') rawSessionId:string){
+    this.rejectQuery(query);
+    const target=deviceSessionIdSchema.safeParse(rawSessionId);
+    if(!target.success)throw new BadRequestException('Invalid session ID');
+    const principal=this.principal(request);
+    await this.store.revokeSession(principal.userId,principal.sessionId,
+      target.data,request.requestId);
+  }
+}
+
 @Module({
-  controllers:[OnboardingController],
+  controllers:[OnboardingController,DeviceSessionsController],
   providers:[
     AccountOnboardingDb,VerifiedSessionGuard,
     {provide:VERIFIED_SESSION_LOOKUP,

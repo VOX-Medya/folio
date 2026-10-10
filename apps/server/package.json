@@ -11,7 +11,8 @@
     "openapi:check": "tsx scripts/export-openapi.ts --check",
     "auth:http-smoke": "tsx src/scripts/auth-http-smoke.ts",
     "auth:admission-http-smoke": "tsx src/scripts/auth-admission-http-smoke.ts",
-    "onboarding:http-smoke": "tsx src/scripts/onboarding-http-smoke.ts"
+    "onboarding:http-smoke": "tsx src/scripts/onboarding-http-smoke.ts",
+    "device-sessions:http-smoke": "tsx src/scripts/device-sessions-http-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",
