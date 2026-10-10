@@ -7,8 +7,9 @@ import {TextDecoder} from 'node:util';
 import {z} from 'zod';
 import {PRIVATE_CLAMAV_MAX_BYTES} from './quarantine-scanner.js';
 import type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
-import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup} from './epub-structure.js';
+import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,inspectEpubZipCssResources} from './epub-structure.js';
 import type {EpubXhtmlMarkupResult} from './epub-xhtml.js';
+import type {EpubCssResourceResult} from './epub-css.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 import type {EpubZipStructuralResult} from './epub-structure.js';
 
@@ -53,6 +54,7 @@ export interface StorageAdapter {
   inspectEpubStructure(record:QuarantinedBlob):Promise<EpubZipStructuralResult>;
   inspectEpubPackageSpine(record:QuarantinedBlob):Promise<EpubPackageSpineResult>;
   inspectEpubXhtmlMarkup(record:QuarantinedBlob):Promise<EpubXhtmlMarkupResult>;
+  inspectEpubCssResources(record:QuarantinedBlob):Promise<EpubCssResourceResult>;
 }
 
 function requireSha256(value:string):void {
@@ -367,6 +369,12 @@ export class LocalStorageAdapter implements StorageAdapter {
    * text nor allows a renderer, download route or verified transition. */
   async inspectEpubXhtmlMarkup(record:QuarantinedBlob):Promise<EpubXhtmlMarkupResult>{
     return inspectEpubZipXhtmlMarkup(await this.readTrustedEpubBytes(record));
+  }
+
+  /** Internal stylesheet lexical-subset observation, NOT a CSS sanitizer.
+   * Reuses the owner-bound O_NOFOLLOW digest/inode quarantine checks. */
+  async inspectEpubCssResources(record:QuarantinedBlob):Promise<EpubCssResourceResult>{
+    return inspectEpubZipCssResources(await this.readTrustedEpubBytes(record));
   }
 
   /**
