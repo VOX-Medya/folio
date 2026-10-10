@@ -100,7 +100,8 @@ async function main(){
     const observation=await observePrivateQuarantineEpubStructure(second.db,storage,owner,id);
     check(observation.assetId===id&&observation.entryCount===4&&
       observation.expandedBytes===example.expanded&&
-      observation.status==='pending_verify'&&observation.hasPackage===true,
+      observation.assetStatus==='pending_verify'&&observation.status==='structure_only'&&
+      observation.hasPackage===true,
     'Trusted structural EPUB observation returned invalid status');
     const [stored]=await first.db.select().from(schema.mediaAssets)
       .where(eq(schema.mediaAssets.id,id));
