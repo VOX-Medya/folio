@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {Readable} from 'node:stream';
 import {deflateRawSync} from 'node:zlib';
 import {describe,expect,it} from 'vitest';
-import {inspectEpubZipStructure,inspectEpubZipPackageSpine,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
+import {inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
 import {LocalStorageAdapter} from './local-storage.js';
 
 interface Entry{
@@ -409,5 +409,163 @@ describe('EPUB package and spine relationship preflight (not text validation)',(
       await expect(storage.inspectEpubPackageSpine({...blob,mime:'text/plain'}))
         .rejects.toThrow();
     }finally{await rm(root,{force:true,recursive:true});}
+  });
+});
+
+
+/** Separate XHTML fixtures must not weaken the prior relationship-only
+ * contract: a CRC-correct unsafe XHTML still passes the earlier OPF gate. */
+function completeMarkupEntries():Entry[]{
+  let entries=completePackageEntries();
+  entries=replaceEntry(entries,'OPS/chapter.xhtml',()=>(
+    '<?xml version="1.0" encoding="UTF-8"?>'+
+    '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="tr" lang="tr">'+
+    '<head><title>Sentetik Bölüm</title></head>'+
+    '<body><section id="start"><h1>Başlık</h1><p>Türkçe &amp; English.</p>'+
+    '<p><a href="#start">Başa dön</a></p></section></body></html>'
+  ));
+  return replaceEntry(entries,'OPS/nav.xhtml',()=>(
+    '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">'+
+    '<head><title>İçindekiler</title></head>'+
+    '<body><nav epub:type="toc"><ol><li>'+
+    '<a href="chapter.xhtml#start">Birinci bölüm</a>'+
+    '</li></ol></nav></body></html>'
+  ));
+}
+function changeMarkup(name:string,alter:(source:string)=>string):Buffer{
+  return archive(replaceEntry(completeMarkupEntries(),name,alter));
+}
+function denyXhtml(buffer:Buffer){
+  expect(inspectEpubZipStructure(buffer).status).toBe('structure_only');
+  expect(inspectEpubZipPackageSpine(buffer).status).toBe('package_spine_only');
+  expect(()=>inspectEpubZipXhtmlMarkup(buffer)).toThrow(/Unsupported EPUB XHTML/);
+}
+describe('inert EPUB XHTML source shape and local navigation preflight',()=>{
+  it('checks local fragment targets without outputting raw XML, text or paths',()=>{
+    const data=archive(completeMarkupEntries());
+    const inspected=inspectEpubZipXhtmlMarkup(data);
+    expect(inspected).toMatchObject({
+      status:'xhtml_markup_only',documentCount:2,navigationDocuments:1,
+      localLinks:2,fragmentLinks:2,
+    });
+    expect(inspected.totalElements).toBeGreaterThan(8);
+    const json=JSON.stringify(inspected);
+    expect(json).not.toMatch(/chapter\.xhtml|nav\.xhtml|start|Sentetik|Türkçe|verified|safeToRender/);
+  });
+
+  it('rejects scripts, active/embedded elements, unsafe attributes and remote links',()=>{
+    const htmlCases=[
+      (s:string)=>s.replace('<h1>Başlık</h1>','<script>alert(1)</script>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<iframe src="https://evil.invalid"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<img src="data:image/png;base64,AA"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<svg onload="alert(1)"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<math><mi>x</mi></math>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<object data="file:///etc/passwd"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<video autoplay src="https://evil.invalid/movie"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<form action="https://evil.invalid"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<link rel="stylesheet" href="https://evil.invalid/style.css"/>'),
+      (s:string)=>s.replace('<h1>Başlık</h1>','<style>@import url(https://evil.invalid)</style>'),
+      (s:string)=>s.replace('<p>Türkçe','<p onclick="alert(1)">Türkçe'),
+      (s:string)=>s.replace('<p>Türkçe','<p style="background:url(https://evil.invalid)">Türkçe'),
+      (s:string)=>s.replace('<p>Türkçe','<p data-evil="1">Türkçe'),
+      (s:string)=>s.replace('href="#start"','href="javascript:alert(1)"'),
+      (s:string)=>s.replace('href="#start"','href="data:text/html,payload"'),
+      (s:string)=>s.replace('href="#start"','href="https://example.invalid/foo.xhtml"'),
+      (s:string)=>s.replace('href="#start"','href="//example.invalid/foo.xhtml"'),
+      (s:string)=>s.replace('href="#start"','href="../outside.xhtml"'),
+      (s:string)=>s.replace('href="#start"','href="%63hapter.xhtml#start"'),
+      (s:string)=>s.replace('href="#start"','href="missing.xhtml#start"'),
+      (s:string)=>s.replace('href="#start"','href="#missing-id"'),
+      (s:string)=>s.replace('href="#start"','href="chapter.xhtml?remote=1#start"'),
+      (s:string)=>s.replace('<section id="start">','<section id="start"><p id="start">dup</p>'),
+      (s:string)=>s.replace('<p>Türkçe','<p xml:base="https://evil.invalid/">Türkçe'),
+      (s:string)=>s.replace('<p>Türkçe','<p xmlns="http://evil.invalid">Türkçe'),
+    ];
+    for(const change of htmlCases)denyXhtml(changeMarkup('OPS/chapter.xhtml',change));
+  });
+
+  it('rejects deceptive XML declarations, XXE, numeric entities, comments and CDATA',()=>{
+    const cases=[
+      (s:string)=>'<!DOCTYPE html [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'+s,
+      (s:string)=>s.replace('Türkçe','&xxe;'),
+      (s:string)=>s.replace('Türkçe','&#x3c;script&#x3e;'),
+      (s:string)=>s.replace('Türkçe','&not-a-standard-xml-entity;'),
+      (s:string)=>s.replace('<body>','<?xml-stylesheet href="https://evil.invalid"?>'+'<body>'),
+      (s:string)=>s.replace('<body>','<!-- comment -->'+'<body>'),
+      (s:string)=>s.replace('Türkçe','<![CDATA[remote]]>'),
+      (s:string)=>s.replace('</section>','</div>'),
+      (s:string)=>s.replace('<body>','<body><body>'),
+      (s:string)=>s.replace('<html xmlns=','<html xmlns="https://evil.invalid" xmlns='),
+      (s:string)=>s.replace('xml:lang="tr"','xml:lang="en"'),
+      (s:string)=>s.replace('id="start"','id="start" id="again"'),
+      (s:string)=>s.replace('<p>Türkçe','<p class="reader evil:script">Türkçe'),
+      (s:string)=>s.replace('<p>Türkçe','<p title="a" title="b">Türkçe'),
+    ];
+    for(const change of cases)denyXhtml(changeMarkup('OPS/chapter.xhtml',change));
+    const malformed=completeMarkupEntries();
+    malformed.find(e=>e.name==='OPS/chapter.xhtml')!.content=Buffer.from([0xc3,0x28]);
+    denyXhtml(archive(malformed));
+  });
+
+  it('rejects missing/forged navigation links and unexpected XHTML namespace',()=>{
+    const cases=[
+      (s:string)=>s.replace('xmlns:epub="http://www.idpf.org/2007/ops"','xmlns:epub="https://evil.invalid"'),
+      (s:string)=>s.replace('xmlns:epub="http://www.idpf.org/2007/ops"',''),
+      (s:string)=>s.replace('epub:type="toc"','epub:type="landmarks"'),
+      (s:string)=>s.replace('epub:type="toc"','onfocus="alert(1)"'),
+      (s:string)=>s.replace('<a href="chapter.xhtml#start">','<a href="https://evil.invalid/chapter.xhtml">'),
+      (s:string)=>s.replace('chapter.xhtml#start','chapter.xhtml#missing'),
+      (s:string)=>s.replace('chapter.xhtml#start','chapter.xhtml#sta%72t'),
+      (s:string)=>s.replace('<ol><li>','<ol>'),
+      (s:string)=>s.replace('<li><a','<li><a target="_blank"'),
+      (s:string)=>s.replace('<nav epub:type="toc">','<div>'),
+      (s:string)=>s.replace('xmlns="http://www.w3.org/1999/xhtml"','xmlns="http://evil.invalid/xhtml"'),
+      (s:string)=>s.replace('xmlns:epub="http://www.idpf.org/2007/ops"','xmlns:svg="http://www.w3.org/2000/svg"'),
+    ];
+    for(const change of cases)denyXhtml(changeMarkup('OPS/nav.xhtml',change));
+  });
+
+  it('bounds XHTML document size and nesting depth without extracting source text',()=>{
+    const big=completeMarkupEntries();
+    big.find(e=>e.name==='OPS/chapter.xhtml')!.content=Buffer.alloc(2*1024*1024+1,'a');
+    // Intentionally STORE rather than deflate a 100:1 ratio bomb: this
+    // exercises the inner XHTML byte limit independently of the ZIP limit.
+    big.find(e=>e.name==='OPS/chapter.xhtml')!.compress=false;
+    denyXhtml(archive(big));
+    const deep=completeMarkupEntries();
+    const nested='<span>'.repeat(66)+'a'+'</span>'.repeat(66);
+    deep.find(e=>e.name==='OPS/chapter.xhtml')!.content=utf(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head>'+
+      '<body>'+nested+'</body></html>');
+    deep.find(e=>e.name==='OPS/chapter.xhtml')!.compress=false;
+    denyXhtml(archive(deep));
+  });
+
+  it('does NOT approve malicious CSS despite inert XHTML relationship success',()=>{
+    const entries=replaceEntry(completeMarkupEntries(),'OPS/style.css',
+      ()=>"@import url('https://evil.invalid/font.css');");
+    const result=inspectEpubZipXhtmlMarkup(archive(entries));
+    expect(result.status).toBe('xhtml_markup_only');
+    expect('cssApproved' in result).toBe(false);
+    expect('safeToRender' in result).toBe(false);
+  });
+
+  it('requires source owner/mode/digest; no bytes can be returned through inspector',async()=>{
+    const root=await mkdtemp(join(tmpdir(),'folio-epub-xhtml-'));
+    try{
+      const storage=await LocalStorageAdapter.create(root);
+      const owner=randomUUID(),data=archive(completeMarkupEntries());
+      const blob=await storage.stage({
+        owner:{scope:'private-user',ownerUserId:owner},
+        source:Readable.from([data]),declaredSha256:sha(data),
+        declaredMime:'application/epub+zip',maxBytes:data.length,
+      });
+      expect((await storage.inspectEpubXhtmlMarkup(blob)).status).toBe('xhtml_markup_only');
+      await expect(storage.inspectEpubXhtmlMarkup({...blob,ownerUserId:randomUUID()}))
+        .rejects.toThrow();
+      await expect(storage.inspectEpubXhtmlMarkup({...blob,sha256:'f'.repeat(64)}))
+        .rejects.toThrow(/source bytes changed/);
+      await expect(storage.inspectEpubXhtmlMarkup({...blob,mime:'text/plain'})).rejects.toThrow();
+    }finally{await rm(root,{recursive:true,force:true});}
   });
 });
