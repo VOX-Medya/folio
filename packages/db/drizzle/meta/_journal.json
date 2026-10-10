@@ -120,6 +120,13 @@
       "when": 1791617000000,
       "tag": "0016_admin_mfa_recovery_review",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791618000000,
+      "tag": "0017_canonical_metadata_versions",
+      "breakpoints": true
     }
   ]
 }
