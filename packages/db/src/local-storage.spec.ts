@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {Readable} from 'node:stream';
-import {mkdtemp,rm,readdir,lstat,link,symlink,mkdir} from 'node:fs/promises';
+import {mkdtemp,rm,readdir,lstat,link,symlink,mkdir,chmod,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe,expect,it} from 'vitest';
@@ -109,6 +109,24 @@ describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>
         source:source(payload),declaredSha256:digest(payload),
         declaredMime:'text/plain',maxBytes:1024}))
         .rejects.toThrow(/unsafe/);
+    });
+  });
+
+  it('fails closed if private file permissions weaken or staged bytes change after hash',async()=>{
+    await withVault(async(root,adapter)=>{
+      const staged=await adapter.stage({owner:privateOwner,source:source(pdf),
+        declaredSha256:digest(pdf),declaredMime:'application/pdf',maxBytes:1024});
+      const file=join(root,'quarantine','users',alice,staged.key+'.blob');
+      await chmod(file,0o644);
+      await expect(adapter.inspectQuarantined(staged)).rejects.toThrow(/permissions/);
+      await chmod(file,0o600);
+      expect(await adapter.inspectQuarantined(staged)).toEqual({
+        sha256:digest(pdf),sizeBytes:pdf.length,
+      });
+      const modified=Buffer.from(pdf);
+      modified[modified.length-1]=modified[modified.length-1]===33?46:33;
+      await writeFile(file,modified);
+      await expect(adapter.inspectQuarantined(staged)).rejects.toThrow(/changed after staging/);
     });
   });
 
