@@ -230,6 +230,28 @@ async function main(){
     catch{denied=true;}
     ensure(denied,'Source hash conflict was staged without a human identity review');
     console.log('Different-title identical-SHA source: human-review candidates only; no dry-run/staging writes.');
+    // The same digest across TWO new works in a single import is another
+    // review conflict, even without any matching canonical source in DB.
+    const inBatch=generatedPackage(2,randomUUID());
+    const sharedSha=inBatch.records.revisions[0]!.source_sha256;
+    inBatch.records.revisions[1]={
+      ...inBatch.records.revisions[1]!,source_sha256:sharedSha,
+    };
+    const duplicateBatch=await previewPreparedCatalogImport(db,inBatch);
+    const packageWorkIds=inBatch.records.works.map(item=>item.id);
+    const plannedBatchWorks=duplicateBatch.items.filter(item=>item.kind==='work');
+    ensure(!duplicateBatch.canStage&&plannedBatchWorks.length===2&&
+      plannedBatchWorks.every(item=>item.action==='conflict'&&
+        item.reason==='possible_source_sha256_match_requires_human_review'&&
+        item.candidateWorkIds?.includes(packageWorkIds.find(id=>id!==item.externalId)??'')),
+      'Identical in-package source content was silently treated as distinct works');
+    let sameSourceBatchAccepted=false;
+    try{await stagePreparedCatalogImport(db,actor,inBatch);sameSourceBatchAccepted=true;}
+    catch{/* expected: a reviewer must resolve this ambiguous package */}
+    ensure(!sameSourceBatchAccepted,
+      'Duplicate source bytes across independent package works were staged');
+    console.log('Two package works with identical source SHA: both require explicit human review.');
+
 
     // TOCTOU: metadata staged while no duplicate exists, then a different
     // canonical source revision arrives before apply. Work apply must recheck
