@@ -197,3 +197,29 @@ html,body,#root{min-width:0;min-height:100%;margin:0}
   .folio-catalog-edition-editor .folio-catalog-relation{grid-template-columns:minmax(0,1fr)}
   .folio-catalog-edition-editor .folio-catalog-relation button{width:100%}
 }
+
+/* #13/#22 read-only revision evidence. UUID and SHA text must wrap on phones. */
+.folio-revision-diff{min-width:0}
+.folio-revision-diff code{
+  overflow-wrap:anywhere;word-break:break-word;font-size:12px;color:var(--folio-ink)}
+.folio-revision-counts{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));
+  gap:10px;margin:0}
+.folio-revision-counts>div{
+  padding:10px;border:1px solid var(--folio-line);border-radius:10px;
+  background:var(--folio-surface2);min-width:0}
+.folio-revision-counts dt{font-size:12px;color:var(--folio-muted)}
+.folio-revision-counts dd{margin:3px 0 0;font-weight:700;font-variant-numeric:tabular-nums}
+.folio-catalog-card .folio-revision-items{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.folio-revision-items>li{
+  min-width:0;padding:14px;border:1px solid var(--folio-line);
+  border-radius:10px;background:var(--folio-surface2)}
+.folio-revision-items>li p{margin:7px 0}
+.folio-revision-sides{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.folio-revision-sides>div{min-width:0}
+.folio-revision-sides h5{margin:0 0 6px;font-size:13px}
+.folio-revision-position{display:grid;gap:5px;overflow-wrap:anywhere}
+@media(max-width:799px){
+  .folio-revision-sides{grid-template-columns:minmax(0,1fr)}
+}

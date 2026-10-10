@@ -3,7 +3,7 @@ import {
   CatalogClientError,catalogErrorText,createAdminAuthor,createAdminWork,
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
-  patchAdminEdition,
+  patchAdminEdition,getAdminRevisionDiff,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
 } from './admin-catalog-client.js';
 
@@ -296,6 +296,78 @@ describe('admin catalog browser privacy/transport contract',()=>{
       expectedVersion:5,label:'Untrusted ID',
     })).rejects.toMatchObject({kind:'invalid'});
     expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads an edition-scoped SHA-only diff over same-origin HTTPS GET without CSRF or a bearer',async()=>{
+    const fromRevisionId='f5612fc5-767e-4dc9-86e4-4f636f2f84a1';
+    const toRevisionId='5bfcad92-5fa8-4acb-b6ac-bb5e6f203e9a';
+    const cursorId='05e3d7bc-d7c3-44a3-b58f-b342714f8304';
+    const diff={
+      editionId:authorId,fromRevisionId,toRevisionId,
+      summary:{added:1,removed:0,text_changed:0,metadata_changed:0,moved:0,unchanged:0},
+      chapterChanges:[],
+      items:[{blockId:cursorId,kind:'added',before:null,
+        after:{chapterId:workId,ordinal:0,kind:'paragraph',
+          textSha256:'a'.repeat(64),includeNormal:true,
+          includeRsvp:true,includeAudio:false}}],
+      nextCursor:null,isMetadataOnly:true,
+    };
+    const fetcher=vi.fn(async(path:string,init:RequestInit)=>{
+      expect(path).toContain('/v1/admin/catalog/works/');
+      expect(init.method).toBe('GET');
+      return json(diff);
+    });
+    vi.stubGlobal('fetch',fetcher);
+    expect(await getAdminRevisionDiff(workId,authorId,fromRevisionId,toRevisionId))
+      .toEqual(diff);
+    const [path,init]=fetcher.mock.calls[0]!;
+    expect(path).toBe('/v1/admin/catalog/works/'+workId+'/editions/'+authorId+
+      '/revisions/'+toRevisionId+'/diff?fromRevisionId='+fromRevisionId+'&limit=50');
+    expect(init).toMatchObject({
+      method:'GET',mode:'same-origin',credentials:'same-origin',
+      redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',
+      headers:{Accept:'application/json'},
+    });
+    expect(init.headers).not.toHaveProperty('Authorization');
+    expect(init.headers).not.toHaveProperty('x-folio-csrf');
+    expect(JSON.stringify(diff)).not.toContain('sourceText');
+    await getAdminRevisionDiff(workId,authorId,fromRevisionId,toRevisionId,cursorId);
+    expect(fetcher.mock.calls[1]?.[0]).toContain('&cursor='+cursorId);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('rejects revision UUID injection, response leakage and cross-scope metadata without retry',async()=>{
+    const from='f5612fc5-767e-4dc9-86e4-4f636f2f84a1';
+    const to='5bfcad92-5fa8-4acb-b6ac-bb5e6f203e9a';
+    const valid={
+      editionId:authorId,fromRevisionId:from,toRevisionId:to,
+      summary:{added:0,removed:0,text_changed:0,metadata_changed:0,moved:0,unchanged:1},
+      chapterChanges:[],items:[],nextCursor:null,isMetadataOnly:true,
+    };
+    const fetcher=vi.fn().mockResolvedValueOnce(json({...valid,sourceText:'LEAK'}))
+      .mockResolvedValueOnce(json({...valid,editionId:workId}))
+      .mockResolvedValueOnce(json(valid,403))
+      .mockRejectedValueOnce(Error('connection reset'));
+    vi.stubGlobal('fetch',fetcher);
+    await expect(getAdminRevisionDiff(workId,authorId,'../private',to))
+      .rejects.toMatchObject({kind:'invalid'});
+    await expect(getAdminRevisionDiff(workId,authorId,from,from))
+      .rejects.toMatchObject({kind:'invalid'});
+    await expect(getAdminRevisionDiff(workId,authorId,from,to,'../../bad'))
+      .rejects.toMatchObject({kind:'invalid'});
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(getAdminRevisionDiff(workId,authorId,from,to))
+      .rejects.toMatchObject({kind:'unexpected'});
+    await expect(getAdminRevisionDiff(workId,authorId,from,to))
+      .rejects.toMatchObject({kind:'unexpected'});
+    await expect(getAdminRevisionDiff(workId,authorId,from,to))
+      .rejects.toMatchObject({kind:'forbidden'});
+    await expect(getAdminRevisionDiff(workId,authorId,from,to))
+      .rejects.toMatchObject({kind:'network'});
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    vi.stubGlobal('window',{location:{protocol:'http:'}});
+    await expect(getAdminRevisionDiff(workId,authorId,from,to))
+      .rejects.toMatchObject({kind:'secure-https'});
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
 });
