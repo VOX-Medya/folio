@@ -35,3 +35,6 @@ export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,re
 
 // Authenticated-only per-user onboarding preference/version synchronization.
 export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboarding.js';
+
+// INTERNAL ONLY; caller must provide trusted client IP and server-managed HMAC key.
+export {AuthRateLimitExceeded,prepareAuthAttemptBuckets,consumeAuthAttemptRateLimit,pruneExpiredAuthAttemptWindows} from './auth-rate-limit.js';
