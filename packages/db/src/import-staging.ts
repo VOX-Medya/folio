@@ -316,6 +316,32 @@ export async function resumeStagedCatalogMetadata(db:Database,actorId:string,bat
       ownerByDigest.set(digest,workId);
     }
   }
+
+  // Fail BEFORE applying even the author dependency when previously staged
+  // work source bytes now belong to another canonical work. The per-work
+  // transaction below rechecks to catch a collision after this preflight.
+  await db.transaction(async tx=>{
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    const uniqueDigests=[...ownerByDigest.keys()];
+    for(let i=0;i<uniqueDigests.length;i+=200){
+      const collisions=await tx.select({
+        rawSha256:schema.contentRevisions.rawSha256,
+        workId:schema.editions.workId,
+      }).from(schema.contentRevisions)
+        .innerJoin(schema.editions,
+          eq(schema.contentRevisions.editionId,schema.editions.id))
+        .where(inArray(schema.contentRevisions.rawSha256,
+          uniqueDigests.slice(i,i+200))).limit(10001);
+      if(collisions.length>10000){
+        throw new Error('Too many source-hash matches for safe review');
+      }
+      for(const row of collisions){
+        if(ownerByDigest.get(row.rawSha256)!==row.workId){
+          throw new Error('New canonical source SHA-256 collision requires human identity review');
+        }
+      }
+    }
+  },{isolationLevel:'repeatable read'});
   const order:Record<string,number>={author:0,work:1,edition:2,revision:3,rights:4};
   const sorted=items.filter(item=>item.status==='staged').sort((a,b)=>(order[a.kind]??99)-(order[b.kind]??99)||a.externalId.localeCompare(b.externalId));
   let applied=0;
