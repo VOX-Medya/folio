@@ -16,7 +16,7 @@ export {createCanonicalAuthor,createCanonicalWork,createVerifiedAdminDraftAuthor
 export {createContentRevision, getRevisionBlocks, sha256Text} from './content.js';
 export {compareSemanticRevisionMetadata,getInternalRevisionMetadataDiff,getVerifiedAdminRevisionMetadataDiff,getVerifiedAdminEditionRevisions} from './content-diff.js';
 export type {SemanticDiffBlock,SemanticDiffChange} from './content-diff.js';
-export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction} from './rights.js';
+export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction,getVerifiedAdminRightsLedger} from './rights.js';
 export {createPreparedTranslationLink,verifyPreparedTranslationEdges,resolveTranslationSwitch} from './translation.js';
 export {registerPreparedAudioAsset,registerPreparedAudioVariant,replacePreparedAudioSegment,getPreparedAudioVariant} from './audio.js';
 export {preparedImportSchema,canonicalJson,payloadHash,previewPreparedCatalogImport,stagePreparedCatalogImport,resumeStagedCatalogMetadata,getStagedCatalogImportStatus} from './import-staging.js';
