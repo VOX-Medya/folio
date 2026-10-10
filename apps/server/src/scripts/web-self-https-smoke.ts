@@ -158,6 +158,33 @@ async function main(){
       ...patch,expectedVersion:1,userId:unrelated.userId,
     })).status===400,'Caller-selected owner was accepted on cookie PATCH');
 
+    const interestSaved=await call(port,onboarding,'PATCH',mutating,{
+      expectedVersion:1,stage:'interests',locale:'en',interests:['history'],
+    });
+    check(interestSaved.status===200,'Authenticated HTTPS Web interest update failed');
+    const interestRequestId=interestSaved.headers['x-request-id'];
+    const interestSnapshot=onboardingSnapshotSchema.parse(JSON.parse(interestSaved.body));
+    check(interestSnapshot.version===2&&interestSnapshot.stage==='interests'&&
+      interestSnapshot.interests[0]==='history',
+      'HTTPS Web interests failed to persist');
+    const unapproved=await call(port,onboarding,'PATCH',mutating,{
+      expectedVersion:2,stage:'complete',locale:'en',interests:['history'],
+    });
+    check(unapproved.status===403,'Unconsented HTTPS cookie completion was allowed');
+    const forbidden=apiErrorSchema.parse(JSON.parse(unapproved.body));
+    check(forbidden.error.code==='FORBIDDEN'&&
+      forbidden.error.requestId===unapproved.headers['x-request-id'],
+      'Unapproved Web completion lost normalized safe request ID');
+    const fakeConsent=await call(port,onboarding,'PATCH',mutating,{
+      expectedVersion:2,stage:'complete',locale:'en',interests:['history'],
+      consentAccepted:true,
+    });
+    check(fakeConsent.status===400,'Fake cookie consent field bypassed strict API validation');
+    const persisted=await call(port,onboarding,'GET',webHeaders);
+    const finalSnapshot=onboardingSnapshotSchema.parse(JSON.parse(persisted.body));
+    check(finalSnapshot.version===2&&finalSnapshot.stage==='interests',
+      'Blocked HTTPS consent completion advanced backend progress');
+
     const items=await call(port,sessions,'GET',webHeaders);
     check(items.status===200,'Web cookie cannot list owned sessions');
     const inventory=deviceSessionInventorySchema.parse(JSON.parse(items.body));
@@ -208,17 +235,20 @@ async function main(){
     const created=audit.rows.filter(row=>row.action==='auth.session.created');
     const onboardingAudits=audit.rows.filter(row=>row.action==='user.onboarding.update');
     const revoked=audit.rows.filter(row=>row.action==='auth.session.revoked');
-    check(created.length===1&&onboardingAudits.length===1&&revoked.length===1,
-      'Rejected cookie mutations incorrectly generated audit events');
+    check(created.length===1&&onboardingAudits.length===2&&revoked.length===1,
+      'Rejected unconsented completion/CSRF mutation unexpectedly created audits');
     check(created[0]?.request_id===loginRequestId&&
-      onboardingAudits[0]?.request_id===onboardingRequestId&&
+      onboardingAudits.some(row=>row.request_id===onboardingRequestId)&&
+      onboardingAudits.some(row=>row.request_id===interestRequestId)&&
       revoked[0]?.request_id===revokedRequestId,
       'Web login, onboarding or revoke audit lost its server-issued HTTP request ID');
-    check(new Set([loginRequestId,onboardingRequestId,revokedRequestId]).size===3,
+    check(new Set([loginRequestId,onboardingRequestId,interestRequestId,revokedRequestId]).size===4,
       'Separate verified Web mutations unexpectedly share an audit request ID');
     check(!JSON.stringify(audit.rows).includes(cookie)&&
       !JSON.stringify(audit.rows).includes(pass),
       'Browser secrets leaked into audit log');
+    check(!JSON.stringify(audit.rows).includes('consentAccepted'),
+      'Unapproved consent attempt entered the audit trail');
     const doc=await call(port,'/openapi-json','GET');
     const spec=JSON.parse(doc.body) as {
       components:{securitySchemes:Record<string,unknown>},
