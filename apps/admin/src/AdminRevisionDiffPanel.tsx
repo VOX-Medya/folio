@@ -110,6 +110,8 @@ export function AdminRevisionDiffPanel({
       setResult(page);
     }catch(cause){
       if(ticket!==seq.current)return;
+      // A newly denied MFA/RBAC check invalidates previously visible metadata.
+      setResult(null);
       setError(catalogErrorText(cause,language));
     }finally{
       if(ticket===seq.current)setBusy(false);
