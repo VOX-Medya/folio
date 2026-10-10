@@ -83,3 +83,26 @@ jobs:
         run: |
           pnpm audit --json > dependency-audit.json || true
           pnpm security:release-check
+
+  clamav-native-protocol:
+    name: ClamAV stdin protocol (synthetic signatures only; not a release gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - run: pnpm install --frozen-lockfile
+      - name: Install ClamAV executable in ephemeral Ubuntu test runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clamav
+          /usr/bin/clamscan --version
+      - name: Test real ClamAV engine using synthetic local hash signatures
+        env:
+          FOLIO_CLAMAV_TEST_MODE: synthetic-only
+        run: pnpm --filter @folio/db db:clamav-native-smoke
