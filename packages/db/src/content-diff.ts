@@ -1,4 +1,4 @@
-import {and,asc,eq,sql} from 'drizzle-orm';
+import {and,asc,eq,gt,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
 import {withVerifiedAdminPermission} from './admin-authorization.js';
@@ -224,5 +224,41 @@ export async function getVerifiedAdminRevisionMetadataDiff(
         eq(schema.editions.workId,input.workId))).limit(1);
     if(!edition)return null;
     return readRevisionMetadataDiffInTx(tx,input);
+  },{isolationLevel:'repeatable read'});
+}
+
+/** Authenticated, edition-scoped revision ID picker for editorial evidence.
+ * IMPORTANT: This projection never selects source text, artifact key, raw SHA,
+ * account/editor, provenance or rights columns. Every page revalidates the
+ * current device session + MFA + persisted RBAC inside ONE RR transaction. */
+const verifiedRevisionListSchema=z.object({
+  workId:z.uuid(),editionId:z.uuid(),
+  cursor:z.uuid().optional(),limit:z.number().int().min(1).max(50).default(20),
+}).strict();
+export async function getVerifiedAdminEditionRevisions(
+  db:Database,bearer:string,rawInput:unknown,
+){
+  const input=verifiedRevisionListSchema.parse(rawInput);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',async tx=>{
+    const [edition]=await tx.select({id:schema.editions.id})
+      .from(schema.editions)
+      .where(and(eq(schema.editions.id,input.editionId),
+        eq(schema.editions.workId,input.workId))).limit(1);
+    if(!edition)return null;
+    const rows=await tx.select({
+      id:schema.contentRevisions.id,
+      parentRevisionId:schema.contentRevisions.parentRevisionId,
+      language:schema.contentRevisions.language,
+      status:schema.contentRevisions.status,
+    }).from(schema.contentRevisions).where(and(
+      eq(schema.contentRevisions.editionId,input.editionId),
+      ...(input.cursor?[gt(schema.contentRevisions.id,input.cursor)]:[]),
+    )).orderBy(asc(schema.contentRevisions.id)).limit(input.limit+1);
+    const items=rows.slice(0,input.limit);
+    return {
+      editionId:input.editionId,items,
+      nextCursor:rows.length>input.limit?(items.at(-1)?.id??null):null,
+      isMetadataOnly:true as const,
+    };
   },{isolationLevel:'repeatable read'});
 }

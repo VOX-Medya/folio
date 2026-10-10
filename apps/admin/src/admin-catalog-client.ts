@@ -11,6 +11,7 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
+  adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
 } from '@folio/contracts';
 import type {
   AdminCatalogAuthorDetail,AdminCatalogAuthorPage,
@@ -19,6 +20,7 @@ import type {
   CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
   AdminCatalogEditionMetadataPatch,AdminCatalogRevisionDiff,
+  AdminCatalogRevisionList,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
 
@@ -266,5 +268,27 @@ export async function getAdminRevisionDiff(
     result.toRevisionId!==to){
     throw new CatalogClientError('unexpected');
   }
+  return result;
+}
+
+/** No publication, source body or account fields. GET-only immutable revision
+ * identity selector using the same safe cookie transport as the diff endpoint. */
+export async function getAdminRevisionList(
+  workId:string,editionId:string,cursor?:string,signal?:AbortSignal,
+):Promise<AdminCatalogRevisionList>{
+  const parsed=adminCatalogRevisionListQuerySchema.safeParse({
+    limit:20,...(cursor===undefined?{}:{cursor}),
+  });
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const work=checkedId(workId),edition=checkedId(editionId);
+  const query=new URLSearchParams({limit:String(parsed.data.limit)});
+  if(parsed.data.cursor)query.set('cursor',parsed.data.cursor);
+  const raw=await request(
+    '/v1/admin/catalog/works/'+work+'/editions/'+edition+
+      '/revisions?'+query.toString(),
+    'GET',200,undefined,signal,
+  );
+  const result=parse(raw,value=>adminCatalogRevisionListSchema.parse(value));
+  if(result.editionId!==edition)throw new CatalogClientError('unexpected');
   return result;
 }

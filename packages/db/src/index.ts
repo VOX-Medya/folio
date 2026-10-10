@@ -14,7 +14,7 @@ export {executeFolioJobOnce} from './job-execution.js';
 export type {FolioJobIdentity, FolioJobTx} from './job-execution.js';
 export {createCanonicalAuthor,createCanonicalWork,createVerifiedAdminDraftAuthor,createVerifiedAdminDraftWork,getCanonicalWorkDetails,getVerifiedAdminWorkDetails,getVerifiedAdminAuthorDetails,patchVerifiedAdminAuthorMetadata,patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,patchVerifiedAdminEditionMetadata} from './catalog.js';
 export {createContentRevision, getRevisionBlocks, sha256Text} from './content.js';
-export {compareSemanticRevisionMetadata,getInternalRevisionMetadataDiff,getVerifiedAdminRevisionMetadataDiff} from './content-diff.js';
+export {compareSemanticRevisionMetadata,getInternalRevisionMetadataDiff,getVerifiedAdminRevisionMetadataDiff,getVerifiedAdminEditionRevisions} from './content-diff.js';
 export type {SemanticDiffBlock,SemanticDiffChange} from './content-diff.js';
 export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction} from './rights.js';
 export {createPreparedTranslationLink,verifyPreparedTranslationEdges,resolveTranslationSwitch} from './translation.js';

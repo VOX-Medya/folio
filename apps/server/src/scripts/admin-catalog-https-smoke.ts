@@ -18,6 +18,7 @@ import {
   adminCatalogEditionAppendedSchema,adminCatalogTitleAppendedSchema,
   adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffSchema,
+  adminCatalogRevisionListSchema,
   adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
@@ -1121,6 +1122,62 @@ async function main():Promise<void>{
           makeDiffBlock(sourceAdded,addedBlockId,1),
         ]}],
     });
+
+    // A verified revision picker must reveal only bounded ID/parent metadata.
+    // Each page revalidates role+same-device MFA in the same DB snapshot.
+    const revisionListPath=root+'/works/'+linkedWorkId+
+      '/editions/'+createdEdition.id+'/revisions';
+    check((await call(true,port,revisionListPath+'?limit=1',{
+      authorization:'Bearer '+guestSession.sessionToken,
+    })).status===403,'Guest received unpublished revision identifiers');
+    check((await call(true,port,revisionListPath+'?limit=1',{
+      ...cookie,origin:'https://attacker.example',
+    })).status===403,'Cross-origin Web cookie leaked private revision IDs');
+    check((await call(true,port,revisionListPath+'?limit=1',{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    })).status===401,'Mixed bearer and cookie bypassed revision-list transport');
+    check((await call(false,plainAddress.port,revisionListPath+'?limit=1',bearer))
+      .status!==200,'Plain HTTP disclosed unpublished edition revision IDs');
+    for(const bad of [
+      revisionListPath+'?cursor=../escape',
+      revisionListPath+'?limit=999',
+      revisionListPath+'?ownerId='+editor.userId,
+      root+'/works/'+randomUUID()+'/editions/'+createdEdition.id+'/revisions',
+      root+'/works/'+linkedWorkId+'/editions/'+randomUUID()+'/revisions',
+    ]){
+      const response=await call(true,port,bad,bearer);
+      check([400,404].includes(response.status),
+        'Malformed revision-list scope or metadata query disclosed resources');
+    }
+    const viewerList=await call(true,port,revisionListPath,readonlyEditionBearer);
+    check(viewerList.status===200,'Verified MFA read-only reviewer cannot see revision IDs');
+    const listFirst=await call(true,port,revisionListPath+'?limit=1',secureCookie);
+    check(listFirst.status===200&&
+      listFirst.headers['cache-control']==='private, no-store',
+      'Same-origin verified Web MFA could not load private revision IDs');
+    const listPageA=adminCatalogRevisionListSchema.parse(JSON.parse(listFirst.body));
+    check(listPageA.isMetadataOnly&&listPageA.items.length===1&&
+      listPageA.nextCursor===listPageA.items[0]?.id,
+      'Revision selector first bounded UUID page does not cursor correctly');
+    const listSecond=await call(true,port,
+      revisionListPath+'?limit=1&cursor='+listPageA.nextCursor,bearer);
+    check(listSecond.status===200,'Revision selector UUID cursor page denied');
+    const listPageB=adminCatalogRevisionListSchema.parse(JSON.parse(listSecond.body));
+    const listedIds=[...listPageA.items,...listPageB.items].map(row=>row.id);
+    check(listPageB.items.length===1&&listPageB.nextCursor===null&&
+      listedIds.slice().sort().join(',')===
+        [firstContent.revision.id,changedContent.revision.id].sort().join(',')&&
+      listPageA.items[0]!.id<listPageB.items[0]!.id,
+      'Revision selector lost stable edition identity or ordered pagination');
+    const rawList=listFirst.body+listSecond.body+viewerList.body;
+    check(!rawList.includes(sourceBefore)&&!rawList.includes(sourceAfter)&&
+      !rawList.includes(sourceAdded)&&!rawList.includes('sourceText')&&
+      !rawList.includes('rawArtifactKey')&&!rawList.includes('rawSha256')&&
+      !rawList.includes('provenance')&&!rawList.includes('createdBy')&&
+      !rawList.includes(editor.email)&&!rawList.includes(native.sessionToken),
+      'Verified revision identity picker leaked source/artifact/editor credentials');
+    console.log('ADMIN REVISION PICKER HTTPS PASS: same-tx MFA, strict ID pages, guest/foreign-origin denial and no source bytes.');
+
     const revisionPath=root+'/works/'+linkedWorkId+
       '/editions/'+createdEdition.id+'/revisions/'+changedContent.revision.id+'/diff';
     const revisionQuery='?fromRevisionId='+firstContent.revision.id+'&limit=1';

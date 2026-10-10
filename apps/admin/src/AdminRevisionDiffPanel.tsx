@@ -1,9 +1,9 @@
 import {useEffect,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
 import {adminCatalogIdSchema} from '@folio/contracts';
-import type {AdminCatalogRevisionDiff} from '@folio/contracts';
+import type {AdminCatalogRevisionDiff,AdminCatalogRevisionList} from '@folio/contracts';
 import {
-  CatalogClientError,catalogErrorText,getAdminRevisionDiff,
+  CatalogClientError,catalogErrorText,getAdminRevisionDiff,getAdminRevisionList,
 } from './admin-catalog-client.js';
 
 type Language='tr'|'en';
@@ -11,7 +11,11 @@ const counts=['added','removed','text_changed','metadata_changed','moved','uncha
 const copy={
   tr:{
     title:'Revizyon farklarını incele',info:'Salt okunur SHA-256 ve semantik blok kimliği incelemesi. Kaynak metin, hak kanıtı ve özel dosya içeriği gösterilmez; bu işlem yayın onayı değildir.',
-    entry:'Bu aşamada revizyon listesi yoktur. Yalnız önceden yetkili kaynaktan doğruladığınız iki revizyon UUID değerini girin.',
+    entry:'Bu baskının yetkili revizyon kimliklerini listeleyip önceki ve yeni sürümleri seçin. Listede kaynak metin veya onay bulunmaz.',
+    list:'Revizyonları listele',nextList:'Sonraki revizyon sayfası',
+    listLoading:'Yetkili revizyon kimlikleri yükleniyor…',listEmpty:'Bu baskıda kayıtlı içerik revizyonu yok.',
+    chooseFrom:'Önceki olarak seç',chooseTo:'Yeni olarak seç',
+    parent:'Üst revizyon',listOrder:'Liste UUID düzenindedir; kronolojik yayın sırası değildir.',
     from:'Önceki revizyon UUID',to:'Yeni revizyon UUID',
     compare:'Metadata farkını getir',next:'Sonraki blok sayfası',restart:'İlk sayfa',
     invalid:'Her iki revizyon için farklı ve geçerli UUID girin. İstek gönderilmedi.',
@@ -26,7 +30,11 @@ const copy={
   },
   en:{
     title:'Review revision differences',info:'Read-only SHA-256 and semantic block identity inspection. Source text, rights evidence and private file bodies are not displayed; this is not publication approval.',
-    entry:'Revision listings are not available yet. Enter two revision UUIDs verified through an authorized source.',
+    entry:'List authorized edition revision IDs and select earlier and later versions. No book text or publication approval is returned.',
+    list:'List revisions',nextList:'Next revision page',
+    listLoading:'Loading authorized revision identities…',listEmpty:'No content revisions exist for this edition.',
+    chooseFrom:'Select as earlier',chooseTo:'Select as later',
+    parent:'Parent revision',listOrder:'The list is UUID-sorted, not publication chronology.',
     from:'Earlier revision UUID',to:'Later revision UUID',
     compare:'Load metadata differences',next:'Next block page',restart:'First page',
     invalid:'Enter two different, valid revision UUIDs. No request was sent.',
@@ -68,20 +76,48 @@ export function AdminRevisionDiffPanel({
   const [fromId,setFromId]=useState('');
   const [toId,setToId]=useState('');
   const [result,setResult]=useState<AdminCatalogRevisionDiff|null>(null);
+  const [list,setList]=useState<AdminCatalogRevisionList|null>(null);
+  const [listBusy,setListBusy]=useState(false);
+  const [listError,setListError]=useState('');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const seq=useRef(0),abort=useRef<AbortController|null>(null);
+  const listSeq=useRef(0),listAbort=useRef<AbortController|null>(null);
 
-  useEffect(()=>()=>{seq.current++;abort.current?.abort();},[]);
+  useEffect(()=>()=>{
+    seq.current++;abort.current?.abort();
+    listSeq.current++;listAbort.current?.abort();
+  },[]);
   useEffect(()=>{
     if(!online){
       seq.current++;abort.current?.abort();
+      listSeq.current++;listAbort.current?.abort();
       setBusy(false);setResult(null);
+      setList(null);setListBusy(false);setListError('');
     }
   },[online]);
   function reset(){
     seq.current++;abort.current?.abort();
     setResult(null);setBusy(false);setError('');
+  }
+  async function loadList(cursor?:string){
+    if(!online||listBusy)return;
+    const ticket=++listSeq.current;
+    listAbort.current?.abort();
+    const controller=new AbortController();
+    listAbort.current=controller;
+    setListBusy(true);setListError('');
+    try{
+      const page=await getAdminRevisionList(workId,editionId,cursor,controller.signal);
+      if(ticket!==listSeq.current)return;
+      setList(page); // One bounded page only, never retain an unbounded ID list.
+    }catch(cause){
+      if(ticket!==listSeq.current)return;
+      setList(null);setResult(null); // Rights/session revoked: clear stale evidence.
+      setListError(catalogErrorText(cause,language));
+    }finally{
+      if(ticket===listSeq.current)setListBusy(false);
+    }
   }
   async function load(cursor?:string){
     if(!online||busy)return;
@@ -125,6 +161,38 @@ export function AdminRevisionDiffPanel({
     <h3>{w.title}</h3>
     <p>{w.info}</p>
     <p>{w.entry}</p>
+    <div className="folio-catalog-actions">
+      <button type="button" disabled={!online||listBusy}
+        onClick={()=>{void loadList();}}>{w.list}</button>
+    </div>
+    {listBusy&&<p role="status">{w.listLoading}</p>}
+    {listError&&<p className="folio-catalog-alert" role="alert">{listError}</p>}
+    {list&&<section className="folio-revision-picker" aria-label={w.list}>
+      <p>{w.listOrder}</p>
+      {list.items.length===0&&<p role="status">{w.listEmpty}</p>}
+      <ul className="folio-revision-selectors">
+        {list.items.map(item=><li key={item.id}>
+          <div className="folio-revision-position">
+            <code>{item.id}</code>
+            <span>{item.language.toUpperCase()} · {item.status}</span>
+            {item.parentRevisionId&&<span>{w.parent}: <code>{item.parentRevisionId}</code></span>}
+          </div>
+          <div className="folio-catalog-actions">
+            <button type="button" className="folio-catalog-secondary"
+              disabled={!online||busy||listBusy}
+              aria-label={w.chooseFrom+': '+item.id}
+              onClick={()=>{reset();setFromId(item.id);}}>{w.chooseFrom}</button>
+            <button type="button" className="folio-catalog-secondary"
+              disabled={!online||busy||listBusy}
+              aria-label={w.chooseTo+': '+item.id}
+              onClick={()=>{reset();setToId(item.id);}}>{w.chooseTo}</button>
+          </div>
+        </li>)}
+      </ul>
+      {list.nextCursor&&<button type="button" className="folio-catalog-secondary"
+        disabled={!online||listBusy}
+        onClick={()=>{void loadList(list.nextCursor??undefined);}}>{w.nextList}</button>}
+    </section>}
     <form className="folio-catalog-fields" onSubmit={submit}>
       <label htmlFor={'folio-revision-from-'+editionId}>{w.from}</label>
       <input id={'folio-revision-from-'+editionId} type="text"

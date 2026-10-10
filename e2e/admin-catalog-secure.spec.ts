@@ -527,6 +527,20 @@ test('HTTPS admin edition revision reviewer is read-only, paginated, bilingual a
           publisher:null,status:'draft',identifiers:[],contributors:[]}],
       }));
     }else if(url.pathname==='/v1/admin/catalog/works/'+workId+
+      '/editions/'+editionId+'/revisions'&&req.method()==='GET'){
+      const cursor=url.searchParams.get('cursor');
+      expect(url.searchParams.get('limit')).toBe('20');
+      expect(cursor===null||cursor===toId).toBe(true);
+      expect(req.headers()['authorization']).toBeUndefined();
+      expect(req.headers()['x-folio-csrf']).toBeUndefined();
+      expect(req.postData()).toBeNull();
+      await route.fulfill(respond({
+        editionId,items:[cursor===null
+          ?{id:toId,parentRevisionId:fromId,language:'tr',status:'draft'}
+          :{id:fromId,parentRevisionId:null,language:'tr',status:'draft'}],
+        nextCursor:cursor===null?toId:null,isMetadataOnly:true,
+      }));
+    }else if(url.pathname==='/v1/admin/catalog/works/'+workId+
       '/editions/'+editionId+'/revisions/'+toId+'/diff'&&req.method()==='GET'){
       expect(url.searchParams.get('fromRevisionId')).toBe(fromId);
       expect(url.searchParams.get('limit')).toBe('50');
@@ -552,8 +566,14 @@ test('HTTPS admin edition revision reviewer is read-only, paginated, bilingual a
   await page.getByRole('button',{name:'Revizyon farkları'}).click();
   const panel=page.getByTestId('admin-revision-diff');
   await expect(panel).toContainText('Salt okunur SHA-256');
-  await page.getByRole('textbox',{name:'Önceki revizyon UUID'}).fill(fromId);
-  await page.getByRole('textbox',{name:'Yeni revizyon UUID'}).fill(toId);
+  await panel.getByRole('button',{name:'Revizyonları listele'}).click();
+  await expect(panel).toContainText('Liste UUID düzenindedir');
+  await panel.getByRole('button',{name:'Yeni olarak seç: '+toId}).click();
+  await panel.getByRole('button',{name:'Sonraki revizyon sayfası'}).click();
+  await panel.getByRole('button',{name:'Önceki olarak seç: '+fromId}).click();
+  await expect(page.getByRole('textbox',{name:'Önceki revizyon UUID'})).toHaveValue(fromId);
+  await expect(page.getByRole('textbox',{name:'Yeni revizyon UUID'})).toHaveValue(toId);
+  expect(requests.filter(x=>x.endsWith('/revisions'))).toHaveLength(2);
   await panel.getByRole('button',{name:'Metadata farkını getir'}).click();
   await expect(panel).toContainText(firstBlock);
   await expect(panel).toContainText('Eklenen');

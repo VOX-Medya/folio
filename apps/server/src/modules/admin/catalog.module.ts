@@ -15,6 +15,7 @@ import {
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
+  getVerifiedAdminEditionRevisions,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
@@ -30,6 +31,7 @@ import {
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
+  adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -130,6 +132,9 @@ export class AdminCatalogDb implements OnModuleDestroy {
   revisionDiff(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminRevisionMetadataDiff(this.db(),bearer,input));
   }
+  revisionList(bearer:string,input:unknown){
+    return this.authorized(()=>getVerifiedAdminEditionRevisions(this.db(),bearer,input));
+  }
   authorDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
   }
@@ -224,6 +229,25 @@ const revisionPositionApi={
     ]},
     textSha256:{type:'string',pattern:'^[0-9a-f]{64}$'},
     includeNormal:{type:'boolean'},includeRsvp:{type:'boolean'},includeAudio:{type:'boolean'},
+  },
+};
+const revisionListResultApi={
+  type:'object',additionalProperties:false,
+  required:['editionId','items','nextCursor','isMetadataOnly'],
+  properties:{
+    editionId:{type:'string',format:'uuid'},
+    items:{type:'array',maxItems:50,items:{
+      type:'object',additionalProperties:false,
+      required:['id','parentRevisionId','language','status'],
+      properties:{
+        id:{type:'string',format:'uuid'},
+        parentRevisionId:{type:'string',format:'uuid',nullable:true},
+        language:{type:'string',enum:['tr','en']},
+        status:{type:'string',minLength:1,maxLength:24},
+      },
+    }},
+    nextCursor:{type:'string',format:'uuid',nullable:true},
+    isMetadataOnly:{type:'boolean',enum:[true]},
   },
 };
 const revisionDiffResultApi={
@@ -625,6 +649,32 @@ export class AdminCatalogController {
    * all relationship SELECTs. Unknown UUIDs are distinguishable only after
    * current catalog:read, account, device and MFA checks have passed.
    */
+  @Get('works/:workId/editions/:editionId/revisions')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified same-device MFA/RBAC edition revision UUID list; no source bytes'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiQuery({name:'cursor',type:String,format:'uuid',required:false})
+  @ApiQuery({name:'limit',type:Number,required:false,minimum:1,maximum:50})
+  @ApiOkResponse({schema:revisionListResultApi})
+  async revisionList(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Param('editionId') rawEditionId:string,
+    @Query() query:Record<string,unknown>){
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const editionId=adminCatalogIdSchema.safeParse(rawEditionId);
+    const parsed=adminCatalogRevisionListQuerySchema.safeParse(query);
+    if(!workId.success||!editionId.success||!parsed.success){
+      throw new BadRequestException('Invalid canonical revision list input');
+    }
+    const bearer=await this.bearer(request);
+    const result=await this.store.revisionList(bearer,{
+      workId:workId.data,editionId:editionId.data,...parsed.data,
+    });
+    if(!result)throw new NotFoundException('Canonical edition not found');
+    return adminCatalogRevisionListSchema.parse(result);
+  }
+
   @Get('works/:workId/editions/:editionId/revisions/:toRevisionId/diff')
   @Header('Cache-Control','private, no-store')
   @ApiOperation({summary:'Verified MFA/RBAC catalog:read canonical immutable metadata diff; no raw source text'})

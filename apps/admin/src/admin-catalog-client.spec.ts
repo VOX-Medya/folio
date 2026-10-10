@@ -3,7 +3,7 @@ import {
   CatalogClientError,catalogErrorText,createAdminAuthor,createAdminWork,
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
-  patchAdminEdition,getAdminRevisionDiff,
+  patchAdminEdition,getAdminRevisionDiff,getAdminRevisionList,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
 } from './admin-catalog-client.js';
 
@@ -366,6 +366,64 @@ describe('admin catalog browser privacy/transport contract',()=>{
     expect(fetcher).toHaveBeenCalledTimes(4);
     vi.stubGlobal('window',{location:{protocol:'http:'}});
     await expect(getAdminRevisionDiff(workId,authorId,from,to))
+      .rejects.toMatchObject({kind:'secure-https'});
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it('lists verified edition revision IDs in bounded cursor pages without bearer or CSRF',async()=>{
+    const second='f5612fc5-767e-4dc9-86e4-4f636f2f84a1';
+    const page1={editionId:authorId,items:[{
+      id:workId,parentRevisionId:null,language:'tr',status:'draft',
+    }],nextCursor:workId,isMetadataOnly:true};
+    const page2={editionId:authorId,items:[{
+      id:second,parentRevisionId:workId,language:'tr',status:'draft',
+    }],nextCursor:null,isMetadataOnly:true};
+    const fetcher=vi.fn().mockResolvedValueOnce(json(page1))
+      .mockResolvedValueOnce(json(page2));
+    vi.stubGlobal('fetch',fetcher);
+    expect(await getAdminRevisionList(workId,authorId)).toEqual(page1);
+    expect(await getAdminRevisionList(workId,authorId,workId)).toEqual(page2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const first=fetcher.mock.calls[0] as [string,RequestInit];
+    const secondFetch=fetcher.mock.calls[1] as [string,RequestInit];
+    expect(first[0]).toBe('/v1/admin/catalog/works/'+workId+
+      '/editions/'+authorId+'/revisions?limit=20');
+    expect(secondFetch[0]).toBe(first[0]+'&cursor='+workId);
+    for(const [,init] of [first,secondFetch]){
+      expect(init).toMatchObject({
+        method:'GET',mode:'same-origin',credentials:'same-origin',
+        redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',
+        headers:{Accept:'application/json'},
+      });
+      expect(init.headers).not.toHaveProperty('Authorization');
+      expect(init.headers).not.toHaveProperty('x-folio-csrf');
+    }
+  });
+  it('rejects invalid cursor/scope and foreign or raw-content list responses',async()=>{
+    const item={id:workId,parentRevisionId:null,language:'tr',status:'draft'};
+    const data={editionId:authorId,items:[item],
+      nextCursor:null,isMetadataOnly:true};
+    const fetcher=vi.fn()
+      .mockResolvedValueOnce(json({...data,items:[{...item,rawArtifactKey:'private'}]}))
+      .mockResolvedValueOnce(json({...data,editionId:workId}))
+      .mockResolvedValueOnce(json(data,403))
+      .mockRejectedValueOnce(Error('network'));
+    vi.stubGlobal('fetch',fetcher);
+    await expect(getAdminRevisionList(workId,'../../escape'))
+      .rejects.toMatchObject({kind:'invalid'});
+    await expect(getAdminRevisionList(workId,authorId,'bad-cursor'))
+      .rejects.toMatchObject({kind:'invalid'});
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(getAdminRevisionList(workId,authorId))
+      .rejects.toMatchObject({kind:'unexpected'});
+    await expect(getAdminRevisionList(workId,authorId))
+      .rejects.toMatchObject({kind:'unexpected'});
+    await expect(getAdminRevisionList(workId,authorId))
+      .rejects.toMatchObject({kind:'forbidden'});
+    await expect(getAdminRevisionList(workId,authorId))
+      .rejects.toMatchObject({kind:'network'});
+    vi.stubGlobal('window',{location:{protocol:'http:'}});
+    await expect(getAdminRevisionList(workId,authorId))
       .rejects.toMatchObject({kind:'secure-https'});
     expect(fetcher).toHaveBeenCalledTimes(4);
   });

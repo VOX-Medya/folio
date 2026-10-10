@@ -10,6 +10,7 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
+  adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
@@ -313,4 +314,26 @@ describe('admin-only canonical metadata search contracts',()=>{
     ])expect(adminCatalogRevisionDiffSchema.safeParse(invalid).success).toBe(false);
   });
 
+  it('returns only strictly allowed bounded edition revision IDs and parent links',()=>{
+    const parent='7c2b438c-6ee9-45ad-b817-8ef58ab54c5e';
+    expect(adminCatalogRevisionListQuerySchema.parse({})).toEqual({limit:20});
+    expect(adminCatalogRevisionListQuerySchema.parse({cursor:parent,limit:'2'}))
+      .toEqual({cursor:parent,limit:2});
+    for(const bad of [
+      {limit:0},{limit:51},{limit:'NaN'},{cursor:'../../private'},
+      {status:'published'},{ownerId:id},{rawText:'private'},
+    ])expect(adminCatalogRevisionListQuerySchema.safeParse(bad).success).toBe(false);
+    const result={editionId:id,items:[{
+      id:parent,parentRevisionId:null,language:'en',status:'draft',
+    }],nextCursor:null,isMetadataOnly:true};
+    expect(adminCatalogRevisionListSchema.parse(result)).toEqual(result);
+    for(const bad of [
+      {...result,editorId:id},{...result,rawArtifactKey:'/private/source'},
+      {...result,isMetadataOnly:false},{...result,items:[{...result.items[0],sourceText:'leak'}]},
+      {...result,items:[{...result.items[0],rawSha256:'a'.repeat(64)}]},
+      {...result,items:[{...result.items[0],createdBy:id}]},
+      {...result,items:[{...result.items[0],language:'fr'}]},
+      {...result,items:Array.from({length:51},()=>result.items[0])},
+    ])expect(adminCatalogRevisionListSchema.safeParse(bad).success).toBe(false);
+  });
 });
