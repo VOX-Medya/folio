@@ -678,3 +678,64 @@ test('real HTTPS rights:read claim ledger is paginated, read-only and evicts rev
   await page.getByRole('button',{name:'Rights ledger'}).click();
   await expect(ledger).toHaveCount(0);
 });
+
+
+test('MFA-scoped original Folio SVG thumbnail is accessible, theme-aware and never external artwork',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  await page.emulateMedia({colorScheme:'light'});
+  const title='İstanbul & <Öyküler> "Deneme"';
+  const author='Çağrı Yılmaz';
+  const methods:string[]=[];
+  await page.route('**/v1/**',async route=>{
+    const req=route.request(),url=new URL(req.url());
+    methods.push(req.method()+' '+url.pathname);
+    if(url.pathname==='/v1/admin/catalog/works'&&req.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:title,originalLanguage:'tr',publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(url.pathname==='/v1/admin/catalog/works/'+workId&&req.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:title,originalLanguage:'tr',
+          firstPublicationYear:null,publicationStatus:'draft',metadataVersion:0},
+        authors:[{id:authorId,name:author,role:'author',sortOrder:0}],
+        titles:[],editions:[],
+      }));
+    }else await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+  });
+  await page.goto(root+'/admin/works');
+  await expect(page.getByTestId('admin-folio-cover-preview')).toHaveCount(0);
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('İstanbul');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/İstanbul/}).click();
+  const panel=page.getByTestId('admin-folio-cover-preview');
+  await expect(panel).toContainText('kapak önizlemesi');
+  const image=panel.getByRole('img');
+  await expect(image).toHaveAttribute('alt',title+' — '+author);
+  const source=await image.getAttribute('src');
+  expect(source).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+  const svg=decodeURIComponent(source!.split(',').slice(1).join(','));
+  expect(svg).toContain('viewBox="0 0 320 480"');
+  expect(svg).toContain('İstanbul &amp; &lt;Öyküler&gt;');
+  expect(svg).toContain('Çağrı Yılmaz');
+  expect(svg).toContain('fill="#26332B"');
+  expect(svg).not.toMatch(/<script|<image|<foreignObject|\s(?:href|src)=/i);
+  await expect.poll(async()=>image.evaluate(node=>
+    (node as HTMLImageElement).naturalWidth)).toBe(320);
+  const metrics=await image.boundingBox();
+  expect(metrics?.width).toBeLessThanOrEqual(161);
+  expect(metrics?.height).toBeGreaterThan(200);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth))
+    .toBeLessThanOrEqual(1);
+  await page.emulateMedia({colorScheme:'dark'});
+  await expect(page.locator('.folio-admin')).toHaveAttribute('data-paperbound-theme','dark');
+  await expect.poll(async()=>image.getAttribute('src')).not.toBe(source);
+  const dark=decodeURIComponent((await image.getAttribute('src'))!.split(',').slice(1).join(','));
+  expect(dark).toContain('fill="#F0F3EB"');
+  await page.context().setOffline(true);
+  await expect(panel).toHaveCount(0);
+  await page.context().setOffline(false);
+  expect(methods.every(row=>row.startsWith('GET '))).toBe(true);
+  await page.goto('http://127.0.0.1:4173/admin/works');
+  await expect(page.getByTestId('admin-catalog-insecure')).toBeVisible();
+  await expect(page.getByTestId('admin-folio-cover-preview')).toHaveCount(0);
+});

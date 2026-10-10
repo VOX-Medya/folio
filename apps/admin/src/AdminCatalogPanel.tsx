@@ -3,6 +3,7 @@ import type {FormEvent} from 'react';
 import {AdminWorkRelations} from './AdminWorkRelations.js';
 import {AdminEditionMetadataEditor} from './AdminEditionMetadataEditor.js';
 import {AdminRevisionDiffPanel} from './AdminRevisionDiffPanel.js';
+import {AdminFolioCoverPreview} from './AdminFolioCoverPreview.js';
 import {AdminRightsLedgerPanel} from './AdminRightsLedgerPanel.js';
 import {
   authorCreateSchema,workCreateSchema,
@@ -115,7 +116,9 @@ function translateStatus(status:string,language:Language){
 
 /** No optimistic fake rows: every displayed resource and mutation result
  * comes from a fresh Zod-validated, same-origin, MFA-protected server reply. */
-export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language}){
+export function AdminCatalogPanel({kind,language,theme}:{
+  kind:Kind;language:Language;theme:'light'|'dark';
+}){
   const w=copy[language];
   const secure=securePage();
   const [online,setOnline]=useState(onlineNow);
@@ -438,6 +441,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
             onClick={closeDetail} disabled={busy}>{w.close}</button>
         </div>
         {detail.kind==='works'?<>
+          {online&&<AdminFolioCoverPreview detail={detail.value} language={language} theme={theme}/>}
           <p>{w.year}: {detail.value.work.firstPublicationYear??w.notAvailable}</p>
           <h4>{w.authors}</h4>
           <ul>{detail.value.authors.map(author=><li key={author.id}>
