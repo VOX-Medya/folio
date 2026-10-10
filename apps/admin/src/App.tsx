@@ -103,7 +103,8 @@ export function App(){
             <div className="folio-breadcrumb">Folio / {selected[language]}</div>
             <h2 style={{fontFamily:typography.heading}}>{selected[language]}</h2>
             {(activePage==='authors'||activePage==='works')
-              ?<AdminCatalogPanel key={activePage} kind={activePage} language={language}/>
+              ?<AdminCatalogPanel key={activePage} kind={activePage} language={language}
+                theme={dark?'dark':'light'}/>
               :activePage==='settings'
                 ?<>
                   <p>{language==='tr'
