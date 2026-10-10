@@ -9,7 +9,9 @@ export function createFolioDb(url: string) {
   return {pool, db: drizzle(pool, {schema})};
 }
 
-export {createFolioBoss, initializeFolioQueues, folioQueues} from './queues.js';
+export {createFolioBoss, initializeFolioQueues, folioQueues, folioQueueNames, folioDeadLetter, folioJobPolicy, folioDeadLetterPolicy} from './queues.js';
+export {executeFolioJobOnce} from './job-execution.js';
+export type {FolioJobIdentity, FolioJobTx} from './job-execution.js';
 export {createCanonicalAuthor, createCanonicalWork, getCanonicalWorkDetails} from './catalog.js';
 export {createContentRevision, getRevisionBlocks, sha256Text} from './content.js';
 export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction} from './rights.js';

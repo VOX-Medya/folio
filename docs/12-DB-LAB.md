@@ -39,3 +39,6 @@ Initial Docker Hub image download failed with 502 and was retried; the second pu
 
 ## Full Docker lab verification (10 October 2026)
 The Dockerfile built from the checked-in frozen lockfile with pinned Node 22.22.1 and pnpm 10.34.5. `bash infra/lab.sh up` returned a healthy API and PostgreSQL. Host HTTP `GET http://127.0.0.1:3310/v1/ready` returned `{"status":"ready"}`. `down` followed by `up` returned both containers to healthy status, with the Folio data volume retained and migration repeat succeeding. The list of live `isnad-dev` container IDs was captured before and after the cycle and was identical (`diff` PASS); no unrelated container was changed. A Docker image was built locally only; no image was published or production deployed. CI also builds a non-published lab image.
+
+## Queue acceptance extension (#10, 10 October 2026)
+Drizzle migration `0006_normal_darwin.sql` adds durable job completion receipts. For bounded retries/expiry, dead-letter, transaction-bound idempotency and sanitized audit, use `docs/19-DURABLE-JOBS.md` and `bash infra/lab.sh job-smoke` (isolated `folio_test` only). A failed or expired real pg-boss job is verifiably dead-lettered in the lab. Operational handlers for actual books/media remain owned by later V1 feature issues; registration alone is not working content import.
