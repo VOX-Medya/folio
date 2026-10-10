@@ -145,14 +145,14 @@
             }
           }
         },
-        "summary": "Read only the verified bearer owner onboarding snapshot",
-        "tags": [
-          "account"
-        ],
         "security": [
           {
             "folioSession": []
           }
+        ],
+        "summary": "Read only the verified bearer owner onboarding snapshot",
+        "tags": [
+          "account"
         ]
       },
       "patch": {
@@ -256,14 +256,14 @@
             }
           }
         },
-        "summary": "Update the verified bearer owner onboarding with optimistic version",
-        "tags": [
-          "account"
-        ],
         "security": [
           {
             "folioSession": []
           }
+        ],
+        "summary": "Update the verified bearer owner onboarding with optimistic version",
+        "tags": [
+          "account"
         ]
       }
     }
@@ -277,6 +277,13 @@
   "tags": [],
   "servers": [],
   "components": {
+    "securitySchemes": {
+      "folioSession": {
+        "scheme": "bearer",
+        "bearerFormat": "opaque",
+        "type": "http"
+      }
+    },
     "schemas": {
       "CapabilityDto": {
         "type": "object",
@@ -318,13 +325,6 @@
           "items",
           "nextCursor"
         ]
-      }
-    },
-    "securitySchemes": {
-      "folioSession": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "opaque"
       }
     }
   }
