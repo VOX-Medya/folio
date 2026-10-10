@@ -1,7 +1,8 @@
 import {
-  apiErrorSchema,onboardingSnapshotSchema,onboardingUpdateRequestSchema,
+  onboardingSnapshotSchema,onboardingUpdateRequestSchema,
 } from './index.js';
 import type {OnboardingSnapshot} from './index.js';
+import {verifiedApiOrigin,verifiedBearerHeader,readFolioError} from './verified-request.js';
 
 /**
  * Stateless cross-platform client. The caller supplies an already verified
@@ -28,29 +29,10 @@ export class OnboardingVersionConflictError extends OnboardingHttpError {
   }
 }
 function ownEndpoint(baseUrl:string):string{
-  const url=new URL(baseUrl);
-  const secure=url.protocol==='https:';
-  const local=url.protocol==='http:'&&
-    (url.hostname==='localhost'||url.hostname==='127.0.0.1'||url.hostname==='[::1]');
-  if((!secure&&!local)||url.username||url.password||
-    (url.pathname!=='/'&&url.pathname!=='')||url.search||url.hash){
-    throw new Error('A secure API origin is required');
-  }
-  return url.origin+'/v1/me/onboarding';
-}
-function bearerHeader(raw:string):string{
-  if(!/^[A-Za-z0-9_-]{43}$/.test(raw)){
-    throw new Error('A verified bearer session is required');
-  }
-  return 'Bearer '+raw;
+  return verifiedApiOrigin(baseUrl)+'/v1/me/onboarding';
 }
 async function errorFromResponse(response:Response):Promise<never>{
-  let data:unknown;
-  try{data=await response.json();}
-  catch{data=null;}
-  const parsed=apiErrorSchema.safeParse(data);
-  const code=parsed.success?parsed.data.error.code:'UNEXPECTED_HTTP_RESPONSE';
-  const requestId=parsed.success?parsed.data.error.requestId:null;
+  const {code,requestId}=await readFolioError(response);
   if(response.status===409&&code==='CONFLICT'){
     throw new OnboardingVersionConflictError(requestId);
   }
@@ -60,11 +42,12 @@ async function request(
   options:OwnOnboardingRequest,method:'GET'|'PATCH',body?:unknown,
 ):Promise<OnboardingSnapshot>{
   const endpoint=ownEndpoint(options.baseUrl);
-  const authorization=bearerHeader(options.bearerToken);
+  const authorization=verifiedBearerHeader(options.bearerToken);
   const init:RequestInit={
     method,
     credentials:'omit',
     cache:'no-store',
+    redirect:'error',
     headers:{
       authorization,
       accept:'application/json',
