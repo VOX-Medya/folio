@@ -87,6 +87,33 @@ export function paginateCapabilities(items: readonly Capability[], raw: unknown)
 /** Safe shared system transport for responsive Web, Expo native and admin. */
 export {fetchCapabilities,fetchSystemHealth,fetchSystemReadiness,SystemHttpError} from './system-client.js';
 
+/** Safe, strictly bounded ADMIN-ONLY canonical search metadata.
+ * No publication rights are inferred and no personal book content is returned. */
+export const adminCatalogSearchQuerySchema=z.object({
+  q:z.string().trim().min(1).max(120),
+  limit:z.preprocess(value=>
+    typeof value==='string'&&/^[1-9][0-9]?$/.test(value)?Number(value):value,
+    z.number().int().min(1).max(50).default(20)),
+  cursor:z.uuid().optional(),
+}).strict();
+export const adminCatalogWorkPageSchema=z.object({
+  items:z.array(z.object({
+    id:z.uuid(),
+    originalTitle:z.string().min(1),
+    originalLanguage:z.enum(['tr','en']),
+    publicationStatus:z.string().min(1).max(24),
+  }).strict()).max(50),
+  nextCursor:z.uuid().nullable(),
+}).strict();
+export const adminCatalogAuthorPageSchema=z.object({
+  items:z.array(z.object({
+    id:z.uuid(),canonicalName:z.string().min(1),sortName:z.string().min(1),
+  }).strict()).max(50),
+  nextCursor:z.uuid().nullable(),
+}).strict();
+export type AdminCatalogWorkPage=z.infer<typeof adminCatalogWorkPageSchema>;
+export type AdminCatalogAuthorPage=z.infer<typeof adminCatalogAuthorPageSchema>;
+
 /** Internal draft-only canonical catalog commands. No public CRUD is exposed until RBAC. */
 export const authorCreateSchema = z.object({
   canonicalName: z.string().trim().min(1).max(240),

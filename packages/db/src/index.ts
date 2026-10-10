@@ -28,7 +28,7 @@ export type {AssetOwner, CandidateMime, QuarantinedBlob, StagePrivateBlob} from 
 export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota} from './private-quota.js';
 
 // Internal RBAC-only catalog metadata queries. Never mount as a public route without rights verification.
-export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin} from './catalog-search.js';
+export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin,searchVerifiedAdminWorks,searchVerifiedAdminAuthors} from './catalog-search.js';
 
 // Internal verified email/session foundation. No public auth routes until anti-abuse, secure cookie and MFA gates.
 export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,resetAccountPassword,signInVerifiedAccount,authenticateUserSession,revokeUserSession,revokeAllUserSessions,MAX_ACTIVE_DEVICE_SESSIONS} from './auth.js';

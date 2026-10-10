@@ -51,6 +51,7 @@ jobs:
           bash infra/lab.sh web-auth-https-smoke
           bash infra/lab.sh web-self-https-smoke
           bash infra/lab.sh admin-totp-https-smoke
+          bash infra/lab.sh admin-catalog-https-smoke
           bash infra/lab.sh onboarding-smoke
           bash infra/lab.sh onboarding-http-smoke
           bash infra/lab.sh device-sessions-http-smoke

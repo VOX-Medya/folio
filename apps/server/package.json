@@ -16,7 +16,8 @@
     "web-cookie:https-smoke": "tsx src/scripts/web-cookie-https-smoke.ts",
     "web-auth:https-smoke": "tsx src/scripts/web-auth-https-smoke.ts",
     "web-self:https-smoke": "tsx src/scripts/web-self-https-smoke.ts",
-    "admin-totp:https-smoke": "tsx src/scripts/admin-totp-https-smoke.ts"
+    "admin-totp:https-smoke": "tsx src/scripts/admin-totp-https-smoke.ts",
+    "admin-catalog:https-smoke": "tsx src/scripts/admin-catalog-https-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",

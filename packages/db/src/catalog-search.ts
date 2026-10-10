@@ -1,9 +1,12 @@
 import {and,eq,gt,ilike,inArray,or} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
+import {withVerifiedAdminPermission} from './admin-authorization.js';
 import * as schema from './schema.js';
 
 type CatalogDb=ReturnType<typeof createFolioDb>['db'];
+// A PostgreSQL transaction shares this read-only SELECT surface with the DB.
+type CatalogReader=Pick<CatalogDb,'select'>;
 const criteria=z.object({
   query:z.string().trim().min(1).max(120),
   cursor:z.uuid().optional(),
@@ -22,7 +25,7 @@ function literalContains(value:string):string{
  * This intentionally has no HTTP controller or ability to search users.
  * Drafts and unpublished work metadata must not leak to public catalog.
  */
-export async function searchCanonicalWorksForAdmin(db:CatalogDb,raw:unknown){
+export async function searchCanonicalWorksForAdmin(db:CatalogReader,raw:unknown){
   const input:SearchCriteria=criteria.parse(raw);
   const pattern=literalContains(input.query);
   const aliasTitleIds=db.select({workId:schema.workTitles.workId})
@@ -59,7 +62,7 @@ export async function searchCanonicalWorksForAdmin(db:CatalogDb,raw:unknown){
 }
 
 /** Alias names remain associated with canonical authors, never friend search. */
-export async function searchCanonicalAuthorsForAdmin(db:CatalogDb,raw:unknown){
+export async function searchCanonicalAuthorsForAdmin(db:CatalogReader,raw:unknown){
   const input:SearchCriteria=criteria.parse(raw);
   const pattern=literalContains(input.query);
   const aliased=db.select({authorId:schema.authorAliases.authorId})
@@ -75,4 +78,25 @@ export async function searchCanonicalAuthorsForAdmin(db:CatalogDb,raw:unknown){
   }).from(schema.authors).where(where).orderBy(schema.authors.id).limit(input.limit+1);
   const items=rows.slice(0,input.limit);
   return {items,nextCursor:rows.length>input.limit?(items.at(-1)?.id??null):null};
+}
+
+/**
+ * Externally reachable admin searches must hold current account, device,
+ * same-device MFA and catalog:read DB membership locks for the SAME query.
+ * Ordinary passwords, stale proofs and forged role headers never authorize.
+ * This read-only metadata path does not return private user books/content.
+ */
+export async function searchVerifiedAdminWorks(
+  db:CatalogDb,bearer:string,raw:unknown,
+){
+  const input=criteria.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',
+    async tx=>searchCanonicalWorksForAdmin(tx,input));
+}
+export async function searchVerifiedAdminAuthors(
+  db:CatalogDb,bearer:string,raw:unknown,
+){
+  const input=criteria.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',
+    async tx=>searchCanonicalAuthorsForAdmin(tx,input));
 }
