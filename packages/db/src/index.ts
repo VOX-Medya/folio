@@ -38,6 +38,8 @@ export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboardi
 
 // DB-backed role + session-bound MFA gate. NO production role/MFA issuer or HTTP admin route.
 export {withVerifiedAdminPermission} from './admin-authorization.js';
+export {grantManagedAdminRole,revokeManagedAdminRole} from './admin-role-lifecycle.js';
+export type {AdminRoleChange} from './admin-role-lifecycle.js';
 export type {VerifiedAdminIdentity} from './admin-authorization.js';
 
 // INTERNAL ONLY; caller must provide trusted client IP and server-managed HMAC key.
