@@ -153,6 +153,7 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
     // different. This is REVIEW EVIDENCE, never an automatic work merger.
     // Batch bound and fail-closed if the match set is too large to examine.
     const hashesByWork=packageWorkSourceHashes(revisions,editions);
+    const editionById=new Map(editions.map(edition=>[edition.id,edition]));
     // Multiple package works claiming the same byte-for-byte source are also
     // ambiguous. Never assume separate IDs or titles establish separate works.
     const packageWorkIdsByHash=new Map<string,Set<string>>();
