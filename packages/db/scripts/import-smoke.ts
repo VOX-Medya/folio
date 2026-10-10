@@ -141,6 +141,32 @@ async function main(){
     try{await resumeStagedCatalogMetadata(db,actor,another.batchId);}catch{tamperDenied=true;}
     ensure(tamperDenied,'Tampered durable staging payload was applied');
     console.log('Tampered staged payload SHA rejected. This remains a synthetic, isolated Folio test database.');
+
+    // Two live PostgreSQL pools must not double-count, double-audit or regress
+    // a fully applied batch back to paused. No real account or book data used.
+    const concurrentPack=generatedPackage(4,randomUUID());
+    const concurrentStage=await stagePreparedCatalogImport(db,actor,concurrentPack);
+    const auditBefore=await count(schema.auditEvents);
+    const secondPool=createFolioDb(url);
+    try{
+      const [left,right]=await Promise.all([
+        resumeStagedCatalogMetadata(db,actor,concurrentStage.batchId,12),
+        resumeStagedCatalogMetadata(secondPool.db,actor,concurrentStage.batchId,12),
+      ]);
+      ensure(left.processedThisRun+right.processedThisRun===12,
+        'Two workers counted an already-processed item twice');
+      const state=await getStagedCatalogImportStatus(db,concurrentStage.batchId);
+      ensure(state?.status==='metadata_applied','Concurrent finalization regressed batch status');
+      ensure(state.counts['author:applied']===4&&state.counts['work:applied']===4&&
+        state.counts['edition:applied']===4&&state.counts['revision:deferred_asset']===4&&
+        state.counts['rights:deferred_review']===4,'Concurrent resume skipped or exposed a record');
+      ensure((await count(schema.auditEvents))-auditBefore===12,
+        'Concurrent resume wrote duplicated or missing item audit events');
+      const replay=await resumeStagedCatalogMetadata(secondPool.db,actor,concurrentStage.batchId);
+      ensure(replay.processedThisRun===0&&replay.status==='metadata_applied',
+        'Repeated concurrent stage changed completed metadata state');
+      console.log('Two concurrent PostgreSQL import workers: 12 unique checkpoints, 12 audit events, final status stable.');
+    }finally{await secondPool.pool.end();}
   }finally{await pool.end();}
 }
 void main().catch(err=>{console.error(err);process.exitCode=1;});

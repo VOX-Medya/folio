@@ -27,11 +27,35 @@ export const preparedImportSchema=z.object({
     if(idSet(rows).size!==rows.length)ctx.addIssue({code:'custom',message:`Repeated ${kind} identity`});
   }
   const ai=idSet(authors),wi=idSet(works),ei=idSet(editions),ri=idSet(revisions);
-  for(const w of works)if(w.authors.some(id=>!ai.has(id)))ctx.addIssue({code:'custom',message:'Work refers to missing package author'});
+  const editionById=new Map(editions.map(e=>[e.id,e]));
+  const revisionById=new Map(revisions.map(r=>[r.id,r]));
+  for(const w of works){
+    if(w.authors.some(id=>!ai.has(id))||new Set(w.authors).size!==w.authors.length){
+      ctx.addIssue({code:'custom',message:'Work refers to missing or duplicate package author'});
+    }
+  }
   for(const e of editions)if(!wi.has(e.work_id))ctx.addIssue({code:'custom',message:'Edition must reference work within package'});
-  for(const r of revisions)if(!ei.has(r.edition_id))ctx.addIssue({code:'custom',message:'Revision must reference edition within package'});
-  for(const r of rightsRecords)if(!wi.has(r.work_id)||(r.edition_id&&!ei.has(r.edition_id))||(r.revision_id&&!ri.has(r.revision_id))){
-    ctx.addIssue({code:'custom',message:'Rights evidence references missing in-package scope'});
+  for(const r of revisions){
+    const edition=editionById.get(r.edition_id);
+    if(!edition)ctx.addIssue({code:'custom',message:'Revision must reference edition within package'});
+    else if(edition.language!==r.language)ctx.addIssue({code:'custom',message:'Revision language differs from its edition'});
+  }
+  for(const r of rightsRecords){
+    const revision=r.revision_id?revisionById.get(r.revision_id):undefined;
+    const editionId=r.edition_id??revision?.edition_id;
+    const edition=editionId?editionById.get(editionId):undefined;
+    if(!wi.has(r.work_id)||(r.edition_id&&!ei.has(r.edition_id))||(r.revision_id&&!ri.has(r.revision_id))){
+      ctx.addIssue({code:'custom',message:'Rights evidence references missing in-package scope'});
+    }
+    if(edition&&edition.work_id!==r.work_id){
+      ctx.addIssue({code:'custom',message:'Rights evidence mixes two canonical works'});
+    }
+    if(revision&&r.edition_id&&revision.edition_id!==r.edition_id){
+      ctx.addIssue({code:'custom',message:'Rights evidence revision/edition mismatch'});
+    }
+    if(r.review_status==='approved'||r.publication_status==='published'){
+      ctx.addIssue({code:'custom',message:'Import package cannot self-approve rights or publication'});
+    }
   }
 });
 export type PreparedImport=z.infer<typeof preparedImportSchema>;
@@ -192,10 +216,10 @@ export async function resumeStagedCatalogMetadata(db:Database,actorId:string,bat
   let applied=0;
   for(const item of sorted){
     if(applied>=maxItems)break;
-    await db.transaction(async tx=>{
+    const didApply=await db.transaction(async tx=>{
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${id}))`);
       const [current]=await tx.select().from(schema.importItems).where(eq(schema.importItems.id,item.id)).limit(1);
-      if(!current||current.status!=='staged')return;
+      if(!current||current.status!=='staged')return false;
       if(payloadHash(current.payload)!==current.payloadSha256)throw new Error('Staged payload was altered');
       let outcome:'applied'|'noop'='applied';
       if(current.kind==='author'){
@@ -245,14 +269,24 @@ export async function resumeStagedCatalogMetadata(db:Database,actorId:string,bat
       await tx.insert(schema.auditEvents).values({actorId:actor,action:outcome==='noop'?'import.item.noop':'import.item.applied',
         entityType:current.kind,entityId:uuid.parse(current.externalId),
         afterJson:{batchId:id,kind:current.kind,checksum:current.payloadSha256,public:false}});
+      return true;
     });
-    applied++;
+    if(didApply)applied++;
   }
-  const pending=await db.select({id:schema.importItems.id}).from(schema.importItems)
-    .where(and(eq(schema.importItems.batchId,id),eq(schema.importItems.status,'staged')));
-  const newStatus=pending.length?'paused':'metadata_applied';
-  await db.update(schema.importBatches).set({status:newStatus,updatedAt:new Date()}).where(eq(schema.importBatches.id,id));
-  return {batchId:id,status:newStatus,processedThisRun:applied,pending:pending.length,
+  // Same batch lock as per-item commits: concurrent workers cannot regress the
+  // final status from metadata_applied back to paused using stale snapshots.
+  const final=await db.transaction(async tx=>{
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${id}))`);
+    const stateRows=await tx.select({status:schema.importItems.status})
+      .from(schema.importItems).where(eq(schema.importItems.batchId,id));
+    if(stateRows.length!==batch.expectedItems)throw new Error('Import stage became incomplete');
+    const pending=stateRows.filter(item=>item.status==='staged').length;
+    const newStatus=pending?'paused':'metadata_applied';
+    await tx.update(schema.importBatches).set({status:newStatus,updatedAt:new Date()})
+      .where(eq(schema.importBatches.id,id));
+    return {newStatus,pending};
+  });
+  return {batchId:id,status:final.newStatus,processedThisRun:applied,pending:final.pending,
     deferredContent:items.filter(item=>item.status==='deferred_asset').length,
     deferredRights:items.filter(item=>item.status==='deferred_review').length};
 }
