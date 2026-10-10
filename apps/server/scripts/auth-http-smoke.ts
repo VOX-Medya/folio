@@ -33,26 +33,16 @@ async function main(){
   const {db,pool}=createFolioDb(url);
   const password='Secure-HTTP-Folio-2026!';
   async function newAccount(){
-    const account=await registerPendingAccount(db,'synthetic-'+randomUUID()+'@example.com',password);
+    const email='synthetic-'+randomUUID()+'@example.com';
+    const account=await registerPendingAccount(db,email,password);
     await verifyAccountEmail(db,account.verificationToken);
-    return account;
+    return {...account,email};
   }
   let app:Awaited<ReturnType<typeof NestFactory.create>>|undefined;
   try{
     const first=await newAccount(),second=await newAccount();
-    const a=await signInVerifiedAccount(db,
-      // Read the synthetic normalized email only in the trusted test setup:
-      'synthetic-PLACEHOLDER@example.com',password,'web').catch(()=>null);
-    void a;
-    // The test must not need a real mail service or any externally accessible URL.
-    // User emails are stored in the Folio-only test DB, never logged by this script.
-    const {schema}=await import('@folio/db');
-    const {eq}=await import('drizzle-orm');
-    const [userOne]=await db.select().from(schema.userAccounts).where(eq(schema.userAccounts.id,first.userId));
-    const [userTwo]=await db.select().from(schema.userAccounts).where(eq(schema.userAccounts.id,second.userId));
-    if(!userOne||!userTwo)throw new Error('Synthetic accounts missing');
-    const session=await signInVerifiedAccount(db,userOne.normalizedEmail,password,'web');
-    const other=await signInVerifiedAccount(db,userTwo.normalizedEmail,password,'android');
+    const session=await signInVerifiedAccount(db,first.email,password,'web');
+    const other=await signInVerifiedAccount(db,second.email,password,'android');
     @Module({controllers:[AuthTestController],providers:[
       VerifiedSessionGuard,UserOwnershipGuard,AdminPermissionGuard,
       {provide:VERIFIED_SESSION_LOOKUP,useValue:(bearer:string)=>authenticateUserSession(db,bearer)},
