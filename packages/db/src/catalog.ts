@@ -2,10 +2,12 @@ import {and,asc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import {
   authorCreateSchema,workCreateSchema,canonicalAuthorMetadataPatchSchema,
-  canonicalWorkMetadataPatchSchema,
+  canonicalWorkMetadataPatchSchema,adminCatalogEditionAppendSchema,
+  adminCatalogTitleAppendSchema,adminCatalogWorkAuthorAppendSchema,
 } from '@folio/contracts';
 import type {
   AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,CanonicalWorkMetadataPatch,
+  AdminCatalogEditionAppend,AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
 } from '@folio/contracts';
 import type {createFolioDb} from './index.js';
 import {withVerifiedAdminPermission} from './admin-authorization.js';
@@ -259,6 +261,111 @@ export async function patchVerifiedAdminWorkMetadata(
         publicationStatus:'draft'},
     });
     return {id,metadataVersion:version,publicationStatus:'draft' as const};
+  });
+}
+
+
+/** Metadata relationship edits share the SAME actor/MFA/role-locked transaction
+ * and target FOR UPDATE serialization as scalar DRAFT metadata PATCH.
+ * Publishing, rights decisions, content and existing edition files are not inputs. */
+async function verifiedDraftWorkForAppend(
+  tx:CatalogTx,id:string,expectedVersion:number,
+){
+  const [before]=await tx.select({
+    id:schema.works.id,publicationStatus:schema.works.publicationStatus,
+    metadataVersion:schema.works.metadataVersion,
+  }).from(schema.works).where(eq(schema.works.id,id)).limit(1).for('update');
+  if(!before)return null;
+  if(before.publicationStatus!=='draft'){
+    throw new Error('Published canonical work is immutable via draft editor');
+  }
+  if(before.metadataVersion!==expectedVersion){
+    throw new Error('Canonical metadata version conflict');
+  }
+  return {oldVersion:before.metadataVersion,newVersion:before.metadataVersion+1};
+}
+async function advanceDraftWorkVersion(tx:CatalogTx,id:string,newVersion:number){
+  await tx.update(schema.works).set({metadataVersion:newVersion})
+    .where(eq(schema.works.id,id));
+}
+export async function appendVerifiedAdminWorkEdition(
+  db:CatalogDb,bearer:string,workId:string,raw:unknown,requestId:string,
+){
+  const id=z.uuid().parse(workId),traceId=z.uuid().parse(requestId);
+  const input:AdminCatalogEditionAppend=adminCatalogEditionAppendSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const rev=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!rev)return null;
+    const [edition]=await tx.insert(schema.editions).values({
+      workId:id,language:input.language,label:input.label,
+      publisher:input.publisher??null,status:'draft',
+    }).returning({id:schema.editions.id});
+    if(!edition)throw new Error('Canonical edition creation failed');
+    if(input.identifiers.length)await tx.insert(schema.editionIdentifiers).values(
+      input.identifiers.map(identifier=>({editionId:edition.id,...identifier})),
+    );
+    if(input.contributors.length)await tx.insert(schema.editionContributors).values(
+      input.contributors.map(contributor=>({
+        editionId:edition.id,authorId:contributor.authorId,
+        role:contributor.role,sortOrder:contributor.sortOrder,
+      })),
+    );
+    await advanceDraftWorkVersion(tx,id,rev.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'edition.create',entityType:'edition',entityId:edition.id,
+      beforeJson:{workId:id,workMetadataVersion:rev.oldVersion},
+      afterJson:{workId:id,workMetadataVersion:rev.newVersion,
+        language:input.language,label:input.label,publisher:input.publisher??null,
+        identifiers:input.identifiers,contributors:input.contributors,status:'draft'},
+    });
+    return {id:edition.id,workId:id,metadataVersion:rev.newVersion,status:'draft' as const};
+  });
+}
+export async function appendVerifiedAdminWorkTitle(
+  db:CatalogDb,bearer:string,workId:string,raw:unknown,requestId:string,
+){
+  const id=z.uuid().parse(workId),traceId=z.uuid().parse(requestId);
+  const input:AdminCatalogTitleAppend=adminCatalogTitleAppendSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const rev=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!rev)return null;
+    const [title]=await tx.insert(schema.workTitles).values({
+      workId:id,language:input.language,title:input.title,kind:input.kind,
+    }).returning({id:schema.workTitles.id});
+    if(!title)throw new Error('Canonical alternate title creation failed');
+    await advanceDraftWorkVersion(tx,id,rev.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'work.title.add',entityType:'work',entityId:id,
+      beforeJson:{workMetadataVersion:rev.oldVersion},
+      afterJson:{workMetadataVersion:rev.newVersion,workTitleId:title.id,
+        language:input.language,title:input.title,kind:input.kind},
+    });
+    return {id:title.id,workId:id,metadataVersion:rev.newVersion};
+  });
+}
+export async function appendVerifiedAdminWorkAuthor(
+  db:CatalogDb,bearer:string,workId:string,raw:unknown,requestId:string,
+){
+  const id=z.uuid().parse(workId),traceId=z.uuid().parse(requestId);
+  const input:AdminCatalogWorkAuthorAppend=adminCatalogWorkAuthorAppendSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const rev=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!rev)return null;
+    await tx.insert(schema.workAuthors).values({
+      workId:id,authorId:input.authorId,
+      contribution:input.contribution,sortOrder:input.sortOrder,
+    });
+    await advanceDraftWorkVersion(tx,id,rev.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'work.author.add',entityType:'work',entityId:id,
+      beforeJson:{workMetadataVersion:rev.oldVersion},
+      afterJson:{workMetadataVersion:rev.newVersion,
+        authorId:input.authorId,contribution:input.contribution,sortOrder:input.sortOrder},
+    });
+    return {workId:id,authorId:input.authorId,metadataVersion:rev.newVersion};
   });
 }
 
