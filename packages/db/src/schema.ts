@@ -315,6 +315,40 @@ export const userSessions=pgTable('user_sessions',{
   index('user_sessions_user_active_idx').on(t.userId,t.revokedAt),
 ]);
 
+/** Database-owned admin roles. No HTTP caller can grant roles, and an ordinary
+ * verified password session does not acquire any admin permissions. */
+export const adminRoleMemberships=pgTable('admin_role_memberships',{
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  role:varchar('role',{length:24}).notNull(),
+  grantedBy:uuid('granted_by').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  grantedAt:timestamp('granted_at',{withTimezone:true}).notNull().defaultNow(),
+  revokedAt:timestamp('revoked_at',{withTimezone:true}),
+},t=>[
+  primaryKey({columns:[t.userId,t.role]}),
+  index('admin_role_memberships_revocation_idx').on(t.userId,t.revokedAt),
+  check('admin_role_memberships_role_ck',
+    sql`${t.role} in ('superadmin','editor','rights','audio','moderator','read-only')`),
+  check('admin_role_memberships_revocation_ck',
+    sql`${t.revokedAt} is null or ${t.revokedAt}>=${t.grantedAt}`),
+]);
+
+/** MFA proof is tied to ONE already verified device session. An actual TOTP or
+ * WebAuthn verifier must be built before any production row can be issued.
+ * No default, no role auto-activation, and max proof duration is 12 hours. */
+export const adminSessionMfa=pgTable('admin_session_mfa',{
+  sessionId:uuid('session_id').primaryKey().references(()=>userSessions.id,{onDelete:'restrict'}),
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  method:varchar('method',{length:24}).notNull(),
+  verifiedAt:timestamp('verified_at',{withTimezone:true}).notNull(),
+  expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+},t=>[
+  index('admin_session_mfa_user_idx').on(t.userId),
+  check('admin_session_mfa_method_ck',
+    sql`${t.method} in ('totp','webauthn')`),
+  check('admin_session_mfa_expiry_ck',
+    sql`${t.expiresAt}>${t.verifiedAt} and ${t.expiresAt}<=${t.verifiedAt}+interval '12 hours'`),
+]);
+
 /** Persistent, privacy-preserving 15-minute auth-attempt counters. No raw IP/e-mail. */
 export const authAttemptWindows=pgTable('auth_attempt_windows',{
   bucketKey:varchar('bucket_key',{length:64}).notNull(),
