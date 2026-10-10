@@ -23,3 +23,6 @@ export type {PreparedImport,ImportPlanItem} from './import-staging.js';
 // Quarantine-only private byte staging. No public stream or publish API.
 export {LocalStorageAdapter, LOCAL_STORAGE_MAX_BYTES} from './local-storage.js';
 export type {AssetOwner, CandidateMime, QuarantinedBlob, StagePrivateBlob} from './local-storage.js';
+
+// INTERNAL private-user quota gate. Requires trusted auth caller; never publishes staged bytes.
+export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota} from './private-quota.js';

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, varchar, timestamp, integer, primaryKey, index, jsonb, boolean, uniqueIndex, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, varchar, timestamp, integer, primaryKey, index, jsonb, boolean, uniqueIndex, foreignKey, check } from 'drizzle-orm/pg-core';
 
 /** Minimal catalog storage baseline. Rights and revision modules follow their own V1 issues. */
 export const authors = pgTable('authors', {
@@ -244,6 +244,25 @@ export const mediaAssets=pgTable('media_assets',{
   status:varchar('status',{length:24}).notNull().default('pending_verify'),
   createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
 });
+
+/** Reservation rows serialize quota admission across PostgreSQL connections.
+ * This is PRIVATE-USER only; catalog imports have separate editorial rights.
+ * A reservation is NOT proof that uploaded bytes or MIME are verified.
+ */
+export const storageUploadReservations=pgTable('storage_upload_reservations',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  ownerUserId:uuid('owner_user_id').notNull(),
+  reservedBytes:integer('reserved_bytes').notNull(),
+  status:varchar('status',{length:24}).notNull().default('reserved'),
+  expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+  committedAssetId:uuid('committed_asset_id').references(()=>mediaAssets.id,{onDelete:'restrict'}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  index('storage_upload_reservations_owner_status_idx').on(t.ownerUserId,t.status),
+  uniqueIndex('storage_upload_reservations_asset_unique').on(t.committedAssetId),
+  check('storage_upload_reservations_positive_ck',sql`${t.reservedBytes}>0`),
+  check('storage_upload_reservations_status_ck',sql`${t.status} in ('reserved','committed','released')`),
+]);
 
 /** Every replacement is a distinct complete variant, so old listener cursors remain valid. */
 export const audioVariants=pgTable('audio_variants',{

@@ -23,7 +23,8 @@
     "db:translation-smoke": "tsx scripts/translation-smoke.ts",
     "db:audio-smoke": "tsx scripts/audio-smoke.ts",
     "db:job-smoke": "tsx scripts/job-policy-smoke.ts",
-    "db:import-smoke": "tsx scripts/import-smoke.ts"
+    "db:import-smoke": "tsx scripts/import-smoke.ts",
+    "db:storage-quota-smoke": "tsx scripts/storage-quota-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",
