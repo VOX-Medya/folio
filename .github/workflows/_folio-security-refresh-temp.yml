@@ -23,18 +23,10 @@ jobs:
           pnpm metro:security-check
           pnpm --filter @folio/db exec drizzle-kit --version
           echo 'Old abandoned Drizzle loader nodes:'
-          if grep -E '^  (@esbuild-kit/(esm-loader|core-utils)@[0-9]|esbuild@0[.]18[.]20:|js-yaml@5[.]3[.]0:)
-      - name: Report current remaining advisories without disguising release block
-        run: |
-          pnpm audit --json > /tmp/folio-pr-audit.json || true
-          node -e 'const a=require("/tmp/folio-pr-audit.json"); console.log("Remaining audit counts:",JSON.stringify(a.metadata?.vulnerabilities))'
-      - name: Commit new resolved lockfile and remove this one-use workflow
-        run: |
-          rm .github/workflows/_folio-security-refresh-temp.yml
-          git add pnpm-lock.yaml .github/workflows/_folio-security-refresh-temp.yml
-          git -c user.name='folio-ci' -c user.email='folio-ci@users.noreply.github.com' commit -m 'chore(#7): regenerate constrained pnpm lockfile without legacy loader'
-          git push origin HEAD:refs/heads/fix/7-dependency-release-audit
- pnpm-lock.yaml; then echo 'Rejected vulnerable package remains'; exit 1; fi
+          if grep -E '^  (@esbuild-kit/(esm-loader|core-utils)@[0-9]|esbuild@0[.]18[.]20:|js-yaml@5[.]3[.]0:)$' pnpm-lock.yaml; then
+            echo 'Rejected vulnerable package remains'
+            exit 1
+          fi
       - name: Report current remaining advisories without disguising release block
         run: |
           pnpm audit --json > /tmp/folio-pr-audit.json || true
