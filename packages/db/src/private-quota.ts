@@ -252,3 +252,59 @@ export async function observePrivateQuarantineMalware(
     return {assetId:id,...result};
   });
 }
+
+
+/**
+ * INTERNAL, conservative EPUB ZIP shape observation. Owner, opaque file key,
+ * source digest/size/MIME MUST originate from a persisted private media row.
+ * Successful ZIP-CRC/bounds checks DO NOT validate XHTML, EPUB spine reading
+ * order, malware, DRM licenses, territory, or publication rights.
+ *
+ * Like AV observations, a slow bounded filesystem inspection occurs outside
+ * DB transactions, then an owner advisory lock and exact status/metadata
+ * replay recheck prevent auditing a withdrawn or replaced asset as current.
+ * Only counts, never filenames/paths or source bytes, enter the audit record.
+ */
+export async function observePrivateQuarantineEpubStructure(
+  db:QuotaDb,storage:LocalStorageAdapter,
+  trustedOwnerId:string,trustedAssetId:string,
+){
+  const owner=uuid.parse(trustedOwnerId),id=uuid.parse(trustedAssetId);
+  const [asset]=await db.select().from(schema.mediaAssets).where(and(
+    eq(schema.mediaAssets.id,id),
+    eq(schema.mediaAssets.ownerScope,'private-user'),
+    eq(schema.mediaAssets.ownerUserId,owner),
+    eq(schema.mediaAssets.status,'pending_verify'),
+    eq(schema.mediaAssets.mime,'application/epub+zip'),
+  )).limit(1);
+  if(!asset)throw new Error('Quarantined private EPUB unavailable for trusted owner');
+  const record:QuarantinedBlob={
+    scope:'private-user',ownerUserId:owner,key:asset.storageKey,
+    sha256:asset.sha256,sizeBytes:asset.sizeBytes,
+    mime:'application/epub+zip',status:'pending_verify',
+  };
+  const structure=await storage.inspectEpubStructure(record);
+  return db.transaction(async tx=>{
+    await tx.execute(lockOwner(owner));
+    const [current]=await tx.select().from(schema.mediaAssets).where(and(
+      eq(schema.mediaAssets.id,id),
+      eq(schema.mediaAssets.ownerScope,'private-user'),
+      eq(schema.mediaAssets.ownerUserId,owner),
+      eq(schema.mediaAssets.status,'pending_verify'),
+      eq(schema.mediaAssets.mime,'application/epub+zip'),
+    )).limit(1);
+    if(!current||current.storageKey!==asset.storageKey||
+      current.sha256!==asset.sha256||current.sizeBytes!==asset.sizeBytes||
+      current.durationMs!==asset.durationMs||current.verifiedAt!==null){
+      throw new Error('Private EPUB metadata changed or was withdrawn during structural preflight');
+    }
+    await tx.insert(schema.auditEvents).values({
+      actorId:owner,action:'storage.quarantine.epub_structure_observed',
+      entityType:'media_asset',entityId:id,
+      afterJson:{ownerScope:'private-user',status:'pending_verify',
+        structuralStatus:structure.status,entryCount:structure.entryCount,
+        expandedBytes:structure.expandedBytes,sha256:asset.sha256},
+    });
+    return {assetId:id,status:'pending_verify' as const,...structure};
+  });
+}
