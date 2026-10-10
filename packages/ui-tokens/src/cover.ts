@@ -80,8 +80,12 @@ export function renderFolioCoverSvg(input:FolioCoverInput):string {
   const authorLines=wrapWords(input.authors.join(' • '),34).slice(0,3);
   const authorStart=Math.max(lastY+44,350);
   const id='folio-cover-'+input.workId.replace(/-/g,'');
-  const title=titleLines.map((line,n)=>'<text x="30" y="'+(startY+n*lineHeight)+
-    '" class="title" font-size="'+titleSize+'">'+safeText(line)+'</text>').join('');
+  const title=titleLines.map((line,n)=>{
+    const fit=Array.from(line).length*titleSize*.56>260
+      ?' textLength="260" lengthAdjust="spacingAndGlyphs"':'';
+    return '<text x="30" y="'+(startY+n*lineHeight)+
+      '" class="title" font-size="'+titleSize+'"'+fit+'>'+safeText(line)+'</text>';
+  }).join('');
   const author=authorLines.map((line,n)=>'<text x="30" y="'+(authorStart+n*23)+
     '" class="author">'+safeText(line)+'</text>').join('');
   return '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="480" '+
