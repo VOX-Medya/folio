@@ -13,7 +13,8 @@ test('Paperbound admin routes, language and browser history are real navigation'
 
   await page.getByRole('button',{name:'EN'}).click();
   await expect(page.getByRole('heading',{name:'Works'})).toBeVisible();
-  await expect(page.getByText('No content, members or files are shown', {exact:false})).toBeVisible();
+  await expect(page.getByTestId('admin-catalog-insecure')).toContainText(
+    'The HTTP preview never requests private catalog data');
   await expect(page.getByRole('link',{name:'Automatic source sync'})).toHaveCount(0);
   await expect(page.getByRole('link',{name:'AI translation / TTS generation'})).toHaveCount(0);
   await expect(page.getByText('AI translation / TTS generation')).toHaveAttribute('aria-disabled','true');
