@@ -28,6 +28,12 @@ jobs:
           grep -n -B 5 -A 4 'node-forge:' pnpm-lock.yaml | head -n 140 || true
           echo '----- LOCKFILE braces references -----'
           grep -n -B 5 -A 4 'braces:' pnpm-lock.yaml | head -n 160 || true
+      - name: Trace patchable moderate advisories before any version change
+        run: |
+          for pkg in esbuild uuid decode-uri-component js-yaml sprintf-js; do
+            echo "MODERATE ROOT $pkg"
+            pnpm why -r "$pkg" --depth 20 | grep -v 'circular' | head -n 58 || true
+          done
       - name: Inspect npm advisory report without waivers
         run: |
           pnpm audit --json > /tmp/folio-dependency-audit.json || true
