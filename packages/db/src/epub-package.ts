@@ -169,6 +169,7 @@ export function inspectEpubPackageSpineDetails(entries:ReadonlyMap<string,Buffer
   result:EpubPackageSpineResult;
   xhtmlPaths:readonly string[];
   cssPaths:readonly string[];
+  binaryAssets:readonly {path:string;mime:string}[];
   navigationPath:string;
 }{
   const containerBytes=entries.get('META-INF/container.xml');
@@ -200,6 +201,7 @@ export function inspectEpubPackageSpineDetails(entries:ReadonlyMap<string,Buffer
   const referencedPaths=new Set<string>();
   const xhtmlPaths:string[]=[];
   const cssPaths:string[]=[];
+  const binaryAssets:{path:string;mime:string}[]=[];
   let navigationPath='';
   const rootDir=opfPath.includes('/')?opfPath.slice(0,opfPath.lastIndexOf('/')+1):'';
   let navCount=0;
@@ -225,6 +227,7 @@ export function inspectEpubPackageSpineDetails(entries:ReadonlyMap<string,Buffer
     referencedPaths.add(path);
     if(mime==='application/xhtml+xml')xhtmlPaths.push(path);
     if(mime==='text/css')cssPaths.push(path);
+    if(mime!=='application/xhtml+xml'&&mime!=='text/css')binaryAssets.push({path,mime});
     if(nav)navigationPath=path;
   }
   if(navCount!==1)return invalid();
@@ -253,5 +256,5 @@ export function inspectEpubPackageSpineDetails(entries:ReadonlyMap<string,Buffer
   if(linear===0)return invalid();
   return {result:{status:'package_spine_only',packageCount:1,manifestItems:declared.length,
     spineItems:sequence.length,linearSpineItems:linear,navigationCount:1},
-    xhtmlPaths,cssPaths,navigationPath};
+    xhtmlPaths,cssPaths,binaryAssets,navigationPath};
 }

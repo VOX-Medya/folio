@@ -7,9 +7,10 @@ import {TextDecoder} from 'node:util';
 import {z} from 'zod';
 import {PRIVATE_CLAMAV_MAX_BYTES} from './quarantine-scanner.js';
 import type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
-import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,inspectEpubZipCssResources} from './epub-structure.js';
+import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,inspectEpubZipCssResources,inspectEpubZipPngResources} from './epub-structure.js';
 import type {EpubXhtmlMarkupResult} from './epub-xhtml.js';
 import type {EpubCssResourceResult} from './epub-css.js';
+import type {EpubPngResourcesResult} from './epub-png.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 import type {EpubZipStructuralResult} from './epub-structure.js';
 
@@ -55,6 +56,7 @@ export interface StorageAdapter {
   inspectEpubPackageSpine(record:QuarantinedBlob):Promise<EpubPackageSpineResult>;
   inspectEpubXhtmlMarkup(record:QuarantinedBlob):Promise<EpubXhtmlMarkupResult>;
   inspectEpubCssResources(record:QuarantinedBlob):Promise<EpubCssResourceResult>;
+  inspectEpubPngResources(record:QuarantinedBlob):Promise<EpubPngResourcesResult>;
 }
 
 function requireSha256(value:string):void {
@@ -375,6 +377,12 @@ export class LocalStorageAdapter implements StorageAdapter {
    * Reuses the owner-bound O_NOFOLLOW digest/inode quarantine checks. */
   async inspectEpubCssResources(record:QuarantinedBlob):Promise<EpubCssResourceResult>{
     return inspectEpubZipCssResources(await this.readTrustedEpubBytes(record));
+  }
+
+  /** Fifth quarantine-only, PNG-structure observation. Fonts and all
+   * other binary resource formats are explicitly rejected, not ignored. */
+  async inspectEpubPngResources(record:QuarantinedBlob):Promise<EpubPngResourcesResult>{
+    return inspectEpubZipPngResources(await this.readTrustedEpubBytes(record));
   }
 
   /**

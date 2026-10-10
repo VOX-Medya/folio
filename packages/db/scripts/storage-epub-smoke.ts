@@ -3,12 +3,14 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable} from 'node:stream';
+import {deflateSync} from 'node:zlib';
 import {and,eq} from 'drizzle-orm';
 import {createFolioDb,LocalStorageAdapter,reservePrivateUploadQuota,
   commitPrivateQuarantinedUpload,observePrivateQuarantineEpubStructure,
   observePrivateQuarantineEpubPackageSpine,
   observePrivateQuarantineEpubXhtmlMarkup,
-  observePrivateQuarantineEpubCssResources,schema} from '../src/index.js';
+  observePrivateQuarantineEpubCssResources,
+  observePrivateQuarantineEpubPngResources,schema} from '../src/index.js';
 function check(ok:unknown,message:string):asserts ok{if(!ok)throw new Error(message);}
 async function deny(label:string,fn:()=>Promise<unknown>){
   let rejected=false;
@@ -21,9 +23,29 @@ function crc32(b:Buffer):number{
   for(const v of b){c^=v;for(let j=0;j<8;j++)c=(c&1)?(c>>>1)^0xedb88320:c>>>1;}
   return (c^0xffffffff)>>>0;
 }
-/** Tiny synthetic uncompressed EPUB OCF, not a third-party or copyrighted book. */
-function fixture(withPackage=false,cssText?:string){
-  const entries=withPackage?[
+function pngChunk(type:string,data:Buffer):Buffer{
+  const id=Buffer.from(type,'ascii');
+  const len=Buffer.alloc(4);len.writeUInt32BE(data.length);
+  const crc=Buffer.alloc(4);crc.writeUInt32BE(crc32(Buffer.concat([id,data])));
+  return Buffer.concat([len,id,data,crc]);
+}
+function syntheticPng():Buffer{
+  const header=Buffer.alloc(13);
+  header.writeUInt32BE(1,0);header.writeUInt32BE(1,4);
+  header[8]=8;header[9]=6;
+  return Buffer.concat([
+    Buffer.from([137,80,78,71,13,10,26,10]),
+    pngChunk('IHDR',header),
+    pngChunk('IDAT',deflateSync(Buffer.from([0,25,50,75,255]))),
+    pngChunk('IEND',Buffer.alloc(0)),
+  ]);
+}
+/** Tiny synthetic uncompressed EPUB OCF, not third-party copyrighted files. */
+function fixture(withPackage=false,cssText?:string,embedded?:{
+  filename:string;mime:string;bytes:Buffer;
+}){
+
+  const entries:Array<[string,string|Buffer]>=withPackage?[
     ['mimetype','application/epub+zip'],
     ['META-INF/container.xml','<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'],
     ['OPS/book.opf','<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata/><manifest><item id="a" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="n" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="a" linear="yes"/></spine></package>'],
@@ -39,15 +61,24 @@ function fixture(withPackage=false,cssText?:string){
   if(cssText!==undefined){
     if(!withPackage)throw new Error('CSS fixture requires a valid OPF');
     const opf=entries.find(row=>row[0]==='OPS/book.opf');
-    if(!opf||!opf[1])throw new Error('Synthetic OPF missing');
+    if(!opf||typeof opf[1]!=='string')throw new Error('Synthetic OPF missing');
     opf[1]=opf[1].replace('</manifest>',
       '<item id="style" href="style.css" media-type="text/css"/></manifest>');
     entries.push(['OPS/style.css',cssText]);
   }
+  if(embedded!==undefined){
+    if(!withPackage||!/^[-a-z0-9.]+$/.test(embedded.filename))throw new Error('Invalid embedded fixture');
+    const opf=entries.find(row=>row[0]==='OPS/book.opf');
+    if(!opf||typeof opf[1]!=='string')throw new Error('Synthetic OPF missing');
+    opf[1]=opf[1].replace('</manifest>',
+      '<item id="embedded" href="'+embedded.filename+'" media-type="'+
+      embedded.mime+'"/></manifest>');
+    entries.push(['OPS/'+embedded.filename,embedded.bytes]);
+  }
   const locals:Buffer[]=[],centrals:Buffer[]=[];
   let offset=0,expanded=0;
   for(const [path,body] of entries){
-    const name=Buffer.from(path,'ascii'),data=Buffer.from(body,'utf8');
+    const name=Buffer.from(path,'ascii'),data=Buffer.isBuffer(body)?body:Buffer.from(body,'utf8');
     const crc=crc32(data),local=Buffer.alloc(30+name.length);
     local.writeUInt32LE(0x04034b50,0);
     local.writeUInt16LE(20,4);
@@ -289,6 +320,69 @@ async function main(){
         first.db,storage,owner,withdrawnCssId));
     check((await cssAudit(withdrawnCssId)).length===0,
       'Withdrawn private CSS media incorrectly got success audit');
+    // Fifth private binary-resource gate: explicit PNG structure only.
+    const image=syntheticPng();
+    const pngAsset=await stage(fixture(true,undefined,{
+      filename:'cover.png',mime:'image/png',bytes:image,
+    }).bytes);
+    const pngAudit=async(assetId:string)=>first.db.select().from(schema.auditEvents).where(and(
+      eq(schema.auditEvents.entityType,'media_asset'),
+      eq(schema.auditEvents.entityId,assetId),
+      eq(schema.auditEvents.action,'storage.quarantine.epub_png_observed'),
+    ));
+    await deny('embedded PNG cross-owner',
+      ()=>observePrivateQuarantineEpubPngResources(
+        second.db,storage,anotherOwner,pngAsset));
+    await deny('embedded PNG unknown ID',
+      ()=>observePrivateQuarantineEpubPngResources(
+        second.db,storage,owner,randomUUID()));
+    const result=await observePrivateQuarantineEpubPngResources(
+      first.db,storage,owner,pngAsset);
+    check(result.assetId===pngAsset&&result.status==='png_structure_only'&&
+      result.imageCount===1&&result.totalPixels===1&&
+      result.imageBytes===image.length&&result.assetStatus==='pending_verify',
+      'Private image gate incorrectly accepted metadata');
+    const [imageRow]=await first.db.select().from(schema.mediaAssets)
+      .where(eq(schema.mediaAssets.id,pngAsset));
+    const pngEvents=await pngAudit(pngAsset);
+    const auditString=JSON.stringify(pngEvents[0]?.afterJson);
+    check(imageRow?.status==='pending_verify'&&imageRow.verifiedAt===null&&
+      pngEvents.length===1&&!auditString.includes(imageRow.storageKey)&&
+      !auditString.includes(root)&&!auditString.includes('cover.png'),
+      'Private image gate verified a file or leaked private source/path');
+
+    const badPng=Buffer.from(image);badPng[badPng.length-1]=(badPng[badPng.length-1]??0)^1;
+    const badPngId=await stage(fixture(true,undefined,{
+      filename:'cover.png',mime:'image/png',bytes:badPng,
+    }).bytes);
+    await deny('PNG chunk CRC corrupted inside valid EPUB ZIP',
+      ()=>observePrivateQuarantineEpubPngResources(first.db,storage,owner,badPngId));
+    check((await pngAudit(badPngId)).length===0,
+      'Corrupted PNG incorrectly got success audit');
+    const fontAsset=await stage(fixture(true,undefined,{
+      filename:'font.woff2',mime:'font/woff2',bytes:Buffer.from('wOF2','ascii'),
+    }).bytes);
+    await deny('unparsed embedded font intentionally blocked',
+      ()=>observePrivateQuarantineEpubPngResources(first.db,storage,owner,fontAsset));
+    check((await pngAudit(fontAsset)).length===0,
+      'Unscanned embedded font incorrectly got a positive audit');
+
+    const withdrawnPngId=await stage(fixture(true,undefined,{
+      filename:'cover.png',mime:'image/png',bytes:image,
+    }).bytes);
+    const originalPng=storage.inspectEpubPngResources.bind(storage);
+    storage.inspectEpubPngResources=async record=>{
+      const reading=await originalPng(record);
+      await second.db.update(schema.mediaAssets).set({status:'rejected'})
+        .where(eq(schema.mediaAssets.id,withdrawnPngId));
+      return reading;
+    };
+    await deny('private PNG withdrawn during observation',
+      ()=>observePrivateQuarantineEpubPngResources(
+        first.db,storage,owner,withdrawnPngId));
+    check((await pngAudit(withdrawnPngId)).length===0,
+      'Withdrawn private PNG incorrectly received success audit');
+    console.log('EPUB PNG binary owner PASS: Folio-only PostgreSQL, bounded PNG CRC/zlib, unparsed fonts denied, owner isolation, revocation, pending status and counts-only audit.');
     console.log('EPUB CSS private-owner PASS: isolated PostgreSQL, imports denied, cross-owner and withdrawal rejected, counts-only audit, pending_verify.');
     console.log('EPUB XHTML syntax owner PASS: Folio-only two-pool PostgreSQL, exact safe-local nav anchors, owner isolation, in-flight revocation, counts-only audit, pending_verify preserved.');
     console.log('EPUB package/spine owner PASS: two Folio-only PostgreSQL pools, actual OCF rootfile and OPF relationships, private-owner/RBAC boundary, no source/key in audit, rejected placeholder, revocation and pending_verify preserved.');

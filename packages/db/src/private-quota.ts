@@ -475,3 +475,55 @@ export async function observePrivateQuarantineEpubCssResources(
     return {assetId:id,assetStatus:'pending_verify' as const,...css};
   });
 }
+
+/**
+ * Fifth independent private EPUB quarantine-only PNG structural observation.
+ * Validates ALL remaining manifest resources, so unscanned fonts, JPEG, GIF,
+ * WebP and legacy NCX cannot be silently treated as approved.
+ */
+export async function observePrivateQuarantineEpubPngResources(
+  db:QuotaDb,storage:LocalStorageAdapter,
+  trustedOwnerId:string,trustedAssetId:string,
+){
+  const owner=uuid.parse(trustedOwnerId),id=uuid.parse(trustedAssetId);
+  const [asset]=await db.select().from(schema.mediaAssets).where(and(
+    eq(schema.mediaAssets.id,id),
+    eq(schema.mediaAssets.ownerScope,'private-user'),
+    eq(schema.mediaAssets.ownerUserId,owner),
+    eq(schema.mediaAssets.status,'pending_verify'),
+    eq(schema.mediaAssets.mime,'application/epub+zip'),
+  )).limit(1);
+  if(!asset)throw new Error('Quarantined private EPUB unavailable for trusted owner');
+  const record:QuarantinedBlob={
+    scope:'private-user',ownerUserId:owner,key:asset.storageKey,
+    sha256:asset.sha256,sizeBytes:asset.sizeBytes,
+    mime:'application/epub+zip',status:'pending_verify',
+  };
+  const png=await storage.inspectEpubPngResources(record);
+  return db.transaction(async tx=>{
+    await tx.execute(lockOwner(owner));
+    const [current]=await tx.select().from(schema.mediaAssets).where(and(
+      eq(schema.mediaAssets.id,id),
+      eq(schema.mediaAssets.ownerScope,'private-user'),
+      eq(schema.mediaAssets.ownerUserId,owner),
+      eq(schema.mediaAssets.status,'pending_verify'),
+      eq(schema.mediaAssets.mime,'application/epub+zip'),
+    )).limit(1);
+    if(!current||current.storageKey!==asset.storageKey||
+      current.sha256!==asset.sha256||current.sizeBytes!==asset.sizeBytes||
+      current.durationMs!==asset.durationMs||current.verifiedAt!==null){
+      throw new Error('Private EPUB changed or withdrawn during PNG inspection');
+    }
+    await tx.insert(schema.auditEvents).values({
+      actorId:owner,action:'storage.quarantine.epub_png_observed',
+      entityType:'media_asset',entityId:id,
+      afterJson:{
+        ownerScope:'private-user',assetStatus:'pending_verify',
+        inspectionStatus:png.status,sha256:asset.sha256,
+        imageCount:png.imageCount,imageBytes:png.imageBytes,
+        totalPixels:png.totalPixels,
+      },
+    });
+    return {assetId:id,assetStatus:'pending_verify' as const,...png};
+  });
+}
