@@ -61,6 +61,15 @@ export async function updateVerifiedUserOnboarding(
     if(currentIndex===-1||targetIndex<currentIndex||targetIndex>currentIndex+1){
       throw new Error('Onboarding stage cannot skip or regress');
     }
+    // The privacy notice has no legally approved, versioned acceptance
+    // registry in V1 yet. A direct bearer, Web cookie or internal DB caller
+    // must NOT reach "complete" just because the UI hides that action.
+    // Keep previously persisted snapshots readable for migration; disallow
+    // every new completion/update targeting that state until explicit,
+    // server-verified privacy consent is added in a separately audited flow.
+    if(input.stage==='complete'){
+      throw new Error('Onboarding privacy consent acceptance is unavailable');
+    }
     const [saved]=await tx.update(schema.userOnboarding).set({
       stage:input.stage,locale:input.locale,interests:input.interests,
       version:current.version+1,updatedAt:new Date(),
