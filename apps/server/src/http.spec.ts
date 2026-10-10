@@ -16,12 +16,14 @@ describe('Folio API live HTTP contract', () => {
       const base = `http://127.0.0.1:${addr.port}`;
       const health = await fetch(`${base}/v1/health`);
       expect(health.status).toBe(200);
+      expect(health.headers.get('cache-control')).toBe('no-store');
       expect(healthResponseSchema.parse(await health.json())).toEqual({status: 'ok'});
       expect(await fetchSystemHealth(base)).toEqual({status:'ok'});
       const requestId = health.headers.get('x-request-id');
       expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
       const firstResponse = await fetch(`${base}/v1/system/capabilities?limit=2`);
       expect(firstResponse.status).toBe(200);
+      expect(firstResponse.headers.get('cache-control')).toBe('no-store');
       const first = capabilityPageSchema.parse(await firstResponse.json());
       expect(first.items).toHaveLength(2);
       expect(first.items.every(item => !item.available)).toBe(true);
@@ -34,6 +36,7 @@ describe('Folio API live HTTP contract', () => {
       for (const query of ['limit=0', 'limit=51', 'cursor=malformed', 'limit=3&foo=unexpected']) {
         const bad = await fetch(`${base}/v1/system/capabilities?${query}`);
         expect(bad.status).toBe(400);
+        expect(bad.headers.get('cache-control')).toBe('no-store');
         const error = apiErrorSchema.parse(await bad.json());
         expect(error.error.code).toBe('BAD_REQUEST');
         expect(error.error.requestId).toBe(bad.headers.get('x-request-id'));
@@ -42,6 +45,7 @@ describe('Folio API live HTTP contract', () => {
       expect(notFound.status).toBe(404);
       expect(apiErrorSchema.parse(await notFound.json()).error.code).toBe('NOT_FOUND');
       const ready = await fetch(`${base}/v1/ready`);
+      expect(ready.headers.get('cache-control')).toBe('no-store');
       if (ready.status===200) {
         expect(readinessResponseSchema.parse(await ready.json())).toEqual({status:'ready'});
         expect(await fetchSystemReadiness(base)).toEqual({status:'ready'});
