@@ -37,6 +37,36 @@ describe('owner-self guard Web cookie / native bearer separation',()=>{
       else process.env.FOLIO_WEB_AUTH_MODE=prev;
     }
   });
+  it('rejects native bearer with browser origin metadata before any account lookup',async()=>{
+    let lookups=0;
+    const guard=new VerifiedSelfSessionGuard(async(token)=>{
+      lookups++;
+      return lookup(token);
+    });
+    for(const extra of [
+      {origin:policy.origin},
+      {'sec-fetch-site':'same-origin'},
+      {'sec-fetch-site':'cross-site'},
+    ]){
+      const browserBearer:MockReq={
+        method:'PATCH',
+        headers:{authorization:'Bearer '+raw,'x-admin-role':'superadmin',...extra},
+        socket:{encrypted:true},
+        auth:{userId:'spoofed',sessionId:'spoofed'},
+      };
+      await expect(guard.canActivate(ctx(browserBearer)))
+        .rejects.toThrow(UnauthorizedException);
+      expect(browserBearer.auth).toBeUndefined();
+    }
+    expect(lookups).toBe(0);
+    const native:MockReq={
+      method:'PATCH',headers:{authorization:'Bearer '+raw},
+      socket:{encrypted:false},
+    };
+    await expect(guard.canActivate(ctx(native))).resolves.toBe(true);
+    expect(native.auth).toEqual(identity);
+    expect(lookups).toBe(1);
+  });
   it('validates TLS and same-origin request on cookie GET and HMAC on unsafe methods',async()=>{
     const original=Object.fromEntries([
       'FOLIO_WEB_AUTH_MODE','FOLIO_WEB_AUTH_ORIGIN','FOLIO_WEB_CSRF_KEY_HEX',

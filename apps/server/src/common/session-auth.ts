@@ -82,6 +82,12 @@ export class VerifiedSelfSessionGuard implements CanActivate {
       request.auth=principal;
       return true;
     }
+    // Browser callers must use the server-owned HttpOnly cookie and CSRF
+    // boundary, never a native bearer transported with browser metadata.
+    // Reject before any DB session lookup or principal attachment.
+    if(headers?.origin!==undefined||headers?.['sec-fetch-site']!==undefined){
+      throw new UnauthorizedException('Browser bearer transport forbidden');
+    }
     const header=headers?.authorization;
     if(typeof header!=='string'||!/^Bearer [A-Za-z0-9_-]{43}$/.test(header)){
       throw new UnauthorizedException('Verified session required');

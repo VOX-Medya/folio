@@ -60,6 +60,29 @@ async function main(){
       'Initial onboarding leaked another user or skipped default stage');
     check(firstRead.headers.get('cache-control')?.includes('no-store'),
       'Private onboarding HTTP response was cacheable');
+    // Native bearer must not silently become browser authentication. These
+    // spoofed browser metadata headers are rejected before owned DB access.
+    for(const browserMetadata of [
+      {origin:'https://reader.example.org'},
+      {'sec-fetch-site':'same-origin'},
+      {'sec-fetch-site':'cross-site'},
+    ]){
+      const denied=await fetch(endpoint,{headers:{
+        ...headers(device1.sessionToken),...browserMetadata,
+      }});
+      check(denied.status===401,'Browser-origin bearer read private onboarding');
+      const denial=apiErrorSchema.parse(await denied.json());
+      check(denial.error.code==='UNAUTHORIZED'&&
+        denial.error.requestId===denied.headers.get('x-request-id')&&
+        denied.headers.get('cache-control')?.includes('no-store'),
+        'Browser bearer denial leaked or lost HTTP error/cache contract');
+    }
+    const browserMutation=await fetch(endpoint,{
+      method:'PATCH',
+      headers:{...headers(device1.sessionToken),origin:'https://reader.example.org'},
+      body:JSON.stringify({expectedVersion:0,stage:'language',locale:'en',interests:[]}),
+    });
+    check(browserMutation.status===401,'Browser-origin bearer updated private onboarding');
     check((await fetch(endpoint+'?userId='+second.userId,{
       headers:headers(device1.sessionToken)})).status===400,
       'Untrusted query selected another principal');
