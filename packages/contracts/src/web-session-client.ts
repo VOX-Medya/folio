@@ -1,5 +1,8 @@
-import {deviceSessionIdSchema,deviceSessionInventorySchema,webLoginRequestSchema} from './index.js';
-import type {DeviceSessionInventory} from './index.js';
+import {
+  deviceSessionIdSchema,deviceSessionInventorySchema,webLoginRequestSchema,
+  onboardingSnapshotSchema,onboardingUpdateRequestSchema,
+} from './index.js';
+import type {DeviceSessionInventory,OnboardingSnapshot} from './index.js';
 import {readFolioError} from './verified-request.js';
 
 /**
@@ -37,7 +40,7 @@ function browserApiOrigin(baseUrl:string):string {
   return url.origin;
 }
 function requestInit(
-  options:WebSessionClientRequest,method:'GET'|'POST'|'DELETE',
+  options:WebSessionClientRequest,method:'GET'|'POST'|'DELETE'|'PATCH',
   extra?:{body?:string;csrf?:string},
 ):RequestInit{
   return {
@@ -172,4 +175,54 @@ export async function revokeWebDeviceSession(
   );
   if(!response.ok)return failDeviceSession(response,options);
   expectNoContent(response);
+}
+
+/**
+ * Retrieve only the verified browser session owner's persisted onboarding.
+ * No user ID, account data, or bearer is sent by the caller.
+ */
+export async function fetchWebOnboarding(
+  options:WebSessionClientRequest,
+):Promise<OnboardingSnapshot>{
+  const origin=browserApiOrigin(options.baseUrl);
+  const response=await (options.fetcher??fetch)(
+    origin+'/v1/me/onboarding',requestInit(options,'GET'),
+  );
+  return parseWebOnboarding(response,options);
+}
+
+/** Strict 200 contract for a verified, backend-owned onboarding snapshot. */
+async function parseWebOnboarding(
+  response:Response,options:WebSessionClientRequest,
+):Promise<OnboardingSnapshot>{
+  if(!response.ok)return failDeviceSession(response,options);
+  if(response.status!==200){
+    throw new WebSessionHttpError(response.status,'UNEXPECTED_HTTP_RESPONSE',null);
+  }
+  let raw:unknown;
+  try{raw=await response.json();}
+  catch{throw new WebSessionHttpError(200,'INVALID_ONBOARDING_RESPONSE',null);}
+  const parsed=onboardingSnapshotSchema.safeParse(raw);
+  if(!parsed.success){
+    throw new WebSessionHttpError(200,'INVALID_ONBOARDING_RESPONSE',null);
+  }
+  return parsed.data;
+}
+
+/**
+ * Advance exactly one server-checked optimistic stage. Schema and origin are
+ * validated before network access. Fresh per-session CSRF is required for
+ * every mutation; stale versions return a 409, never silent local success.
+ */
+export async function updateWebOnboarding(
+  options:WebSessionClientRequest,rawUpdate:unknown,
+):Promise<OnboardingSnapshot>{
+  const origin=browserApiOrigin(options.baseUrl);
+  const input=onboardingUpdateRequestSchema.parse(rawUpdate);
+  const csrf=await fetchWebSessionCsrf(options);
+  const response=await (options.fetcher??fetch)(
+    origin+'/v1/me/onboarding',
+    requestInit(options,'PATCH',{csrf,body:JSON.stringify(input)}),
+  );
+  return parseWebOnboarding(response,options);
 }
