@@ -12,6 +12,7 @@ import {
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
+  adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
 } from '@folio/contracts';
 import type {
   AdminCatalogAuthorDetail,AdminCatalogAuthorPage,
@@ -20,7 +21,7 @@ import type {
   CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
   AdminCatalogEditionMetadataPatch,AdminCatalogRevisionDiff,
-  AdminCatalogRevisionList,
+  AdminCatalogRevisionList,AdminCatalogRightsLedger,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
 
@@ -290,5 +291,27 @@ export async function getAdminRevisionList(
   );
   const result=parse(raw,value=>adminCatalogRevisionListSchema.parse(value));
   if(result.editionId!==edition)throw new CatalogClientError('unexpected');
+  return result;
+}
+
+/** Current HTTPS session + current-device MFA and persisted rights:read
+ * are enforced at the server. Claims here NEVER imply permission to publish.
+ * No document bodies, reviewer IDs, bearer, raw evidence or asset keys. */
+export async function getAdminRightsLedger(
+  workId:string,cursor?:string,signal?:AbortSignal,
+):Promise<AdminCatalogRightsLedger>{
+  const parsed=adminCatalogRightsLedgerQuerySchema.safeParse({
+    limit:20,...(cursor===undefined?{}:{cursor}),
+  });
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const work=checkedId(workId);
+  const query=new URLSearchParams({limit:String(parsed.data.limit)});
+  if(parsed.data.cursor)query.set('cursor',parsed.data.cursor);
+  const raw=await request(
+    '/v1/admin/catalog/works/'+work+'/rights?'+query.toString(),
+    'GET',200,undefined,signal,
+  );
+  const result=parse(raw,value=>adminCatalogRightsLedgerSchema.parse(value));
+  if(result.workId!==work)throw new CatalogClientError('unexpected');
   return result;
 }
