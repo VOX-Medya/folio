@@ -312,7 +312,11 @@ describe('admin catalog browser privacy/transport contract',()=>{
           includeRsvp:true,includeAudio:false}}],
       nextCursor:null,isMetadataOnly:true,
     };
-    const fetcher=vi.fn(async()=>json(diff));
+    const fetcher=vi.fn(async(path:string,init:RequestInit)=>{
+      expect(path).toContain('/v1/admin/catalog/works/');
+      expect(init.method).toBe('GET');
+      return json(diff);
+    });
     vi.stubGlobal('fetch',fetcher);
     expect(await getAdminRevisionDiff(workId,authorId,fromRevisionId,toRevisionId))
       .toEqual(diff);
