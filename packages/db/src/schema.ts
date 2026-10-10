@@ -210,3 +210,49 @@ export const textAlignments = pgTable('text_alignments', {
   foreignKey({columns:[t.sourceRevisionId,t.sourceBlockId],foreignColumns:[contentBlocks.revisionId,contentBlocks.blockId],name:'alignments_source_block_fk'}).onDelete('restrict'),
   foreignKey({columns:[t.targetRevisionId,t.targetBlockId],foreignColumns:[contentBlocks.revisionId,contentBlocks.blockId],name:'alignments_target_block_fk'}).onDelete('restrict'),
 ]);
+
+/** Private media metadata. Actual bytes and cryptographic verification belong to LocalStorageAdapter. */
+export const mediaAssets=pgTable('media_assets',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  ownerScope:varchar('owner_scope',{length:24}).notNull(),
+  ownerUserId:uuid('owner_user_id'),
+  storageKey:text('storage_key').notNull(),
+  sha256:varchar('sha256',{length:64}).notNull(),
+  sizeBytes:integer('size_bytes').notNull(),
+  mime:varchar('mime',{length:80}).notNull(),
+  durationMs:integer('duration_ms'),
+  status:varchar('status',{length:24}).notNull().default('pending_verify'),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+});
+
+/** Every replacement is a distinct complete variant, so old listener cursors remain valid. */
+export const audioVariants=pgTable('audio_variants',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  contentRevisionId:uuid('content_revision_id').notNull().references(()=>contentRevisions.id,{onDelete:'restrict'}),
+  language:varchar('language',{length:12}).notNull(),
+  voiceId:text('voice_id').notNull(),
+  sourceLabel:text('source_label').notNull(),
+  codec:varchar('codec',{length:24}).notNull(),
+  variantVersion:integer('variant_version').notNull(),
+  supersedesVariantId:uuid('supersedes_variant_id'),
+  status:varchar('status',{length:24}).notNull().default('draft'),
+  createdBy:uuid('created_by').notNull(),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  index('audio_variants_revision_idx').on(t.contentRevisionId),
+  uniqueIndex('audio_variants_version_idx').on(t.contentRevisionId,t.language,t.voiceId,t.variantVersion),
+]);
+
+export const audioSegments=pgTable('audio_segments',{
+  variantId:uuid('variant_id').notNull().references(()=>audioVariants.id,{onDelete:'restrict'}),
+  chapterId:uuid('chapter_id').notNull(),
+  ordinal:integer('ordinal').notNull(),
+  assetId:uuid('asset_id').notNull().references(()=>mediaAssets.id,{onDelete:'restrict'}),
+  textBlockId:uuid('text_block_id').notNull(),
+  textSha256:varchar('text_sha256',{length:64}).notNull(),
+  startMs:integer('start_ms').notNull(),
+  endMs:integer('end_ms').notNull(),
+},t=>[
+  primaryKey({columns:[t.variantId,t.chapterId,t.ordinal]}),
+  index('audio_segments_asset_idx').on(t.assetId),
+]);

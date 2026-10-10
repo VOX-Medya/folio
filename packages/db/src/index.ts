@@ -14,3 +14,4 @@ export {createCanonicalAuthor, createCanonicalWork, getCanonicalWorkDetails} fro
 export {createContentRevision, getRevisionBlocks, sha256Text} from './content.js';
 export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction} from './rights.js';
 export {createPreparedTranslationLink,verifyPreparedTranslationEdges,resolveTranslationSwitch} from './translation.js';
+export {registerPreparedAudioAsset,registerPreparedAudioVariant,replacePreparedAudioSegment,getPreparedAudioVariant} from './audio.js';
