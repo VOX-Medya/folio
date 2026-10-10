@@ -235,6 +235,176 @@ async function main():Promise<void>{
     const percent=adminCatalogWorkPageSchema.parse(JSON.parse(pct.body));
     check(percent.items.length===1&&percent.items[0]?.id===literal.id,
       'Literal percent search unexpectedly became a SQL wildcard');
+
+    // A role with catalog:read cannot silently acquire catalog:edit, even
+    // with a real same-device MFA proof.
+    const viewerBearer={authorization:'Bearer '+viewerSession.sessionToken};
+    check((await call(true,port,search,viewerBearer)).status===200,
+      'Read-only administrator could not read canonical metadata');
+    const deniedPost=async(headers:Record<string,string>,why:string)=>{
+      const answer=await post(port,createRoot,headers,draftAuthor);
+      check(answer.status===403&&
+        answer.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(answer.body)).error.code==='FORBIDDEN',
+        why);
+    };
+    await deniedPost(viewerBearer,
+      'Read-only role with verified MFA created canonical author');
+    await deniedPost({
+      authorization:'Bearer '+moderatorSession.sessionToken,
+      'x-admin-role':'editor',
+    },'Moderator with MFA and forged role created author');
+    await deniedPost({
+      authorization:'Bearer '+guestSession.sessionToken,
+      'x-admin-role':'superadmin',
+    },'Unprivileged user with forged superadmin header created author');
+    await deniedPost({authorization:'Bearer '+web.sessionToken},
+      'Same editor password+role without device MFA wrote draft');
+    check((await post(port,createRoot,{
+      ...bearer,origin:'https://evil.example',
+    },draftAuthor)).status===401,
+      'Browser Origin-bearing native POST circumvented cookie boundary');
+    check((await post(port,createRoot,{
+      ...bearer,'sec-fetch-site':'same-origin',
+    },draftAuthor)).status===401,
+      'Browser fetch metadata-bearing native POST created author');
+
+    const beforeRejected=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM authors WHERE canonical_name=$1',
+      [draftAuthor.canonicalName],
+    );
+    check(beforeRejected.rows[0]?.count===0,
+      'An unauthorized writer created a record before valid request');
+    for(const invalid of [
+      {...draftAuthor,userId:guest.userId},
+      {...draftAuthor,actorId:guest.userId},
+      {...draftAuthor,role:'superadmin'},
+      {...draftAuthor,publicationStatus:'published'},
+      {canonicalName:'    '},
+    ]){
+      const bad=await post(port,createRoot,bearer,invalid);
+      check(bad.status===400&&
+        bad.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(bad.body)).error.code==='BAD_REQUEST',
+        'Admin author body schema accepted forbidden fields');
+    }
+    check((await post(port,createRoot+'?userId='+guest.userId,
+      bearer,draftAuthor)).status===400,
+      'Privileged POST accepted caller-controlled actor query');
+
+    const signedNative=await post(port,createRoot,{
+      ...bearer,'x-admin-role':'superadmin','x-user-id':guest.userId,
+      'x-request-id':'forged-request-id',
+    },draftAuthor);
+    check(signedNative.status===201&&
+      signedNative.headers['cache-control']==='private, no-store'&&
+      !signedNative.headers['set-cookie']&&
+      signedNative.headers['x-request-id']!=='forged-request-id',
+      'Authenticated draft author was not created with server-owned trace');
+    const nativeDraftId=adminCatalogAuthorCreatedSchema.parse(
+      JSON.parse(signedNative.body)).id;
+    const signedAlias=await pool.query<{name:string}>(
+      'SELECT name FROM author_aliases WHERE author_id=$1::uuid',[nativeDraftId],
+    );
+    check(signedAlias.rows[0]?.name==='Native Alias '+suffix,
+      'Authorized author metadata aliases were not persisted');
+    const nativeAudit=await pool.query<{
+      action:string;actor_id:string;request_id:string;entity_id:string;
+    }>('SELECT action,actor_id,request_id,entity_id FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [nativeDraftId,'author.create']);
+    check(nativeAudit.rows.length===1&&
+      nativeAudit.rows[0]?.actor_id===editor.userId&&
+      nativeAudit.rows[0]?.request_id===signedNative.headers['x-request-id'],
+      'Author audit did not bind exactly one trusted editor and server request ID');
+
+    // The external author ID is globally unique by source. A failed second
+    // command MUST roll back its author row AND audit in the same transaction.
+    const collisionName='Collision Writer '+suffix;
+    const collision=await post(port,createRoot,bearer,{
+      canonicalName:collisionName,
+      externalIds:draftAuthor.externalIds,
+    });
+    check(collision.status===409&&
+      apiErrorSchema.parse(JSON.parse(collision.body)).error.code==='CONFLICT',
+      'Duplicate external author key did not receive sanitized conflict');
+    const collided=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM authors WHERE canonical_name=$1',
+      [collisionName]);
+    check(collided.rows[0]?.count===0,
+      'Duplicate external author key committed partial author row');
+
+    const workInput={
+      originalTitle:'Authorized Draft '+suffix,originalLanguage:'tr',
+      authors:[{authorId:nativeDraftId,contribution:'author',sortOrder:0}],
+      titles:[{language:'en',title:'Reviewed Translation '+suffix,kind:'translation'}],
+      editions:[
+        {language:'tr',label:'Original '+suffix,
+          identifiers:[{kind:'isbn-13',value:'9780000000001'}]},
+        {language:'en',label:'Translation '+suffix,contributors:[
+          {authorId:author.id,role:'translator',sortOrder:0},
+        ]},
+      ],
+    };
+    for(const invalid of [
+      {...workInput,publicationStatus:'published'},
+      {...workInput,ownerId:guest.userId},
+      {...workInput,content:'MADE UP TEXT'},
+      {...workInput,authors:[]},
+      {...workInput,authors:[{authorId:nativeDraftId},{authorId:nativeDraftId}]},
+      {...workInput,editions:[{language:'en',label:'Wrong',status:'published'}]},
+    ]){
+      const denied=await post(port,root+'/works',bearer,invalid);
+      check(denied.status===400&&
+        apiErrorSchema.parse(JSON.parse(denied.body)).error.code==='BAD_REQUEST',
+        'Admin work POST accepted unsupported status or relationship');
+    }
+    const realWork=await post(port,root+'/works',bearer,workInput);
+    check(realWork.status===201&&
+      realWork.headers['cache-control']==='private, no-store',
+      'Verified admin could not create an unpublished work');
+    const createdWork=adminCatalogWorkCreatedSchema.parse(JSON.parse(realWork.body));
+    check(createdWork.publicationStatus==='draft',
+      'Created canonical work became published without rights approval');
+    const workRow=await pool.query<{publication_status:string}>(
+      'SELECT publication_status FROM works WHERE id=$1::uuid',
+      [createdWork.id]);
+    const editionRows=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM editions WHERE work_id=$1::uuid',
+      [createdWork.id]);
+    const workAudit=await pool.query<{
+      actor_id:string;request_id:string;after_json:{status?:string};
+    }>('SELECT actor_id,request_id,after_json FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [createdWork.id,'work.create']);
+    check(workRow.rows[0]?.publication_status==='draft'&&
+      editionRows.rows[0]?.count===2&&
+      workAudit.rows.length===1&&
+      workAudit.rows[0]?.actor_id===editor.userId&&
+      workAudit.rows[0]?.request_id===realWork.headers['x-request-id']&&
+      workAudit.rows[0]?.after_json?.status==='draft',
+      'Work/edition draft and actor+request audit were not committed atomically');
+
+    // Failure AFTER work, author, title and edition insertion must unwind
+    // all of them; not merely reject an invalid foreign ID before writing.
+    const rolledBackName='Rolled Back '+suffix;
+    const invalidContributor=await post(port,root+'/works',bearer,{
+      ...workInput,originalTitle:rolledBackName,
+      editions:[{language:'en',label:'Bad Contributor',contributors:[
+        {authorId:randomUUID(),role:'translator'},
+      ]}],
+    });
+    check(invalidContributor.status===400&&
+      invalidContributor.headers['cache-control']==='private, no-store',
+      'Contributor foreign-key failure was not converted to sanitized 400');
+    const aborted=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM works WHERE original_title=$1',
+      [rolledBackName]);
+    check(aborted.rows[0]?.count===0,
+      'Aborted composite admin mutation committed partial work');
+    const auditSecret=JSON.stringify([...nativeAudit.rows,...workAudit.rows]);
+    check(!auditSecret.includes(native.sessionToken)&&
+      !auditSecret.includes(password)&&!auditSecret.includes(guest.email),
+      'Privileged audit events leaked credentials');
+
     for(const invalid of [
       root+'/works',
       root+'/works?q=',
