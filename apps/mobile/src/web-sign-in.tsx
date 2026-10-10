@@ -7,6 +7,7 @@ import {
 } from '@folio/contracts';
 import type {DeviceSessionInventory} from '@folio/contracts';
 import type {FolioLocale} from './shell-data';
+import {WebOnboardingPanel} from './web-onboarding';
 
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 type Phase='checking'|'signedOut'|'signedIn'|'busy'|'unavailable';
@@ -47,7 +48,7 @@ function enabledOrigin():string|null{
      window.location.protocol!=='https:')return null;
   return window.location.origin;
 }
-export function WebSignInPanel({locale,colors}:{locale:FolioLocale;colors:Palette}){
+export function WebSignInPanel({locale,colors,onLocaleSaved}:{locale:FolioLocale;colors:Palette;onLocaleSaved:(next:FolioLocale)=>void}){
   const [phase,setPhase]=useState<Phase>('checking');
   const [email,setEmail]=useState('');
   const [password,setPassword]=useState('');
@@ -243,6 +244,16 @@ export function WebSignInPanel({locale,colors}:{locale:FolioLocale;colors:Palett
           ?'Web oturumu sunucuda doğrulandı. Kişisel içerik, yalnız kendi API izinleriyle yüklenecek.'
           :'Your web session was verified by the server. Private content will load only through its own authorized API.'}
       </Text>
+      {origin&&<WebOnboardingPanel
+        origin={origin} locale={locale} colors={colors}
+        onLocaleSaved={onLocaleSaved}
+        onSessionExpired={()=>{
+          clearDevices();
+          setPhase('signedOut');
+          setError(locale==='tr'
+            ?'Oturum sona erdi. Tekrar giriş yap.'
+            :'Your session expired. Sign in again.');
+        }}/>} 
       <View style={{gap:10}}>
         <Pressable testID="folio-device-sessions-load" accessibilityRole="button"
           accessibilityLabel={locale==='tr'?'Cihaz oturumlarını yükle':'Load device sessions'}

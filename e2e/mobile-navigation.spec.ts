@@ -45,6 +45,7 @@ test('Expo Web profile does not activate HTTP or native-unverified login',async(
   await expect(page.getByTestId('folio-login-submit')).toHaveCount(0);
   await expect(page.getByTestId('folio-device-sessions-load')).toHaveCount(0);
   await expect(page.getByTestId('folio-devices-list')).toHaveCount(0);
+  await expect(page.getByTestId('folio-web-onboarding-panel')).toHaveCount(0);
   const keys=await page.evaluate(()=>Object.keys(window.sessionStorage));
   expect(keys.filter(key=>/token|bearer|session|password|csrf/i.test(key))).toEqual([]);
 });

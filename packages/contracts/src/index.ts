@@ -291,5 +291,5 @@ export const webLoginRequestSchema=z.object({
 }).strict();
 
 // Browser-only same-origin HttpOnly cookie client, distinct from native bearer.
-export {loginWebSession,fetchWebSessionCsrf,logoutWebSession,fetchWebDeviceSessions,revokeWebDeviceSession,WebSessionHttpError} from './web-session-client.js';
+export {loginWebSession,fetchWebSessionCsrf,logoutWebSession,fetchWebDeviceSessions,revokeWebDeviceSession,fetchWebOnboarding,updateWebOnboarding,WebSessionHttpError} from './web-session-client.js';
 export type {WebSessionClientRequest} from './web-session-client.js';
