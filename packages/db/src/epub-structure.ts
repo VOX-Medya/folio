@@ -175,8 +175,7 @@ export function inspectEpubZipStructure(bytes:Buffer):EpubZipStructuralResult{
     if(version>45||flags!==member.flags||method!==member.method||
       nameLength!==member.nameBytes.length||!within(bytes,pos,30+nameLength+extraLength)||
       !bytes.subarray(pos+30,pos+30+nameLength).equals(member.nameBytes)||
-      !extrasSafe(bytes.subarray(pos+30+nameLength,dataOffset))||
-      false) {
+      !extrasSafe(bytes.subarray(pos+30+nameLength,dataOffset))) {
       // The data-descriptor checks are below; avoid silently trusting
       // compressed/uncompressed size claims from the local ZIP header.
       return invalid();
