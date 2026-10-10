@@ -1966,6 +1966,195 @@
         ]
       }
     },
+    "/v1/admin/catalog/works/{workId}/editions/{editionId}": {
+      "patch": {
+        "operationId": "AdminCatalogController_patchEdition",
+        "parameters": [
+          {
+            "name": "editionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "label"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "publisher"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "identifiers"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "contributors"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400
+                  },
+                  "publisher": {
+                    "type": "string",
+                    "maxLength": 240,
+                    "nullable": true
+                  },
+                  "identifiers": {
+                    "type": "array",
+                    "maxItems": 30,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "value"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "isbn-10",
+                            "isbn-13",
+                            "other"
+                          ]
+                        },
+                        "value": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 150
+                        }
+                      }
+                    }
+                  },
+                  "contributors": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "authorId",
+                        "role"
+                      ],
+                      "properties": {
+                        "authorId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "author",
+                            "translator",
+                            "editor",
+                            "illustrator"
+                          ]
+                        },
+                        "sortOrder": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000,
+                          "default": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "workId",
+                    "metadataVersion",
+                    "status"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metadataVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA/RBAC catalog:edit; versioned DRAFT edition metadata revision with trusted audit; rights/content immutable",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
     "/v1/admin/catalog/works/{workId}/titles": {
       "post": {
         "operationId": "AdminCatalogController_appendTitle",
