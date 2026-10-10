@@ -4,8 +4,8 @@ import {
 } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { createFolioDb } from '@folio/db';
-import {capabilityPageSchema, cursorQuerySchema, healthResponseSchema, paginateCapabilities} from '@folio/contracts';
-import type {Capability, CapabilityPage, HealthResponse} from '@folio/contracts';
+import {capabilityPageSchema, cursorQuerySchema, healthResponseSchema, readinessResponseSchema, paginateCapabilities} from '@folio/contracts';
+import type {Capability, CapabilityPage, HealthResponse, ReadinessResponse} from '@folio/contracts';
 
 @ApiTags('system')
 @Controller('v1')
@@ -54,11 +54,11 @@ export class CapabilitiesController {
 @Injectable()
 export class DbReadinessService implements OnModuleDestroy {
   private connection = process.env.DATABASE_URL ? createFolioDb(process.env.DATABASE_URL) : undefined;
-  async readiness(): Promise<{status: 'ready'}> {
+  async readiness(): Promise<ReadinessResponse> {
     if (!this.connection) throw new ServiceUnavailableException('Database not configured');
     try { await this.connection.pool.query('SELECT 1'); }
     catch { throw new ServiceUnavailableException('Database not ready'); }
-    return {status: 'ready'};
+    return readinessResponseSchema.parse({status: 'ready'});
   }
   async onModuleDestroy(): Promise<void> { await this.connection?.pool.end(); }
 }
@@ -70,7 +70,7 @@ export class ReadinessController {
   @Get('ready')
   @ApiOperation({ summary: 'Database readiness (503 when unavailable)' })
   @ApiOkResponse({schema: {type: 'object', required: ['status'], properties: {status: {type: 'string', enum: ['ready']}}}})
-  async ready(): Promise<{status: 'ready'}> { return this.db.readiness(); }
+  async ready(): Promise<ReadinessResponse> { return this.db.readiness(); }
 }
 
 

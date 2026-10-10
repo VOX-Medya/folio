@@ -3,6 +3,7 @@ import { Base64 } from 'js-base64';
 
 /** Contracts may be used by web, native and admin without framework imports. */
 export const healthResponseSchema = z.object({status: z.literal('ok')}).strict();
+export const readinessResponseSchema = z.object({status: z.literal('ready')}).strict();
 export const apiErrorSchema = z.object({
   error: z.object({
     code: z.string().min(1),
@@ -30,6 +31,7 @@ export const capabilityPageSchema = z.object({
 }).strict();
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
+export type ReadinessResponse = z.infer<typeof readinessResponseSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type CursorQuery = z.infer<typeof cursorQuerySchema>;
 export type Capability = z.infer<typeof capabilitySchema>;
@@ -69,23 +71,8 @@ export function paginateCapabilities(items: readonly Capability[], raw: unknown)
   });
 }
 
-/** Browser and React Native compatible typed capabilities client. */
-export async function fetchCapabilities(
-  baseUrl: string, query: {limit?: number; cursor?: string} = {},
-  fetcher: typeof fetch = fetch,
-): Promise<CapabilityPage> {
-  const params = new URLSearchParams();
-  if (query.limit !== undefined) params.set('limit', String(query.limit));
-  if (query.cursor !== undefined) params.set('cursor', query.cursor);
-  const suffix = params.size ? `?${params.toString()}` : '';
-  const response = await fetcher(`${baseUrl.replace(/\/$/, '')}/v1/system/capabilities${suffix}`);
-  const data: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = apiErrorSchema.safeParse(data);
-    throw new Error(parsed.success ? `${parsed.data.error.code}: ${parsed.data.error.message}` : `HTTP ${response.status}`);
-  }
-  return capabilityPageSchema.parse(data);
-}
+/** Safe shared system transport for responsive Web, Expo native and admin. */
+export {fetchCapabilities,fetchSystemHealth,fetchSystemReadiness,SystemHttpError} from './system-client.js';
 
 /** Internal draft-only canonical catalog commands. No public CRUD is exposed until RBAC. */
 export const authorCreateSchema = z.object({
