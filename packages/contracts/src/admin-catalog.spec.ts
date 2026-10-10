@@ -9,6 +9,7 @@ import {
   adminCatalogEditionAppendSchema,adminCatalogTitleAppendSchema,
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
+  adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
@@ -279,6 +280,37 @@ describe('admin-only canonical metadata search contracts',()=>{
     expect(adminCatalogEditionMetadataUpdatedSchema.safeParse({
       id,workId:id,metadataVersion:6,status:'published',
     }).success).toBe(false);
+  });
+  it('strictly limits verified editorial diff pagination to UUID metadata without text or role claims',()=>{
+    expect(adminCatalogRevisionDiffQuerySchema.parse({
+      fromRevisionId:id,limit:'2',
+    })).toEqual({fromRevisionId:id,limit:2});
+    for(const invalid of [
+      {fromRevisionId:'invalid'}, {fromRevisionId:id,limit:0},
+      {fromRevisionId:id,limit:101},{fromRevisionId:id,cursor:'../private'},
+      {fromRevisionId:id,actorId:id},{fromRevisionId:id,sourceText:'secret'},
+    ])expect(adminCatalogRevisionDiffQuerySchema.safeParse(invalid).success).toBe(false);
+    const record={
+      editionId:id,fromRevisionId:id,toRevisionId:id,
+      summary:{added:1,removed:0,text_changed:0,metadata_changed:0,
+        moved:0,unchanged:1},
+      chapterChanges:[{chapterId:id,kind:'moved'}],
+      items:[{blockId:id,kind:'added',before:null,
+        after:{chapterId:id,ordinal:0,kind:'paragraph',
+          textSha256:'a'.repeat(64),
+          includeNormal:true,includeRsvp:true,includeAudio:false}}],
+      nextCursor:null,isMetadataOnly:true,
+    };
+    expect(adminCatalogRevisionDiffSchema.parse(record)).toEqual(record);
+    for(const invalid of [
+      {...record,sourceText:'verbatim content'},
+      {...record,privateOwner:id},
+      {...record,isMetadataOnly:false},
+      {...record,items:[{...record.items[0],rawArtifactKey:'private/source'}]},
+      {...record,items:[{...record.items[0],after:{
+        ...record.items[0].after,sourceText:'secret',
+      }}]},
+    ])expect(adminCatalogRevisionDiffSchema.safeParse(invalid).success).toBe(false);
   });
 
 });
