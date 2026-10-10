@@ -60,3 +60,6 @@ Toplam 6 + 11 + 10 + 9 + 11 + 11 = 58 demo ekranı; V1 52 ekran, gelecek 6 ekran
 
 ## Uygulanabilir ekran sözleşmesi (#8)
 Kaynak HTML prototiplerindeki 58 mobil ve 30 admin ekran kimliği, V1/gelecek ayrımı, eylem ve hata/çevrimdışı/gizlilik durumları `docs/10-UI-SCREEN-MATRIX.md` içinde tutarlı biçimde doğrulanır. `node tools/design/generate-screen-matrix.mjs --check` prototip/eylem kapsamını ve çıktının güncelliğini denetler. Ortak açık/koyu Paperbound tokenları `packages/ui-tokens/src/index.ts` üzerinden admin ve Expo başlangıç kabuğuna uygulanır. Bu sözleşme V1 ekranlarının tamamının uygulanmış veya kullanıcı tarafından nihai görsel olarak onaylanmış olduğu iddiası değildir.
+
+## Tasarim sozlesmesi kabul kaniti (#8, 10 Ekim 2026)
+Paperbound kapsam matrisi, 88 kaynak referansi / 74 V1 / 14 AFTER-V1 kisitini ve her V1 ekraninin eylem/durum/cihaz yerlesimi politikasini otomatik test eder. `docs/18-DESIGN-CONTRACT-ACCEPTANCE.md` 320/390/768/1024/1440/1920 Chrome E2E, dark/light ve kontrast test kanitlarini listeler. Bu tasarim kontratinin dondurulmasidir; 74 ekrani yapilmis, butun gercek hata/offline/yetki akislari denenmis veya insan son tasarim onayi alinmis anlamina gelmez.

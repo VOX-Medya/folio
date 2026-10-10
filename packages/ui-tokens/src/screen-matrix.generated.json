@@ -16,7 +16,7 @@
         "offline",
         "permission"
       ],
-      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+      "layout": "Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik"
     },
     {
       "platform": "mobile",
@@ -35,7 +35,7 @@
         "offline",
         "permission"
       ],
-      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+      "layout": "Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik"
     },
     {
       "platform": "mobile",
@@ -54,7 +54,7 @@
         "offline",
         "permission"
       ],
-      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+      "layout": "Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik"
     },
     {
       "platform": "mobile",
@@ -73,7 +73,7 @@
         "offline",
         "permission"
       ],
-      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+      "layout": "Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik"
     },
     {
       "platform": "mobile",
@@ -92,7 +92,7 @@
         "offline",
         "permission"
       ],
-      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+      "layout": "Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik"
     },
     {
       "platform": "mobile",
@@ -111,7 +111,7 @@
         "offline",
         "permission"
       ],
-      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+      "layout": "Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik"
     },
     {
       "platform": "mobile",

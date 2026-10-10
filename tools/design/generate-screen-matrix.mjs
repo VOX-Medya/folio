@@ -16,7 +16,7 @@ const nav = literalBetween(sourceAdmin, 'NAV', 'LABEL');
 const mobileFuture = new Set(['queue', 'clubs', 'messages', 'premium', 'publishing', 'publish-book']);
 const adminFuture = new Set(['sources', 'mapping', 'staging', 'pipeline', 'translationQueue', 'ttsQueue', 'workers', 'providers']);
 const mobileLayouts = {
-  onboarding: 'Phone: dikey/merkez; tablet/desktop: sınırlı genişlik',
+  onboarding: 'Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik',
   library: 'Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun',
   reader: 'Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel',
   discover: 'Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun',

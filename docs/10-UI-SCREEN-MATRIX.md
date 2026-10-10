@@ -15,12 +15,12 @@
 
 | Grup | Referans ID | Ekran | Kapsam | Ana eylem politikası | Gereken durumlar | Responsive yerleşim |
 |---|---|---|---|---|---|---|
-| Başlangıç ve üyelik | `splash` | Açılış ekranı | V1 | Uygulama açılış durumu ve dil tercihini yükle | loading, empty, error, offline, permission | Phone: dikey/merkez; tablet/desktop: sınırlı genişlik |
-| Başlangıç ve üyelik | `welcome` | Karşılama | V1 | Giriş veya kayıt akışını seç | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet/desktop: sınırlı genişlik |
-| Başlangıç ve üyelik | `login` | Giriş yap | V1 | Güvenli oturum aç | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet/desktop: sınırlı genişlik |
-| Başlangıç ve üyelik | `signup` | Kayıt ol | V1 | Kullanıcı hesabı oluştur | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet/desktop: sınırlı genişlik |
-| Başlangıç ve üyelik | `onboarding` | Tanıtım akışı | V1 | Kaldığı yerden onboarding durumunu kaydet | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet/desktop: sınırlı genişlik |
-| Başlangıç ve üyelik | `interests` | İlgi alanları | V1 | Okuma ilgi alanlarını kaydet | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet/desktop: sınırlı genişlik |
+| Başlangıç ve üyelik | `splash` | Açılış ekranı | V1 | Uygulama açılış durumu ve dil tercihini yükle | loading, empty, error, offline, permission | Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik |
+| Başlangıç ve üyelik | `welcome` | Karşılama | V1 | Giriş veya kayıt akışını seç | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik |
+| Başlangıç ve üyelik | `login` | Giriş yap | V1 | Güvenli oturum aç | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik |
+| Başlangıç ve üyelik | `signup` | Kayıt ol | V1 | Kullanıcı hesabı oluştur | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik |
+| Başlangıç ve üyelik | `onboarding` | Tanıtım akışı | V1 | Kaldığı yerden onboarding durumunu kaydet | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik |
+| Başlangıç ve üyelik | `interests` | İlgi alanları | V1 | Okuma ilgi alanlarını kaydet | loading, validation, success, conflict, error, offline, permission | Phone: dikey/merkez; tablet: sınırlı genişlik; desktop: sınırlı genişlik |
 | Ana sayfa ve kütüphane | `home` | Ana sayfa | V1 | Son kitap konumuna güvenli şekilde dön | loading, empty, error, offline, permission | Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun |
 | Ana sayfa ve kütüphane | `library` | Kütüphanem | V1 | Kullanıcının raflarını ve kişisel kitaplarını getir | loading, empty, error, offline, permission | Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun |
 | Ana sayfa ve kütüphane | `collections` | Koleksiyonlar | V1 | Koleksiyon ekle veya yönet | loading, validation, success, conflict, error, offline, permission | Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun |
