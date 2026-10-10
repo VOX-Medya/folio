@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
+import {AdminWorkRelations} from './AdminWorkRelations.js';
 import {
   authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
@@ -45,7 +46,7 @@ const copy={
     primaryId:'Kayıtlı yazar UUID',primaryHelp:'Önce Yazarlar bölümünde yazar oluşturup doğrulanmış UUID değerini kullanın.',
     source:'Kaynak',externalId:'Kaynak kimliği',alias:'Takma ad',locale:'Takma ad dili',
     remove:'Kaldır',addAlias:'Takma ad ekle',addSource:'Kaynak kimliği ekle',
-    editHelp:'Baskı, kaynak metin, çeviri ve yayın hakları burada düzenlenemez.',
+    editHelp:'Taslak baskı, katkı veren ve alternatif başlık metadata bağlantıları eklenebilir. Kaynak metin, çeviri içeriği ve yayın hakları bu ekrandan değişmez.',
     draftOnly:'Yalnız taslak eserlerin özgün başlık ve yıl bilgisi düzenlenebilir.',
     noChanges:'Kaydedilecek metadata değişikliği yok.',
     saved:'Veri sunucuda kaydedildi; güncel sürüm yeniden okunuyor.',
@@ -77,7 +78,7 @@ const copy={
     primaryId:'Existing author UUID',primaryHelp:'Create an author under Authors and use the verified UUID.',
     source:'Source',externalId:'Source ID',alias:'Alias',locale:'Alias language',
     remove:'Remove',addAlias:'Add alias',addSource:'Add source identifier',
-    editHelp:'Editions, source text, translations and publication rights cannot be edited here.',
+    editHelp:'You may append draft edition, contributor and alternate-title metadata. Source text, translation content and publication rights remain unchanged.',
     draftOnly:'Only draft work titles and publication years can be edited.',
     noChanges:'There are no metadata changes to save.',
     saved:'The server saved your metadata; loading the latest revision.',
@@ -532,6 +533,17 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
           </div>
         </form>}
       </section>}
+      {detail?.kind==='works'&&detail.value.work.publicationStatus==='draft'&&
+        !editing&&!stale&&<AdminWorkRelations
+          key={detail.value.work.id+':'+detail.value.work.metadataVersion}
+          workId={detail.value.work.id}
+          version={detail.value.work.metadataVersion}
+          online={online&&!busy} language={language}
+          onReload={()=>{
+            setMessage(w.saved);
+            void loadDetail(detail.value.work.id,true);
+          }}/>
+      }
       {busy&&<p role="status">{w.saving}</p>}
       {message&&<p className="folio-catalog-notice" role="status">{message}</p>}
       {error&&<p className="folio-catalog-alert" role="alert">{error}</p>}
