@@ -41,14 +41,34 @@ export const auditEvents = pgTable('audit_events', {
   createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
 }, t => [index('audit_events_created_idx').on(t.createdAt)]);
 
+/** A validated package is staged once. A dry-run NEVER inserts a batch. */
 export const importBatches = pgTable('import_batches', {
   id: uuid('id').primaryKey().defaultRandom(),
   packageId: text('package_id').notNull(),
   manifestChecksum: varchar('manifest_checksum', {length: 64}).notNull(),
-  isDryRun: boolean('is_dry_run').notNull().default(true),
-  status: varchar('status', {length: 24}).notNull().default('pending'),
+  schemaVersion: varchar('schema_version', {length: 24}).notNull().default('1.0.0'),
+  actorId: uuid('actor_id'),
+  isDryRun: boolean('is_dry_run').notNull().default(false),
+  status: varchar('status', {length: 24}).notNull().default('staged'),
   createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
-}, t => [index('import_batches_package_idx').on(t.packageId)]);
+  updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
+  expectedItems: integer('expected_items').notNull().default(0),
+}, t => [uniqueIndex('import_batches_package_unique').on(t.packageId)]);
+
+/** Immutable staged item payloads and work-level resumable checkpoints. */
+export const importItems = pgTable('import_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  batchId: uuid('batch_id').notNull().references(() => importBatches.id, {onDelete: 'restrict'}),
+  kind: varchar('kind', {length: 24}).notNull(),
+  externalId: text('external_id').notNull(),
+  payload: jsonb('payload').notNull(),
+  payloadSha256: varchar('payload_sha256', {length:64}).notNull(),
+  status: varchar('status', {length: 24}).notNull().default('staged'),
+  appliedAt: timestamp('applied_at', {withTimezone: true}),
+}, t => [
+  uniqueIndex('import_items_batch_external_unique').on(t.batchId,t.kind,t.externalId),
+  index('import_items_batch_status_idx').on(t.batchId,t.status),
+]);
 
 /** Alternate local names; the canonical author record remains unchanged. */
 export const authorAliases = pgTable('author_aliases', {

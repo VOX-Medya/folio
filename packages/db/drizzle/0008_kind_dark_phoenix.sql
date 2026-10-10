@@ -1,0 +1,1 @@
+ALTER TABLE "import_batches" ADD COLUMN "expected_items" integer DEFAULT 0 NOT NULL;

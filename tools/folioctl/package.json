@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "tar-stream": "^3.2.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@folio/db": "workspace:*"
   }
 }
