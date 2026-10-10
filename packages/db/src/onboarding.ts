@@ -39,9 +39,10 @@ export async function getVerifiedUserOnboarding(db:OnboardingDb,trustedUserId:st
  * overwriting each other's language/interests silently. A conflict is explicit.
  */
 export async function updateVerifiedUserOnboarding(
-  db:OnboardingDb,trustedUserId:string,rawUpdate:unknown
+  db:OnboardingDb,trustedUserId:string,rawUpdate:unknown,requestId?:string
 ){
   const userId=id.parse(trustedUserId),input=updateSchema.parse(rawUpdate);
+  const trustedRequestId=requestId?z.uuid().parse(requestId):undefined;
   return db.transaction(async tx=>{
     const [account]=await tx.select().from(schema.userAccounts)
       .where(eq(schema.userAccounts.id,userId)).limit(1).for('update');
@@ -67,6 +68,7 @@ export async function updateVerifiedUserOnboarding(
     if(!saved)throw new Error('Onboarding update failed');
     await tx.insert(schema.auditEvents).values({
       actorId:userId,action:'user.onboarding.update',
+      ...(trustedRequestId?{requestId:trustedRequestId}:{}),
       entityType:'user_onboarding',entityId:userId,
       beforeJson:{stage:current.stage,version:current.version},
       afterJson:{stage:saved.stage,version:saved.version,locale:saved.locale,

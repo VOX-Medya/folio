@@ -89,6 +89,183 @@
           "system"
         ]
       }
+    },
+    "/v1/me/onboarding": {
+      "get": {
+        "operationId": "OnboardingController_read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "userId",
+                    "stage",
+                    "locale",
+                    "interests",
+                    "version"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "welcome",
+                        "language",
+                        "interests",
+                        "complete"
+                      ]
+                    },
+                    "locale": {
+                      "type": "string",
+                      "enum": [
+                        "tr",
+                        "en"
+                      ]
+                    },
+                    "interests": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read only the verified bearer owner onboarding snapshot",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "folioSession": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "OnboardingController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expectedVersion",
+                  "stage",
+                  "locale",
+                  "interests"
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "stage": {
+                    "type": "string",
+                    "enum": [
+                      "welcome",
+                      "language",
+                      "interests",
+                      "complete"
+                    ]
+                  },
+                  "locale": {
+                    "type": "string",
+                    "enum": [
+                      "tr",
+                      "en"
+                    ]
+                  },
+                  "interests": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "uniqueItems": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "userId",
+                    "stage",
+                    "locale",
+                    "interests",
+                    "version"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "welcome",
+                        "language",
+                        "interests",
+                        "complete"
+                      ]
+                    },
+                    "locale": {
+                      "type": "string",
+                      "enum": [
+                        "tr",
+                        "en"
+                      ]
+                    },
+                    "interests": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Update the verified bearer owner onboarding with optimistic version",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "folioSession": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -141,6 +318,13 @@
           "items",
           "nextCursor"
         ]
+      }
+    },
+    "securitySchemes": {
+      "folioSession": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque"
       }
     }
   }
