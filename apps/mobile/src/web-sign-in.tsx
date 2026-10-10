@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Platform,Pressable,Text,TextInput,View} from 'react-native';
 import {paperbound} from '@folio/ui-tokens';
 import {
@@ -56,9 +56,12 @@ export function WebSignInPanel({locale,colors}:{locale:FolioLocale;colors:Palett
   const [devicePhase,setDevicePhase]=useState<'idle'|'loading'|'ready'|'error'>('idle');
   const [deviceError,setDeviceError]=useState('');
   const [revokingId,setRevokingId]=useState<string|null>(null);
+  // Ignore any late inventory reply after sign-out, origin changes or revoke.
+  const deviceEpoch=useRef(0);
   const origin=enabledOrigin();
 
   function clearDevices():void{
+    deviceEpoch.current+=1;
     setDevices(null);
     setDevicePhase('idle');
     setDeviceError('');
@@ -109,11 +112,14 @@ export function WebSignInPanel({locale,colors}:{locale:FolioLocale;colors:Palett
     if(!origin||phase!=='signedIn'||revokingId!==null)return;
     setDeviceError('');
     setDevicePhase('loading');
+    const epoch=++deviceEpoch.current;
     try{
       const inventory=await fetchWebDeviceSessions({baseUrl:origin});
+      if(epoch!==deviceEpoch.current)return;
       setDevices(inventory);
       setDevicePhase('ready');
     }catch(cause){
+      if(epoch!==deviceEpoch.current)return;
       clearDevices();
       if(cause instanceof WebSessionHttpError&&cause.status===401){
         setPhase('signedOut');
@@ -131,14 +137,18 @@ export function WebSignInPanel({locale,colors}:{locale:FolioLocale;colors:Palett
     if(!origin||phase!=='signedIn'||revokingId!==null||isCurrent)return;
     setDeviceError('');
     setRevokingId(id);
+    const epoch=++deviceEpoch.current;
     try{
       await revokeWebDeviceSession({baseUrl:origin},id);
+      if(epoch!==deviceEpoch.current)return;
       // Server ownership is always rechecked; never mark a local row revoked
       // without re-reading the backend state.
       const inventory=await fetchWebDeviceSessions({baseUrl:origin});
+      if(epoch!==deviceEpoch.current)return;
       setDevices(inventory);
       setDevicePhase('ready');
     }catch(cause){
+      if(epoch!==deviceEpoch.current)return;
       clearDevices();
       if(cause instanceof WebSessionHttpError&&cause.status===401){
         setPhase('signedOut');
@@ -148,7 +158,7 @@ export function WebSignInPanel({locale,colors}:{locale:FolioLocale;colors:Palett
         setDeviceError(deviceErrorCopy(cause,locale));
       }
     }finally{
-      setRevokingId(null);
+      if(epoch===deviceEpoch.current)setRevokingId(null);
     }
   }
 
