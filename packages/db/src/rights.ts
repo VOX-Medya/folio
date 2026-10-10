@@ -1,9 +1,10 @@
-import {and,desc,eq,isNull} from 'drizzle-orm';
+import {and,asc,desc,eq,gt,isNull} from 'drizzle-orm';
 import {z} from 'zod';
 import {rightsDecisionQuerySchema,rightsRecordCreateSchema} from '@folio/contracts';
 import type {RightsAction,RightsDecision,RightsDecisionQuery,RightsRecordCreate} from '@folio/contracts';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
+import {withVerifiedAdminPermission} from './admin-authorization.js';
 
 type RightsDb=ReturnType<typeof createFolioDb>['db'];
 type RightsRecord=typeof schema.rightsRecords.$inferSelect;
@@ -116,4 +117,55 @@ export async function verifyRightsForAction(db:RightsDb,rawQuery:unknown,now:Dat
     if (!result.allowed) return result;
   }
   return {allowed:true,reason:'approved'};
+}
+
+/** Metadata-only admin ledger; never a license grant/preview. Each page
+ * revalidates real account/session, same-device MFA and persisted rights:read
+ * inside the SAME PostgreSQL snapshot as the work and evidence SELECT.
+ * It deliberately does not select evidence, sourceUrl, licenseKind, reviewers,
+ * user library rows or any private asset reference. */
+const rightsLedgerInput=z.object({
+  workId:z.uuid(),cursor:z.uuid().optional(),
+  limit:z.number().int().min(1).max(50).default(20),
+}).strict();
+export async function getVerifiedAdminRightsLedger(
+  db:RightsDb,bearer:string,rawInput:unknown,
+){
+  const input=rightsLedgerInput.parse(rawInput);
+  return withVerifiedAdminPermission(db,bearer,'rights:read',async tx=>{
+    const [work]=await tx.select({id:schema.works.id})
+      .from(schema.works).where(eq(schema.works.id,input.workId)).limit(1);
+    if(!work)return null;
+    const rows=await tx.select({
+      id:schema.rightsRecords.id,
+      editionId:schema.rightsRecords.editionId,
+      revisionId:schema.rightsRecords.revisionId,
+      reviewStatus:schema.rightsRecords.reviewStatus,
+      territories:schema.rightsRecords.territories,
+      displayAllowed:schema.rightsRecords.displayAllowed,
+      translationAllowed:schema.rightsRecords.translationAllowed,
+      audioAllowed:schema.rightsRecords.audioAllowed,
+      sharingAllowed:schema.rightsRecords.sharingAllowed,
+      expiresAt:schema.rightsRecords.expiresAt,
+    }).from(schema.rightsRecords).where(and(
+      eq(schema.rightsRecords.workId,input.workId),
+      ...(input.cursor?[gt(schema.rightsRecords.id,input.cursor)]:[]),
+    )).orderBy(asc(schema.rightsRecords.id)).limit(input.limit+1);
+    const items=rows.slice(0,input.limit).map(record=>({
+      id:record.id,editionId:record.editionId,revisionId:record.revisionId,
+      reviewStatus:record.reviewStatus,
+      territories:record.territories,
+      claims:{
+        display:record.displayAllowed,
+        translation:record.translationAllowed,
+        audio:record.audioAllowed,sharing:record.sharingAllowed,
+      },
+      expiresAt:record.expiresAt?.toISOString()??null,
+    }));
+    return {
+      workId:input.workId,items,
+      nextCursor:rows.length>input.limit?(items.at(-1)?.id??null):null,
+      isMetadataOnly:true as const,
+    };
+  },{isolationLevel:'repeatable read'});
 }
