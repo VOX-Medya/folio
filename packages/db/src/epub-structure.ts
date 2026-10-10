@@ -1,6 +1,8 @@
 import {TextDecoder} from 'node:util';
 import {inflateRawSync} from 'node:zlib';
-import {inspectEpubPackageSpine} from './epub-package.js';
+import {inspectEpubPackageSpine,inspectEpubPackageSpineDetails} from './epub-package.js';
+import {inspectEpubXhtmlMarkup} from './epub-xhtml.js';
+import type {EpubXhtmlMarkupResult} from './epub-xhtml.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 
 /**
@@ -103,6 +105,15 @@ export function inspectEpubZipStructure(bytes:Buffer):EpubZipStructuralResult{
 export function inspectEpubZipPackageSpine(bytes:Buffer):EpubPackageSpineResult{
   const archive=validatedZip(bytes);
   return inspectEpubPackageSpine(archive.entries);
+}
+/** Third independent, fail-closed quarantine observation. This only verifies
+ * XHTML structural/active-markup absence and local link *syntax* for the
+ * previously validated OCF/OPF manifest. Neither readable nor publishable. */
+export function inspectEpubZipXhtmlMarkup(bytes:Buffer):EpubXhtmlMarkupResult{
+  const archive=validatedZip(bytes);
+  const details=inspectEpubPackageSpineDetails(archive.entries);
+  return inspectEpubXhtmlMarkup(
+    archive.entries,details.xhtmlPaths,details.navigationPath);
 }
 function validatedZip(bytes:Buffer):{
   result:EpubZipStructuralResult;entries:ReadonlyMap<string,Buffer>

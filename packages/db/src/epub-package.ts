@@ -161,6 +161,15 @@ function formatMatches(name:string,mime:string):boolean{
  * unsupported media/fallbacks or active properties are rejected.
  */
 export function inspectEpubPackageSpine(entries:ReadonlyMap<string,Buffer>):EpubPackageSpineResult{
+  return inspectEpubPackageSpineDetails(entries).result;
+}
+/** Only trusted in-process consumers receive paths to validated private ZIP
+ * entries. Public result/API and audit continue returning aggregate counts. */
+export function inspectEpubPackageSpineDetails(entries:ReadonlyMap<string,Buffer>):{ 
+  result:EpubPackageSpineResult;
+  xhtmlPaths:readonly string[];
+  navigationPath:string;
+}{
   const containerBytes=entries.get('META-INF/container.xml');
   if(!containerBytes)return invalid();
   const container=parseXml(containerBytes);
@@ -188,6 +197,8 @@ export function inspectEpubPackageSpine(entries:ReadonlyMap<string,Buffer>):Epub
   if(declared.length<2||declared.length>256)return invalid();
   const itemIds=new Map<string,{path:string,mime:string,nav:boolean}>();
   const referencedPaths=new Set<string>();
+  const xhtmlPaths:string[]=[];
+  let navigationPath='';
   const rootDir=opfPath.includes('/')?opfPath.slice(0,opfPath.lastIndexOf('/')+1):'';
   let navCount=0;
   for(const item of declared){
@@ -210,6 +221,8 @@ export function inspectEpubPackageSpine(entries:ReadonlyMap<string,Buffer>):Epub
     if(nav)navCount++;
     itemIds.set(id,{path,mime,nav});
     referencedPaths.add(path);
+    if(mime==='application/xhtml+xml')xhtmlPaths.push(path);
+    if(nav)navigationPath=path;
   }
   if(navCount!==1)return invalid();
   // Do not ignore hidden/unlisted XHTML, scripts or arbitrary ZIP entries.
@@ -235,6 +248,7 @@ export function inspectEpubPackageSpine(entries:ReadonlyMap<string,Buffer>):Epub
     seen.add(idref);
   }
   if(linear===0)return invalid();
-  return {status:'package_spine_only',packageCount:1,manifestItems:declared.length,
-    spineItems:sequence.length,linearSpineItems:linear,navigationCount:1};
+  return {result:{status:'package_spine_only',packageCount:1,manifestItems:declared.length,
+    spineItems:sequence.length,linearSpineItems:linear,navigationCount:1},
+    xhtmlPaths,navigationPath};
 }
