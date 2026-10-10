@@ -25,6 +25,7 @@ describe('stateless verified-user onboarding client',()=>{
     expect(captures[0]?.url).toBe(baseUrl+'/v1/me/onboarding');
     expect(captures[0]?.init?.credentials).toBe('omit');
     expect(captures[0]?.init?.cache).toBe('no-store');
+    expect(captures[0]?.init?.redirect).toBe('error');
     expect(captures[0]?.init?.headers).toEqual({
       authorization:'Bearer '+session,accept:'application/json',
     });

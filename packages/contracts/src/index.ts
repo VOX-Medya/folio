@@ -279,3 +279,7 @@ export const deviceSessionInventorySchema=z.object({
   }).strict()).max(100),
 }).strict();
 export type DeviceSessionInventory=z.infer<typeof deviceSessionInventorySchema>;
+
+// Stateless Web/Expo device session API; no token persistence.
+export {fetchOwnDeviceSessions,revokeOwnDeviceSession,DeviceSessionHttpError} from './device-sessions-client.js';
+export type {OwnDeviceSessionsRequest} from './device-sessions-client.js';
