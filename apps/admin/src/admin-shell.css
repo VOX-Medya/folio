@@ -1,0 +1,67 @@
+*{box-sizing:border-box}
+html,body,#root{min-width:0;min-height:100%;margin:0}
+.folio-admin{width:100%;overflow-wrap:anywhere}
+.folio-admin a,.folio-admin button{touch-action:manipulation}
+.folio-admin :focus-visible{outline:3px solid var(--folio-accent);outline-offset:3px}
+.folio-skip{position:absolute;top:-100px;left:12px;background:var(--folio-surface);
+  color:var(--folio-ink);padding:12px;z-index:20}
+.folio-skip:focus{top:8px}
+.folio-topbar{min-height:76px;padding:12px 24px;border-bottom:1px solid var(--folio-line);
+  background:var(--folio-surface);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.folio-brand{min-width:0;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.folio-brand h1{font-size:25px;line-height:1.3;letter-spacing:-.03em;margin:0}
+.folio-brand span{font-size:12px;color:var(--folio-muted)}
+.folio-topbar-actions{display:flex;gap:5px;flex-shrink:0}
+.folio-topbar-actions button{min-width:44px;min-height:44px;border:1px solid var(--folio-line);
+  border-radius:8px;background:var(--folio-surface2);color:var(--folio-ink);cursor:pointer;font:inherit;font-weight:600}
+.folio-topbar-actions button[aria-pressed=true]{background:var(--folio-accent);color:var(--folio-accent-on)}
+.folio-admin-layout{display:grid;grid-template-columns:258px minmax(0,1fr);min-height:calc(100vh - 76px)}
+.folio-sidebar{padding:22px 12px;border-right:1px solid var(--folio-line);
+  background:var(--folio-surface);min-width:0}
+.folio-nav-caption{display:block;margin:0 12px 12px;color:var(--folio-muted);
+  font-size:11px;letter-spacing:.14em;font-weight:700}
+.folio-nav-items{display:flex;flex-direction:column;gap:3px}
+.folio-nav-items a{color:var(--folio-ink);text-decoration:none;padding:11px 14px;
+  min-height:44px;display:flex;align-items:center;border-radius:9px;white-space:nowrap}
+.folio-nav-items a:hover{background:var(--folio-surface2)}
+.folio-nav-items a[aria-current=page]{background:var(--folio-accent);color:var(--folio-accent-on);font-weight:700}
+.folio-future{border-top:1px solid var(--folio-line);margin-top:20px;padding-top:20px}
+.folio-future span[aria-disabled]{display:block;color:var(--folio-muted);font-size:12px;
+  padding:8px 12px;opacity:.8;cursor:not-allowed}
+.folio-content-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-width:0}
+.folio-workspace{padding:32px;min-width:0;max-width:100%}
+.folio-breadcrumb{font-size:12px;color:var(--folio-muted);margin-bottom:14px}
+.folio-workspace h2{font-size:30px;line-height:1.25;margin:0 0 12px}
+.folio-workspace p,.folio-inspector p{font-size:15px;line-height:1.65;color:var(--folio-muted)}
+.folio-state{max-width:680px;background:var(--folio-surface);border:1px solid var(--folio-line);
+  border-radius:17px;padding:24px;margin-top:30px}
+.folio-state strong{display:block;font-size:17px}
+.folio-state p{margin:8px 0 0}
+.folio-inspector{border-left:1px solid var(--folio-line);padding:30px 22px;min-width:0;
+  background:var(--folio-surface)}
+.folio-inspector h3{font-size:15px;margin:0}
+@media(max-width:1199px){
+  .folio-content-layout{grid-template-columns:minmax(0,1fr)}
+  .folio-inspector{border-left:0;border-top:1px solid var(--folio-line);padding:20px 32px}
+}
+@media(max-width:1023px){
+  .folio-admin-layout{display:flex;flex-direction:column}
+  .folio-sidebar{width:100%;padding:10px 12px;border-right:0;border-bottom:1px solid var(--folio-line);
+    overflow-x:auto}
+  .folio-nav-caption{margin:0 8px 6px}
+  .folio-nav-items{flex-direction:row;min-width:max-content}
+  .folio-nav-items a{padding:8px 12px}
+  .folio-future{display:none}
+  .folio-workspace{padding:24px}
+}
+@media(max-width:599px){
+  .folio-topbar{padding:12px 16px}
+  .folio-brand{display:block}
+  .folio-brand h1{font-size:22px}
+  .folio-brand span{font-size:10px}
+  .folio-workspace{padding:22px 16px}
+  .folio-workspace h2{font-size:25px}
+  .folio-state{padding:18px}
+  .folio-inspector{padding:18px 16px}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}

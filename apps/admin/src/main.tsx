@@ -1,3 +1,4 @@
+import './admin-shell.css';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 
