@@ -868,8 +868,8 @@ async function main():Promise<void>{
       ],
       contributors:[{authorId:author.id,role:'translator',sortOrder:0}],
     };
-    const viewerBearer={authorization:'Bearer '+viewerSession.sessionToken};
-    check((await post(port,editionsPath,viewerBearer,linkedEdition)).status===403,
+    const readonlyEditionBearer={authorization:'Bearer '+viewerSession.sessionToken};
+    check((await post(port,editionsPath,readonlyEditionBearer,linkedEdition)).status===403,
       'Read-only MFA role created a new edition');
     check((await post(port,editionsPath,cookie,linkedEdition)).status===403,
       'Web cookie without CSRF appended edition');
