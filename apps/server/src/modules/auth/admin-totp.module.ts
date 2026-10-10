@@ -39,10 +39,12 @@ function configuredTotpKeys():TotpKeyring{
     throw new Error('Invalid TOTP active key version');
   }
   const activeVersion:TotpKeyVersion=name;
+  const v1=process.env.FOLIO_ADMIN_TOTP_KEY_HEX;
+  const v2=process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX;
   return requireTotpKeyring({
     activeVersion,
-    v1:process.env.FOLIO_ADMIN_TOTP_KEY_HEX,
-    v2:process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX,
+    ...(v1!==undefined?{v1}:{}),
+    ...(v2!==undefined?{v2}:{}),
   });
 }
 
