@@ -17,7 +17,6 @@ import {
   createFolioDb,registerPendingAccount,verifyAccountEmail,
   signInVerifiedAccount,withVerifiedAdminPermission,schema,
 } from '@folio/db';
-import {eq} from 'drizzle-orm';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
 
 interface Wire{status:number;headers:IncomingHttpHeaders;body:string;}
@@ -263,9 +262,11 @@ async function main(){
     const newFactor=await call(true,port,root+'/enroll','POST',v2Bearer,{});
     check(newFactor.status===200,'Explicit v2 enrollment could not run on TLS');
     const v2Enrollment=adminTotpEnrollResponseSchema.parse(JSON.parse(newFactor.body));
-    const [v2Row]=await db.select().from(schema.adminTotpCredentials)
-      .where(eq(schema.adminTotpCredentials.userId,upgraded.userId));
-    check(v2Row?.keyVersion==='v2',
+    const v2Rows=await pool.query<{key_version:string}>(
+      'SELECT key_version FROM admin_totp_credentials WHERE user_id=$1::uuid',
+      [upgraded.userId],
+    );
+    check(v2Rows.rows[0]?.key_version==='v2',
       'New v2 active-key enrollment persisted an incorrect key version');
     const v2Step=Math.floor(Date.now()/30_000);
     check((await call(true,port,root+'/confirm','POST',v2Bearer,{
@@ -292,7 +293,7 @@ async function main(){
       created.secretBase32,mobileFactor.secretBase32,v2Enrollment.secretBase32,
       webSession.sessionToken,nativeSession.sessionToken,
       upgradedSession.sessionToken,password,
-      process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX,
+      process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX!,
     ]){
       check(!secretFree.includes(item),'Raw MFA secret or token leaked to audit');
     }
