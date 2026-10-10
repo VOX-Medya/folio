@@ -40,6 +40,7 @@ jobs:
           bash infra/lab.sh auth-smoke
           bash infra/lab.sh admin-rbac-smoke
           bash infra/lab.sh admin-totp-smoke
+          bash infra/lab.sh admin-totp-rotation-smoke
           bash infra/lab.sh admin-role-lifecycle-smoke
           bash infra/lab.sh session-cap-smoke
           bash infra/lab.sh auth-rate-smoke
