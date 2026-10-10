@@ -247,14 +247,27 @@ async function main():Promise<void>{
       !leaked.includes(web.sessionToken)&&!leaked.includes(editor.email)&&
       !leaked.includes(guest.email),
       'Admin read-only metadata responses disclosed session or account secrets');
-    // Keep the DB proof interval internally valid while simulating an
-    // expired proof. An expiry earlier than verified_at is intentionally
-    // rejected by the real database CHECK constraint.
+    // Synthetic folio_test only: make the session old enough that a proof
+    // can be expired WITHOUT also failing the independent "MFA predates
+    // session" guard. Otherwise this negative test proves the wrong check.
+    const past=Date.now();
+    await pool.query(
+      'UPDATE user_sessions SET created_at=$1 WHERE id=$2::uuid',
+      [new Date(past-20*60_000),web.sessionId],
+    );
     await pool.query(
       'UPDATE admin_session_mfa SET verified_at=$1,expires_at=$2 WHERE session_id=$3::uuid',
-      [new Date(Date.now()-10*60_000),new Date(Date.now()-5*60_000),
-        web.sessionId],
+      [new Date(past-10*60_000),new Date(past-5*60_000),web.sessionId],
     );
+    const expiredFixture=await pool.query<{
+      created_at:Date;verified_at:Date;expires_at:Date;
+    }>('SELECT s.created_at,m.verified_at,m.expires_at FROM user_sessions s JOIN admin_session_mfa m ON m.session_id=s.id WHERE s.id=$1::uuid',
+      [web.sessionId]);
+    const expiredRow=expiredFixture.rows[0];
+    check(expiredRow&&expiredRow.verified_at>=expiredRow.created_at&&
+      expiredRow.expires_at>expiredRow.verified_at&&
+      expiredRow.expires_at.getTime()<Date.now(),
+      'Synthetic expired MFA proof could be denied for a different timestamp reason');
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
     await pool.query(
