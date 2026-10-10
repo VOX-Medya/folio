@@ -9,6 +9,7 @@ import {paperbound,responsiveMode,spacing,typography} from '@folio/ui-tokens';
 import type {ResponsiveMode} from '@folio/ui-tokens';
 import {mobileSections,screenCopy} from './shell-data';
 import type {FolioLocale,MobileSection} from './shell-data';
+import {WebSignInPanel} from './web-sign-in';
 
 interface Settings {locale:FolioLocale;setLocale:(next:FolioLocale)=>void;}
 const SettingsContext=createContext<Settings|undefined>(undefined);
@@ -157,17 +158,19 @@ export function MobileShell({section}:{section:MobileSection}){
                   {screen.detail}
                 </Text>
               </View>
-              <View style={{backgroundColor:colors.surface,borderColor:colors.line,
-                borderWidth:1,borderRadius:18,padding:20,gap:10}}>
-                <Text style={{fontSize:16,fontWeight:'700',color:colors.ink}}>
-                  {locale==='tr'?'Oturum doğrulaması bekleniyor':'Authentication pending'}
-                </Text>
-                <Text style={{fontSize:14,lineHeight:21,color:colors.accessibleMuted}}>
-                  {locale==='tr'
-                    ?'Kişisel raf, özel kitap veya ilerleme verisi giriş doğrulanmadan yüklenmez.'
-                    :'Personal shelves, private books and reading progress stay hidden before sign-in.'}
-                </Text>
-              </View>
+              {section==='profile'
+                ? <WebSignInPanel locale={locale} colors={colors}/>
+                : <View style={{backgroundColor:colors.surface,borderColor:colors.line,
+                    borderWidth:1,borderRadius:18,padding:20,gap:10}}>
+                  <Text style={{fontSize:16,fontWeight:'700',color:colors.ink}}>
+                    {locale==='tr'?'Oturum doğrulaması bekleniyor':'Authentication pending'}
+                  </Text>
+                  <Text style={{fontSize:14,lineHeight:21,color:colors.accessibleMuted}}>
+                    {locale==='tr'
+                      ?'Kişisel raf, özel kitap veya ilerleme verisi giriş doğrulanmadan yüklenmez.'
+                      :'Personal shelves, private books and reading progress stay hidden before sign-in.'}
+                  </Text>
+                </View>}
             </View>
             {mode!=='phone'&&<View style={{width:mode==='desktop'?300:240,
               justifyContent:'center',paddingVertical:16}}>
