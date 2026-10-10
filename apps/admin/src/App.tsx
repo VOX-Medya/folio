@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react';
 import type {CSSProperties,MouseEvent} from 'react';
 import {paperbound,typography} from '@folio/ui-tokens';
 import {AdminMfaPanel} from './AdminMfaPanel.js';
+import {AdminCatalogPanel} from './AdminCatalogPanel.js';
 
 type Language='tr'|'en';
 const pages=[
@@ -101,16 +102,26 @@ export function App(){
           <section id="admin-content" className="folio-workspace" tabIndex={-1} aria-live="polite">
             <div className="folio-breadcrumb">Folio / {selected[language]}</div>
             <h2 style={{fontFamily:typography.heading}}>{selected[language]}</h2>
-            <p>{language==='tr'
-              ?'Temel uygulama kabuğu. Yönetim işlevleri henüz etkin değil.'
-              :'Foundation shell. Administrative operations are not enabled yet.'}</p>
-            <div className="folio-state" role="status">
-              <strong>{language==='tr'?'Yetki doğrulaması gerekli':'Authentication required'}</strong>
-              <p>{language==='tr'
-                ?'Gerçek bir yönetici oturumu ve sunucu RBAC kontrolü kurulmadan içerik, üye ve dosya bilgileri görüntülenmez.'
-                :'No content, members or files are shown until the server validates an administrator session and roles.'}</p>
-            </div>
-            {activePage==='settings'&&<AdminMfaPanel language={language}/>}
+            {(activePage==='authors'||activePage==='works')
+              ?<AdminCatalogPanel key={activePage} kind={activePage} language={language}/>
+              :activePage==='settings'
+                ?<>
+                  <p>{language==='tr'
+                    ?'Doğrulanmış oturum ve MFA yönetimi. İçerik erişimi ayrıca sunucu rolüne bağlıdır.'
+                    :'Verified session and MFA management. Catalog access also requires the server role.'}</p>
+                  <AdminMfaPanel language={language}/>
+                </>
+                :<>
+                  <p>{language==='tr'
+                    ?'Temel uygulama kabuğu. Bu bölümün yönetim işlevleri henüz etkin değil.'
+                    :'Foundation shell. Operations for this section are not enabled yet.'}</p>
+                  <div className="folio-state" role="status">
+                    <strong>{language==='tr'?'Yetki doğrulaması gerekli':'Authentication required'}</strong>
+                    <p>{language==='tr'
+                      ?'Gerçek bir yönetici oturumu ve sunucu RBAC kontrolü kurulmadan içerik, üye ve dosya bilgileri görüntülenmez.'
+                      :'No content, members or files are shown until the server validates an administrator session and roles.'}</p>
+                  </div>
+                </>}
           </section>
           <aside className="folio-inspector" aria-label={language==='tr'?'İşlem durumu':'Action status'}>
             <h3>{language==='tr'?'İşlem Durumu':'Action Status'}</h3>
