@@ -157,7 +157,7 @@ describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>
         sha256:digest(valid),sizeBytes:valid.length,
       });
       const tampered:Array<[string,Buffer]>=[
-        ['arbitrary ZIP bytes',Buffer.from('PK\\x03\\x04not-an-epub','latin1')],
+        ['arbitrary ZIP bytes',Buffer.from([0x50,0x4b,0x03,0x04,0x6e,0x6f,0x74])],
         ['wrong first entry name',(()=>{const b=ocfHeader();b[30]=0x78;return b;})()],
         ['compressed mimetype',(()=>{const b=ocfHeader();b.writeUInt16LE(8,8);return b;})()],
         ['extra ZIP header',(()=>{const b=ocfHeader();b.writeUInt16LE(1,28);return b;})()],
@@ -166,7 +166,7 @@ describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>
         ['wrong content size',(()=>{const b=ocfHeader();b.writeUInt32LE(21,22);return b;})()],
         ['unsupported version',(()=>{const b=ocfHeader();b.writeUInt16LE(63,4);return b;})()],
         ['incorrect MIME string',(()=>{const b=ocfHeader();b[38]=0x58;return b;})()],
-        ['padded MIME',Buffer.concat([ocfHeader(),Buffer.from(' ')]).subarray(0,57)],
+        ['padded MIME',(()=>{const b=Buffer.concat([ocfHeader(),Buffer.from(' ')]);b.writeUInt32LE(21,18);b.writeUInt32LE(21,22);return b;})()],
       ];
       for(const [label,invalid] of tampered){
         await expect(adapter.stage({
