@@ -527,3 +527,57 @@ export async function observePrivateQuarantineEpubPngResources(
     return {assetId:id,assetStatus:'pending_verify' as const,...png};
   });
 }
+
+/**
+ * INTERNAL private-user Ogg Opus container-only observation.
+ * The untrusted source stays pending_verify and is never exposed to clients.
+ * Granule-derived timeline is a claim, not codec-decoded actual duration.
+ */
+export async function observePrivateQuarantineOggOpus(
+  db:QuotaDb,storage:LocalStorageAdapter,
+  trustedOwnerId:string,trustedAssetId:string,
+){
+  const owner=uuid.parse(trustedOwnerId),id=uuid.parse(trustedAssetId);
+  const [asset]=await db.select().from(schema.mediaAssets).where(and(
+    eq(schema.mediaAssets.id,id),
+    eq(schema.mediaAssets.ownerScope,'private-user'),
+    eq(schema.mediaAssets.ownerUserId,owner),
+    eq(schema.mediaAssets.status,'pending_verify'),
+    eq(schema.mediaAssets.mime,'audio/ogg'),
+  )).limit(1);
+  if(!asset)throw new Error('Quarantined private Ogg asset unavailable for trusted owner');
+  const record:QuarantinedBlob={
+    scope:'private-user',ownerUserId:owner,key:asset.storageKey,
+    sha256:asset.sha256,sizeBytes:asset.sizeBytes,
+    mime:'audio/ogg',status:'pending_verify',
+  };
+  const header=await storage.inspectOggOpus(record);
+  return db.transaction(async tx=>{
+    await tx.execute(lockOwner(owner));
+    const [current]=await tx.select().from(schema.mediaAssets).where(and(
+      eq(schema.mediaAssets.id,id),
+      eq(schema.mediaAssets.ownerScope,'private-user'),
+      eq(schema.mediaAssets.ownerUserId,owner),
+      eq(schema.mediaAssets.status,'pending_verify'),
+      eq(schema.mediaAssets.mime,'audio/ogg'),
+    )).limit(1);
+    if(!current||current.storageKey!==asset.storageKey||
+      current.sha256!==asset.sha256||current.sizeBytes!==asset.sizeBytes||
+      current.mime!==asset.mime||current.durationMs!==asset.durationMs||
+      current.verifiedAt!==null){
+      throw new Error('Private Ogg asset changed or withdrawn during preflight');
+    }
+    await tx.insert(schema.auditEvents).values({
+      actorId:owner,action:'storage.quarantine.ogg_opus_observed',
+      entityType:'media_asset',entityId:id,
+      afterJson:{
+        ownerScope:'private-user',assetStatus:'pending_verify',
+        inspectionStatus:header.status,sha256:asset.sha256,
+        pageCount:header.pageCount,audioPacketCount:header.audioPacketCount,
+        channelCount:header.channelCount,
+        granuleTimelineMs:header.granuleTimelineMs,
+      },
+    });
+    return {assetId:id,assetStatus:'pending_verify' as const,...header};
+  });
+}
