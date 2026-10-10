@@ -1,0 +1,15 @@
+# #30 Web oturumu için TLS, HttpOnly cookie, Origin ve CSRF sınırı (kısmi)
+
+## Amaç ve sınırlar
+`apps/server/src/common/web-cookie-session.ts` Web oturumlarını gelecekteki kayıt/giriş rotalarına güvenli biçimde bağlamak için ayrı bir **dahili** sınır kurar. Bu PR gerçek public login/register/reset endpointi açmaz; `AppModule` yeni cookie controller'ı içermez. Expo native `Authorization` bearer istemcisi aynen kalır.
+
+- `__Host-folio_session`: `Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=2592000`, `Domain` yok. Yalnız sunucunun gerçekten HTTPS/TLS soketi üzerinde ve doğrulanmış bir hesap oturumundan sonra Set-Cookie yapmasına izin verilir. Cookie içine ham bearer yazılsa da JS response JSON veya audit'e ham token/digest girmez.
+- Cookie **oluştururken de** gerçek `Origin` eşleşmesi ve varsa `Sec-Fetch-Site: same-origin` zorunludur; login CSRF göz ardı edilmez. Sahte `X-Forwarded-Proto`, `X-Real-IP`, `x-user-id` veya `x-admin-role` kimlik/TLS kanıtı değildir. TLS reverse proxy'de son-hop modeli ve güvenilir başlık sıfırlama doğrulanmadan bu sınır public açılamaz.
+- Her state-changing cookie isteği için exact HTTPS origin, varsa `Sec-Fetch-Site: same-origin`, 32 bayt kalıcı server-managed HMAC secret ile oturum bearer'ına domain-separated bağlı `X-Folio-CSRF` değeri gerekir; HMAC sabit-zamanlı karşılaştırılır. Sadece veritabanında tekrar doğrulanmış aktif session için CSRF bootstrap yapılır. Eksik policy/HTTPS: fail-closed 503, yetkisiz cookie/bearer crossover 401, CSRF/Origin 403.
+- Cookie+Authorization birlikte veya iki adet aynı oturum cookie'si kabul edilmez. Cookie temizleme helper'ı, gelecekteki logout rotasından **ancak doğrulanmış principal ve CSRF kontrolü sonrasında** çağrılmalıdır. Native token Keychain/Keystore gereksinimi ayrı kalır.
+- Yanıtlar `Cache-Control: private, no-store` taşır; CSRF token hiçbir localStorage, URL, audit veya sunucu loguna yazılmaz. Gerçek SMTP, gizli anahtar ve production cookie henüz kurulmadı.
+
+## Doğrulama
+`apps/server/src/common/web-cookie-session.spec.ts` güvenli cookie, origin, CSRF, yanlış header, duplicate cookie, revoked hesap, eksik config ve TLS spoofing negatif testlerini yapar. `bash infra/lab.sh web-cookie-https-smoke` sadece izole `folio_test` üzerinde sentetik doğrulanmış hesap ve **gerçek ephemeral HTTPS loopback** sunucusu kurar: OpenSSL ile üretilen self-signed sertifika geçici dizinden kaldırılır; global TLS denetimi kapatılmaz. HTTPS same-origin/CSRF kabul, cross-origin/missing token ret, düz HTTP'de sahte forwarded TLS başlığı 503, bearer crossover 401, revoked cookie 401 ve production AppModule/OpenAPI'de test rotasının bulunmaması doğrulanır. Bu gerçek tarayıcı veya TLS terminator/production testinin yerini tutmaz.
+
+**Kalan #30:** gerçek SMTP ile hesabın doğrulanması ve kullanıcı-sayımı önleyen kayıt/giriş/reset, trusted reverse proxy, server secret manager, HTTPS login/logout/CSRF rotaları, admin MFA/RBAC, native güvenli saklama, Expo UI ve gerçek cihaz/browser E2E. #30 OPEN kalır. #7 yayın güvenlik kapısı da `2 HIGH + 5 MODERATE` ile BLOCKED; canlıya dağıtım yok.
