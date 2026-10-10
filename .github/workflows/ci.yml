@@ -1,0 +1,24 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm --filter @folio/mobile exec expo export --platform web
+      - run: pnpm licenses list --json > licenses.json && node tools/security/check-licenses.mjs licenses.json
+      - run: pnpm e2e
+      - name: Dependency audit (pre-release informational)
+        continue-on-error: true
+        run: pnpm audit --audit-level high
