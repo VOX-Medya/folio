@@ -17,6 +17,7 @@ import {
   createFolioDb,registerPendingAccount,verifyAccountEmail,
   signInVerifiedAccount,withVerifiedAdminPermission,schema,
 } from '@folio/db';
+import {eq} from 'drizzle-orm';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
 
 interface Wire{status:number;headers:IncomingHttpHeaders;body:string;}
@@ -80,6 +81,7 @@ async function main(){
   }
   const keys=[
     'FOLIO_ADMIN_TOTP_HTTP_MODE','FOLIO_ADMIN_TOTP_KEY_HEX',
+    'FOLIO_ADMIN_TOTP_V2_KEY_HEX','FOLIO_ADMIN_TOTP_ACTIVE_KEY_VERSION',
     'FOLIO_WEB_AUTH_MODE','FOLIO_WEB_AUTH_ORIGIN','FOLIO_WEB_CSRF_KEY_HEX',
   ];
   const originals=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
@@ -94,14 +96,16 @@ async function main(){
       await verifyAccountEmail(db,account.verificationToken);
       return {...account,email};
     }
-    const web=await user(),native=await user(),unrelated=await user();
-    for(const account of [web,native]){
+    const web=await user(),native=await user(),
+      upgraded=await user(),unrelated=await user();
+    for(const account of [web,native,upgraded]){
       await db.insert(schema.adminRoleMemberships).values({
         userId:account.userId,role:'rights',grantedBy:unrelated.userId,
       }); // Synthetic lab-only grant, no real admin bootstrap.
     }
     const webSession=await signInVerifiedAccount(db,web.email,password,'web-https-factor');
     const nativeSession=await signInVerifiedAccount(db,native.email,password,'android-factor');
+    const upgradedSession=await signInVerifiedAccount(db,upgraded.email,password,'v2-factor');
     const regularSession=await signInVerifiedAccount(db,unrelated.email,password,'regular');
 
     process.env.FOLIO_ADMIN_TOTP_HTTP_MODE='off';
@@ -245,16 +249,51 @@ async function main(){
     check(await withVerifiedAdminPermission(db,nativeSession.sessionToken,
       'rights:review',async()=>true),
       'Native MFA verified wrong device');
+    // Backward-compatible staged v2 encryption, with explicit configuration.
+    // Existing v1 factors remain readable while both keys are present.
+    process.env.FOLIO_ADMIN_TOTP_ACTIVE_KEY_VERSION='v2';
+    delete process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX;
+    const v2Bearer={authorization:'Bearer '+upgradedSession.sessionToken};
+    check((await call(true,port,root+'/enroll','POST',v2Bearer,{})).status===503,
+      'Selected v2 without a server key did not fail closed');
+    process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX=process.env.FOLIO_ADMIN_TOTP_KEY_HEX;
+    check((await call(true,port,root+'/enroll','POST',v2Bearer,{})).status===503,
+      'Reused v1 key masqueraded as independent v2 key');
+    process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX=randomBytes(32).toString('hex');
+    const newFactor=await call(true,port,root+'/enroll','POST',v2Bearer,{});
+    check(newFactor.status===200,'Explicit v2 enrollment could not run on TLS');
+    const v2Enrollment=adminTotpEnrollResponseSchema.parse(JSON.parse(newFactor.body));
+    const [v2Row]=await db.select().from(schema.adminTotpCredentials)
+      .where(eq(schema.adminTotpCredentials.userId,upgraded.userId));
+    check(v2Row?.keyVersion==='v2',
+      'New v2 active-key enrollment persisted an incorrect key version');
+    const v2Step=Math.floor(Date.now()/30_000);
+    check((await call(true,port,root+'/confirm','POST',v2Bearer,{
+      code:totpCode(v2Enrollment.secretBase32,v2Step),
+    })).status===204,'New v2 factor failed RFC6238 enrollment confirmation');
+    check((await call(true,port,root+'/verify','POST',v2Bearer,{
+      code:totpCode(v2Enrollment.secretBase32,
+        Math.max(v2Step+1,Math.floor(Date.now()/30_000))),
+    })).status===200,'New v2 factor could not produce valid device proof');
+    check(await withVerifiedAdminPermission(db,upgradedSession.sessionToken,
+      'rights:review',async()=>true),
+      'Verified v2 factor did not authorize matching device');
+
     const audit=await db.select().from(schema.auditEvents);
-    const relevant=audit.filter(x=>[web.userId,native.userId].includes(x.actorId??'')&&
+    const relevant=audit.filter(x=>[web.userId,native.userId,upgraded.userId]
+      .includes(x.actorId??'')&&
       x.action.startsWith('admin.'));
-    check(relevant.filter(x=>x.action==='admin.totp.enrollment.started').length===2&&
-      relevant.filter(x=>x.action==='admin.totp.enrollment.confirmed').length===2&&
-      relevant.filter(x=>x.action==='admin.mfa.totp.verified').length===2,
+    check(relevant.filter(x=>x.action==='admin.totp.enrollment.started').length===3&&
+      relevant.filter(x=>x.action==='admin.totp.enrollment.confirmed').length===3&&
+      relevant.filter(x=>x.action==='admin.mfa.totp.verified').length===3,
       'HTTP MFA audit events were not exactly one per actual mutation');
     const secretFree=JSON.stringify(relevant);
-    for(const item of [created.secretBase32,mobileFactor.secretBase32,
-      webSession.sessionToken,nativeSession.sessionToken,password]){
+    for(const item of [
+      created.secretBase32,mobileFactor.secretBase32,v2Enrollment.secretBase32,
+      webSession.sessionToken,nativeSession.sessionToken,
+      upgradedSession.sessionToken,password,
+      process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX,
+    ]){
       check(!secretFree.includes(item),'Raw MFA secret or token leaked to audit');
     }
     process.env.FOLIO_ADMIN_TOTP_HTTP_MODE='off';
@@ -270,7 +309,7 @@ async function main(){
       !!spec.paths[root+'/confirm']?.post&&
       !!spec.paths[root+'/verify']?.post,
       'Real opt-in MFA endpoints missing from OpenAPI');
-    console.log('ADMIN TOTP HTTPS PASS: default 404, no proxy TLS spoof, 503 missing key, same-origin CSRF cookie and separate native bearer, strict DTO/owner denies, encrypted live RFC6238 confirm+15m proof, replay 401, no-cache error/secret audit, feature gate off. Folio test DB only.');
+    console.log('ADMIN TOTP HTTPS PASS: staged v1/v2 server keyring, missing/duplicate v2 503, new v2 real proof, default 404, no proxy TLS spoof, 503 missing key, same-origin CSRF cookie and separate native bearer, strict DTO/owner denies, encrypted live RFC6238 confirm+15m proof, replay 401, no-cache error/secret audit, feature gate off. Folio test DB only.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
