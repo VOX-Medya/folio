@@ -4,6 +4,7 @@ import {
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
   patchAdminEdition,getAdminRevisionDiff,getAdminRevisionList,
+  getAdminRightsLedger,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
 } from './admin-catalog-client.js';
 
@@ -425,6 +426,53 @@ describe('admin catalog browser privacy/transport contract',()=>{
     vi.stubGlobal('window',{location:{protocol:'http:'}});
     await expect(getAdminRevisionList(workId,authorId))
       .rejects.toMatchObject({kind:'secure-https'});
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it('reads rights metadata only over strict HTTPS cookie GET with bounded UUID cursor',async()=>{
+    const first={
+      workId,items:[{id:authorId,editionId:null,revisionId:null,
+        reviewStatus:'pending',territories:['TR'],
+        claims:{display:true,translation:false,audio:false,sharing:false},
+        expiresAt:null}],
+      nextCursor:authorId,isMetadataOnly:true,
+    };
+    const second={...first,items:[],nextCursor:null};
+    const fetcher=vi.fn().mockResolvedValueOnce(json(first))
+      .mockResolvedValueOnce(json(second));
+    vi.stubGlobal('fetch',fetcher);
+    expect(await getAdminRightsLedger(workId)).toEqual(first);
+    expect(await getAdminRightsLedger(workId,authorId)).toEqual(second);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const [path,init]=fetcher.mock.calls[0] as [string,RequestInit];
+    const [cursorPath]=fetcher.mock.calls[1] as [string,RequestInit];
+    expect(path).toBe('/v1/admin/catalog/works/'+workId+'/rights?limit=20');
+    expect(cursorPath).toBe(path+'&cursor='+authorId);
+    expect(init).toMatchObject({
+      method:'GET',mode:'same-origin',credentials:'same-origin',
+      redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',
+      headers:{Accept:'application/json'},
+    });
+    expect(init.headers).not.toHaveProperty('Authorization');
+    expect(init.headers).not.toHaveProperty('x-folio-csrf');
+  });
+  it('blocks rights ledger scope, legal evidence leakage, MFA denial and lost response without retry',async()=>{
+    const valid={workId,items:[],nextCursor:null,isMetadataOnly:true};
+    const fetcher=vi.fn().mockResolvedValueOnce(json({...valid,legalEvidence:'private license'}))
+      .mockResolvedValueOnce(json({...valid,workId:authorId}))
+      .mockResolvedValueOnce(json(valid,403))
+      .mockRejectedValueOnce(Error('offline'));
+    vi.stubGlobal('fetch',fetcher);
+    await expect(getAdminRightsLedger('../escape')).rejects.toMatchObject({kind:'invalid'});
+    await expect(getAdminRightsLedger(workId,'../../cursor')).rejects.toMatchObject({kind:'invalid'});
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(getAdminRightsLedger(workId)).rejects.toMatchObject({kind:'unexpected'});
+    await expect(getAdminRightsLedger(workId)).rejects.toMatchObject({kind:'unexpected'});
+    await expect(getAdminRightsLedger(workId)).rejects.toMatchObject({kind:'forbidden'});
+    await expect(getAdminRightsLedger(workId)).rejects.toMatchObject({kind:'network'});
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    vi.stubGlobal('window',{location:{protocol:'http:'}});
+    await expect(getAdminRightsLedger(workId)).rejects.toMatchObject({kind:'secure-https'});
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
