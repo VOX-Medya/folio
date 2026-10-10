@@ -24,7 +24,7 @@ export class VerifiedSessionGuard implements CanActivate {
   async canActivate(context:ExecutionContext):Promise<boolean>{
     const request=context.switchToHttp().getRequest<FolioSessionRequest>();
     // Never inherit a principal supplied by a client or another middleware.
-    request.auth=undefined;
+    delete request.auth;
     const header=request.headers?.authorization;
     if(typeof header!=='string'||!/^Bearer [A-Za-z0-9_-]{43}$/.test(header)){
       throw new UnauthorizedException('Verified session required');
