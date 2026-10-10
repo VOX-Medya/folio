@@ -152,6 +152,58 @@ export const adminCatalogWorkCreatedSchema=z.object({
   id:z.uuid(),publicationStatus:z.literal('draft'),
 }).strict();
 
+/** ADMIN ONLY: a safe projection of ONE repeatable-read relational snapshot.
+ * Public catalog/rights access is a different, still default-deny workflow. */
+const catalogDetailWorkSchema=z.object({
+  id:z.uuid(),
+  originalTitle:z.string().min(1),
+  originalLanguage:z.enum(['tr','en']),
+  firstPublicationYear:z.number().int().nullable(),
+  publicationStatus:z.string().min(1).max(24),
+}).strict();
+const catalogDetailWorkAuthorSchema=z.object({
+  id:z.uuid(),name:z.string().min(1),
+  role:z.enum(['author','co-author','editor']),
+  sortOrder:z.number().int().min(0),
+}).strict();
+const catalogDetailTitleSchema=z.object({
+  id:z.uuid(),language:z.enum(['tr','en']),
+  title:z.string().min(1),kind:z.enum(['original','translation','alternate']),
+}).strict();
+const catalogDetailEditionSchema=z.object({
+  id:z.uuid(),language:z.enum(['tr','en']),
+  label:z.string().min(1),publisher:z.string().nullable(),
+  status:z.string().min(1).max(24),
+  identifiers:z.array(z.object({
+    kind:z.enum(['isbn-10','isbn-13','other']),value:z.string().min(1),
+  }).strict()).max(250),
+  contributors:z.array(z.object({
+    authorId:z.uuid(),
+    role:z.enum(['author','translator','editor','illustrator']),
+    sortOrder:z.number().int().min(0),
+  }).strict()).max(250),
+}).strict();
+export const adminCatalogWorkDetailSchema=z.object({
+  work:catalogDetailWorkSchema,
+  authors:z.array(catalogDetailWorkAuthorSchema).max(250),
+  titles:z.array(catalogDetailTitleSchema).max(250),
+  editions:z.array(catalogDetailEditionSchema).max(250),
+}).strict();
+export const adminCatalogAuthorDetailSchema=z.object({
+  author:z.object({
+    id:z.uuid(),canonicalName:z.string().min(1),sortName:z.string().min(1),
+  }).strict(),
+  aliases:z.array(z.object({
+    id:z.uuid(),name:z.string().min(1),locale:z.string().nullable(),
+  }).strict()).max(500),
+  externalIds:z.array(z.object({
+    source:z.string().min(1),externalId:z.string().min(1),
+  }).strict()).max(500),
+}).strict();
+export type AdminCatalogWorkDetail=z.infer<typeof adminCatalogWorkDetailSchema>;
+export type AdminCatalogAuthorDetail=z.infer<typeof adminCatalogAuthorDetailSchema>;
+
+
 
 /** Input is parsed verbatim from a validated, text-bearing local source; no OCR/AI recovery. */
 export const contentBlockKindSchema = z.enum([
