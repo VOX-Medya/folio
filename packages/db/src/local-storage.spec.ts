@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {Readable} from 'node:stream';
-import {mkdtemp,rm,readdir,lstat,link,symlink,mkdir,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,readdir,lstat,link,symlink,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe,expect,it} from 'vitest';
