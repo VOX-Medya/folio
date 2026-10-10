@@ -146,9 +146,10 @@ export type WorkCreate = z.infer<typeof workCreateSchema>;
 
 /** Privileged metadata-only edits, never edition content or publishing status.
  * expectedVersion is the persisted canonical scalar metadata revision. */
-const metadataVersionSchema=z.number().int().min(0).max(2147483646);
+const metadataVersionSchema=z.number().int().min(0).max(2147483647);
+const expectedMetadataVersionSchema=z.number().int().min(0).max(2147483646);
 export const canonicalAuthorMetadataPatchSchema=z.object({
-  expectedVersion:metadataVersionSchema,
+  expectedVersion:expectedMetadataVersionSchema,
   canonicalName:z.string().trim().min(1).max(240).optional(),
   sortName:z.string().trim().min(1).max(240).optional(),
   aliases:z.array(z.object({
@@ -171,7 +172,7 @@ export const canonicalAuthorMetadataPatchSchema=z.object({
   }
 });
 export const canonicalWorkMetadataPatchSchema=z.object({
-  expectedVersion:metadataVersionSchema,
+  expectedVersion:expectedMetadataVersionSchema,
   originalTitle:z.string().trim().min(1).max(600).optional(),
   firstPublicationYear:z.number().int().min(-4000).max(2500).nullable().optional(),
 }).strict().superRefine((input,ctx)=>{
@@ -209,6 +210,7 @@ const catalogDetailWorkSchema=z.object({
   originalLanguage:z.enum(['tr','en']),
   firstPublicationYear:z.number().int().nullable(),
   publicationStatus:z.string().min(1).max(24),
+  metadataVersion:metadataVersionSchema,
 }).strict();
 const catalogDetailWorkAuthorSchema=z.object({
   id:z.uuid(),name:z.string().min(1),
@@ -241,6 +243,7 @@ export const adminCatalogWorkDetailSchema=z.object({
 export const adminCatalogAuthorDetailSchema=z.object({
   author:z.object({
     id:z.uuid(),canonicalName:z.string().min(1),sortName:z.string().min(1),
+    metadataVersion:metadataVersionSchema,
   }).strict(),
   aliases:z.array(z.object({
     id:z.uuid(),name:z.string().min(1),locale:z.string().nullable(),
