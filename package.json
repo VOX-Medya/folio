@@ -16,7 +16,8 @@
     "design:check": "node tools/design/generate-screen-matrix.mjs --check",
     "mobile:export": "pnpm --filter @folio/mobile exec expo export --platform all && node tools/ci/check-expo-exports.mjs",
     "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs tools/security/*.test.mjs",
-    "metro:security-check": "node tools/security/check-metro-graph.mjs pnpm-lock.yaml"
+    "metro:security-check": "node tools/security/check-metro-graph.mjs pnpm-lock.yaml",
+    "security:release-check": "node tools/security/dependency-release-gate.mjs pnpm-lock.yaml dependency-audit.json"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
