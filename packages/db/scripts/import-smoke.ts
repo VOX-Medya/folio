@@ -279,8 +279,9 @@ async function main(){
       .where(eq(schema.works.id,raceWork.id));
     ensure(newRaceWork.length===0,'Late SHA collision still created a duplicate canonical work');
     const raceState=await getStagedCatalogImportStatus(db,raceBatch.batchId);
-    ensure(raceState?.counts['work:staged']===1,
-      'Late SHA collision advanced a work without a reviewer');
+    ensure(raceState?.counts['work:staged']===1&&
+      raceState.counts['author:staged']===1,
+      'Late SHA collision advanced a work or its author dependency before review');
     console.log('Post-staging source SHA race denied before work creation; review remains required.');
   }finally{await pool.end();}
 }
