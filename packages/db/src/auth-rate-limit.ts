@@ -15,7 +15,7 @@ const policies={
 const inputSchema=z.object({
   action:z.enum(['login','register','password_reset']),
   trustedClientIp:z.string().trim().min(2).max(80),
-  email:z.email().trim().max(254),
+  email:z.string().trim().max(254).pipe(z.email()),
   // Dedicated persistent key from a secret manager. Never log, persist or generate
   // a different key per process. This is NOT an HTTP request field.
   hmacKeyHex:z.string().regex(/^[a-fA-F0-9]{64}$/),
