@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
 import {
-  adminCatalogIdSchema,authorCreateSchema,workCreateSchema,
+  authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
 } from '@folio/contracts';
 import type {
