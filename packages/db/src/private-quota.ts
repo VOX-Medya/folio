@@ -145,3 +145,46 @@ export async function inspectPrivateUploadQuota(db:QuotaDb,trustedOwnerId:string
       reservedBytes:Number(state.reserved),maxUserBytes:max};
   });
 }
+
+
+/**
+ * INTERNAL orphan retention. One private owner at a time; dry-run by default.
+ * Uses exactly the advisory transaction lock held by quota reservation and
+ * quarantine commit, so no new eligible DB reference/reservation can race the
+ * FS unlink. Any active reservation blocks the entire owner's cleanup.
+ * Every media_assets status is protected, even rejected/deleted.
+ *
+ * This does NOT scan/publish files, purge referenced user books, or expose an
+ * HTTP/cron endpoint. testNowMs is only for synthetic time-advance tests.
+ */
+export async function sweepPrivateQuarantineOrphans(
+  db:QuotaDb,storage:LocalStorageAdapter,trustedOwnerId:string,
+  options:{apply?:boolean;testNowMs?:number}={},
+){
+  const owner=uuid.parse(trustedOwnerId);
+  const now=options.testNowMs??Date.now();
+  if(!Number.isSafeInteger(now)||now<0)throw new Error('Invalid private orphan sweep clock');
+  return db.transaction(async tx=>{
+    await tx.execute(lockOwner(owner));
+    const [active]=await tx.select({id:schema.storageUploadReservations.id})
+      .from(schema.storageUploadReservations).where(and(
+        eq(schema.storageUploadReservations.ownerUserId,owner),
+        eq(schema.storageUploadReservations.status,'reserved'),
+        gt(schema.storageUploadReservations.expiresAt,new Date(now)),
+      )).limit(1);
+    if(active){
+      return {ownerScope:'private-user' as const,blockedByActiveReservation:true,
+        scanned:0,referenced:0,eligible:0,removed:0,skipped:0,
+        truncated:false,dryRun:options.apply!==true};
+    }
+    const references=await tx.select({storageKey:schema.mediaAssets.storageKey})
+      .from(schema.mediaAssets).where(and(
+        eq(schema.mediaAssets.ownerScope,'private-user'),
+        eq(schema.mediaAssets.ownerUserId,owner),
+      ));
+    const result=await storage.sweepPrivateUserOrphans(
+      owner,new Set(references.map(r=>r.storageKey)),options,
+    );
+    return {ownerScope:'private-user' as const,blockedByActiveReservation:false,...result};
+  });
+}
