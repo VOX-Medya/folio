@@ -147,11 +147,16 @@ async function main(){
     const good=await httpsCall(port,root+'/login','POST',{
       ...sameOrigin,'x-forwarded-for':'198.51.100.245',
       'x-forwarded-proto':'http','x-user-id':'another-user',
-      'x-admin-role':'superadmin',
+      'x-admin-role':'superadmin','x-request-id':'client-spoofed-request-id',
     },validBody);
     check(good.status===204&&good.body===''&&
       good.headers['cache-control']==='private, no-store',
       'Web login must return empty 204 and private no-store');
+    const loginRequestId=good.headers['x-request-id'];
+    check(typeof loginRequestId==='string'&&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(loginRequestId)&&
+      loginRequestId!=='client-spoofed-request-id',
+      'Server did not issue its own login request ID');
     const setCookie=good.headers['set-cookie']?.[0];
     check(typeof setCookie==='string'&&setCookie.includes('__Host-folio_session=')&&
       setCookie.includes('Secure')&&setCookie.includes('HttpOnly')&&
@@ -188,6 +193,9 @@ async function main(){
     });
     check(logout.status===204&&logout.headers['set-cookie']?.[0]?.includes('Max-Age=0'),
       'Verified web logout did not clear the secure cookie');
+    const logoutRequestId=logout.headers['x-request-id'];
+    check(typeof logoutRequestId==='string'&&logoutRequestId!==loginRequestId,
+      'Logout must have a distinct server-generated request ID');
     const retired=await httpsCall(port,root+'/csrf','GET',{
       cookie,'sec-fetch-site':'same-origin',
     });
@@ -232,13 +240,19 @@ async function main(){
     delete process.env.FOLIO_WEB_CSRF_KEY_HEX;
     check((await httpsCall(port,root+'/login','POST',sameOrigin,validBody)).status===503,
       'Missing CSRF key allowed sign-in');
-    const audit=await pool.query<{action:string;after_json:unknown}>(
-      'SELECT action,after_json FROM audit_events WHERE actor_id=$1::uuid',
+    const audit=await pool.query<{
+      action:string;request_id:string|null;after_json:unknown;
+    }>(
+      'SELECT action,request_id,after_json FROM audit_events WHERE actor_id=$1::uuid',
       [pending.userId],
     );
-    check(audit.rows.filter(x=>x.action==='auth.session.created').length===1&&
-      audit.rows.filter(x=>x.action==='auth.session.revoked').length===1,
+    const creates=audit.rows.filter(x=>x.action==='auth.session.created');
+    const revokes=audit.rows.filter(x=>x.action==='auth.session.revoked');
+    check(creates.length===1&&revokes.length===1,
       'Rejected credential/CSRF attempts unexpectedly created or revoked sessions');
+    check(creates[0]?.request_id===loginRequestId&&
+      revokes[0]?.request_id===logoutRequestId,
+      'Web session create/revoke audit request IDs do not match trusted HTTP headers');
     const serialized=JSON.stringify(audit.rows);
     check(!serialized.includes(email)&&!serialized.includes(password)&&
       !serialized.includes(cookie),'Sensitive data leaked to auth audit');
