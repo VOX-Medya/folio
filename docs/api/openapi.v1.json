@@ -718,6 +718,244 @@
         "tags": [
           "admin-catalog"
         ]
+      },
+      "post": {
+        "operationId": "AdminCatalogController_createWork",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "originalTitle",
+                  "originalLanguage",
+                  "authors"
+                ],
+                "properties": {
+                  "originalTitle": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "originalLanguage": {
+                    "type": "string",
+                    "enum": [
+                      "tr",
+                      "en"
+                    ]
+                  },
+                  "firstPublicationYear": {
+                    "type": "integer",
+                    "minimum": -4000,
+                    "maximum": 2500,
+                    "nullable": true
+                  },
+                  "authors": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "authorId"
+                      ],
+                      "properties": {
+                        "authorId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "contribution": {
+                          "type": "string",
+                          "enum": [
+                            "author",
+                            "co-author",
+                            "editor"
+                          ],
+                          "default": "author"
+                        },
+                        "sortOrder": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000,
+                          "default": 0
+                        }
+                      }
+                    }
+                  },
+                  "titles": {
+                    "type": "array",
+                    "maxItems": 40,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "language",
+                        "title",
+                        "kind"
+                      ],
+                      "properties": {
+                        "language": {
+                          "type": "string",
+                          "enum": [
+                            "tr",
+                            "en"
+                          ]
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 600
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "original",
+                            "translation",
+                            "alternate"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "editions": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "language",
+                        "label"
+                      ],
+                      "properties": {
+                        "language": {
+                          "type": "string",
+                          "enum": [
+                            "tr",
+                            "en"
+                          ]
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 400
+                        },
+                        "publisher": {
+                          "type": "string",
+                          "maxLength": 240
+                        },
+                        "identifiers": {
+                          "type": "array",
+                          "maxItems": 30,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "value"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "isbn-10",
+                                  "isbn-13",
+                                  "other"
+                                ]
+                              },
+                              "value": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 150
+                              }
+                            }
+                          }
+                        },
+                        "contributors": {
+                          "type": "array",
+                          "maxItems": 50,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "authorId",
+                              "role"
+                            ],
+                            "properties": {
+                              "authorId": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "role": {
+                                "type": "string",
+                                "enum": [
+                                  "author",
+                                  "translator",
+                                  "editor",
+                                  "illustrator"
+                                ]
+                              },
+                              "sortOrder": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "default": 0
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "publicationStatus"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "publicationStatus": {
+                      "type": "string",
+                      "enum": [
+                        "draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Explicitly opted-in TLS + verified catalog:edit MFA; create audited DRAFT work with authors and editions",
+        "tags": [
+          "admin-catalog"
+        ]
       }
     },
     "/v1/admin/catalog/authors": {
@@ -811,6 +1049,117 @@
           }
         ],
         "summary": "Opt-in direct-TLS, same-device MFA/RBAC canonical author metadata search (no user search)",
+        "tags": [
+          "admin-catalog"
+        ]
+      },
+      "post": {
+        "operationId": "AdminCatalogController_createAuthor",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "canonicalName"
+                ],
+                "properties": {
+                  "canonicalName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "sortName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "maxItems": 30,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 240
+                        },
+                        "locale": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 12
+                        }
+                      }
+                    }
+                  },
+                  "externalIds": {
+                    "type": "array",
+                    "maxItems": 30,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "source",
+                        "externalId"
+                      ],
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "externalId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 400
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Explicitly opted-in TLS + verified catalog:edit MFA; create an audited unpublished canonical author",
         "tags": [
           "admin-catalog"
         ]
