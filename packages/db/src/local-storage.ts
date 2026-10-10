@@ -7,7 +7,8 @@ import {TextDecoder} from 'node:util';
 import {z} from 'zod';
 import {PRIVATE_CLAMAV_MAX_BYTES} from './quarantine-scanner.js';
 import type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
-import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine} from './epub-structure.js';
+import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup} from './epub-structure.js';
+import type {EpubXhtmlMarkupResult} from './epub-xhtml.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 import type {EpubZipStructuralResult} from './epub-structure.js';
 
@@ -51,6 +52,7 @@ export interface StorageAdapter {
   inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>;
   inspectEpubStructure(record:QuarantinedBlob):Promise<EpubZipStructuralResult>;
   inspectEpubPackageSpine(record:QuarantinedBlob):Promise<EpubPackageSpineResult>;
+  inspectEpubXhtmlMarkup(record:QuarantinedBlob):Promise<EpubXhtmlMarkupResult>;
 }
 
 function requireSha256(value:string):void {
@@ -359,6 +361,12 @@ export class LocalStorageAdapter implements StorageAdapter {
    * DOM rendering, malware proof, rights decision or verified status. */
   async inspectEpubPackageSpine(record:QuarantinedBlob):Promise<EpubPackageSpineResult>{
     return inspectEpubZipPackageSpine(await this.readTrustedEpubBytes(record));
+  }
+
+  /** Safe XHTML *shape* observation only. It neither returns original source
+   * text nor allows a renderer, download route or verified transition. */
+  async inspectEpubXhtmlMarkup(record:QuarantinedBlob):Promise<EpubXhtmlMarkupResult>{
+    return inspectEpubZipXhtmlMarkup(await this.readTrustedEpubBytes(record));
   }
 
   /**
