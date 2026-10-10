@@ -403,6 +403,49 @@ export const contentRevisionCreateSchema = z.object({
 });
 export type ContentRevisionCreate = z.infer<typeof contentRevisionCreateSchema>;
 
+/** ADMIN-ONLY read-only editorial diff: stable ID metadata, never source
+ * text, artifact path, raw provenance, user library or publication approval. */
+export const adminCatalogRevisionDiffQuerySchema=z.object({
+  fromRevisionId:z.uuid(),
+  cursor:z.uuid().optional(),
+  limit:z.coerce.number().int().min(1).max(100).default(50),
+}).strict();
+const revisionDiffPosition=z.object({
+  chapterId:z.uuid(),
+  ordinal:z.number().int().min(0),
+  kind:contentBlockKindSchema,
+  textSha256:z.string().regex(/^[0-9a-f]{64}$/),
+  includeNormal:z.boolean(),
+  includeRsvp:z.boolean(),
+  includeAudio:z.boolean(),
+}).strict();
+export const adminCatalogRevisionDiffSchema=z.object({
+  editionId:z.uuid(),
+  fromRevisionId:z.uuid(),
+  toRevisionId:z.uuid(),
+  summary:z.object({
+    added:z.number().int().min(0),
+    removed:z.number().int().min(0),
+    text_changed:z.number().int().min(0),
+    metadata_changed:z.number().int().min(0),
+    moved:z.number().int().min(0),
+    unchanged:z.number().int().min(0),
+  }).strict(),
+  chapterChanges:z.array(z.object({
+    chapterId:z.uuid(),
+    kind:z.enum(['added','removed','renamed','moved']),
+  }).strict()).max(10000),
+  items:z.array(z.object({
+    blockId:z.uuid(),
+    kind:z.enum(['added','removed','text_changed','metadata_changed','moved']),
+    before:revisionDiffPosition.nullable(),
+    after:revisionDiffPosition.nullable(),
+  }).strict()).max(100),
+  nextCursor:z.uuid().nullable(),
+  isMetadataOnly:z.literal(true),
+}).strict();
+export type AdminCatalogRevisionDiff=z.infer<typeof adminCatalogRevisionDiffSchema>;
+
 export const rightsActionSchema = z.enum(['display','translation','audio','sharing']);
 export type RightsAction = z.infer<typeof rightsActionSchema>;
 export const rightsRecordCreateSchema = z.object({
