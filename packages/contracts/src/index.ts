@@ -190,6 +190,61 @@ export const canonicalWorkMetadataUpdatedSchema=z.object({
   publicationStatus:z.literal('draft'),
 }).strict();
 
+
+/** Append metadata-only draft relationships under an already-verified
+ * canonical work. Never import text, approve rights, or publish a revision. */
+export const adminCatalogEditionAppendSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  language:z.enum(['tr','en']),
+  label:z.string().trim().min(1).max(400),
+  publisher:z.string().trim().max(240).optional(),
+  identifiers:z.array(z.object({
+    kind:z.enum(['isbn-10','isbn-13','other']),
+    value:z.string().trim().min(1).max(150),
+  }).strict()).max(30).default([]),
+  contributors:z.array(z.object({
+    authorId:z.uuid(),
+    role:z.enum(['author','translator','editor','illustrator']),
+    sortOrder:z.number().int().min(0).max(10000).default(0),
+  }).strict()).max(50).default([]),
+}).strict().superRefine((input,ctx)=>{
+  const ids=input.identifiers.map(row=>row.kind+'\\0'+row.value);
+  if(new Set(ids).size!==ids.length){
+    ctx.addIssue({code:'custom',message:'Duplicate edition identifier'});
+  }
+  const roles=input.contributors.map(row=>row.authorId+'\\0'+row.role);
+  if(new Set(roles).size!==roles.length){
+    ctx.addIssue({code:'custom',message:'Duplicate edition contributor role'});
+  }
+});
+export const adminCatalogTitleAppendSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  language:z.enum(['tr','en']),
+  title:z.string().trim().min(1).max(600),
+  kind:z.enum(['translation','alternate']),
+}).strict();
+export const adminCatalogWorkAuthorAppendSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  authorId:z.uuid(),
+  contribution:z.enum(['author','co-author','editor']).default('author'),
+  sortOrder:z.number().int().min(0).max(10000).default(0),
+}).strict();
+export type AdminCatalogEditionAppend=z.infer<typeof adminCatalogEditionAppendSchema>;
+export type AdminCatalogTitleAppend=z.infer<typeof adminCatalogTitleAppendSchema>;
+export type AdminCatalogWorkAuthorAppend=z.infer<typeof adminCatalogWorkAuthorAppendSchema>;
+export const adminCatalogEditionAppendedSchema=z.object({
+  id:z.uuid(),workId:z.uuid(),
+  metadataVersion:metadataVersionSchema,
+  status:z.literal('draft'),
+}).strict();
+export const adminCatalogTitleAppendedSchema=z.object({
+  id:z.uuid(),workId:z.uuid(),metadataVersion:metadataVersionSchema,
+}).strict();
+export const adminCatalogWorkAuthorAppendedSchema=z.object({
+  workId:z.uuid(),authorId:z.uuid(),
+  metadataVersion:metadataVersionSchema,
+}).strict();
+
 /** HTTP draft creation acknowledges opaque canonical IDs only.
  * No arbitrary publication status, owner or raw text may be returned. */
 export const adminCatalogAuthorCreatedSchema=z.object({
