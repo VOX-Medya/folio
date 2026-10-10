@@ -11,6 +11,7 @@ import {
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
+  adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
@@ -336,4 +337,40 @@ describe('admin-only canonical metadata search contracts',()=>{
       {...result,items:Array.from({length:51},()=>result.items[0])},
     ])expect(adminCatalogRevisionListSchema.safeParse(bad).success).toBe(false);
   });
+  it('strictly bounds rights:read ledger cursor and omits legal evidence/reviewer fields',()=>{
+    const other='7c2b438c-6ee9-45ad-b817-8ef58ab54c5e';
+    expect(adminCatalogRightsLedgerQuerySchema.parse({})).toEqual({limit:20});
+    expect(adminCatalogRightsLedgerQuerySchema.parse({limit:'1',cursor:id}))
+      .toEqual({limit:1,cursor:id});
+    for(const invalid of [
+      {limit:0},{limit:51},{limit:'1.1'},{cursor:'../private'},
+      {actorId:id},{role:'superadmin'},{userId:id},{evidence:'leak'},
+    ])expect(adminCatalogRightsLedgerQuerySchema.safeParse(invalid).success).toBe(false);
+    const ledger={workId:id,items:[{
+      id:other,editionId:null,revisionId:null,reviewStatus:'pending',
+      territories:['TR','GB'],
+      claims:{display:true,translation:false,audio:false,sharing:false},
+      expiresAt:null,
+    }],nextCursor:null,isMetadataOnly:true};
+    expect(adminCatalogRightsLedgerSchema.parse(ledger)).toEqual(ledger);
+    for(const invalid of [
+      {...ledger,evidence:'private license'},
+      {...ledger,items:[{...ledger.items[0],reviewerId:id}]},
+      {...ledger,items:[{...ledger.items[0],sourceUrl:'https://secret.example'}]},
+      {...ledger,items:[{...ledger.items[0],storageKey:'private/blob'}]},
+      {...ledger,items:[{...ledger.items[0],status:'published'}]},
+      {...ledger,items:[{...ledger.items[0],reviewStatus:'published'}]},
+      {...ledger,items:[{...ledger.items[0],territories:['USA']}]},
+      {...ledger,items:[{...ledger.items[0],
+        claims:{...ledger.items[0].claims,publish:true}}]},
+      {...ledger,isMetadataOnly:false},
+      {...ledger,items:Array.from({length:51},()=>ledger.items[0])},
+    ])expect(adminCatalogRightsLedgerSchema.safeParse(invalid).success).toBe(false);
+    expect(adminCatalogRightsLedgerSchema.parse({
+      ...ledger,items:[{...ledger.items[0],revisionId:id,
+        editionId:other,expiresAt:'2026-10-10T00:00:00.000Z',
+        reviewStatus:'withdrawn'}],
+    }).items[0]?.reviewStatus).toBe('withdrawn');
+  });
+
 });
