@@ -27,6 +27,7 @@
     "db:storage-quota-smoke": "tsx scripts/storage-quota-smoke.ts",
     "db:storage-integrity-smoke": "tsx scripts/storage-integrity-smoke.ts",
     "db:clamav-native-smoke": "tsx scripts/clamav-native-smoke.ts",
+    "db:storage-malware-smoke": "tsx scripts/storage-malware-smoke.ts",
     "db:admin-rbac-smoke": "tsx scripts/admin-rbac-smoke.ts",
     "db:admin-totp-smoke": "tsx scripts/admin-totp-smoke.ts",
     "db:admin-totp-rotation-smoke": "tsx scripts/admin-totp-rotation-smoke.ts",
