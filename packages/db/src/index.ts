@@ -26,3 +26,6 @@ export type {AssetOwner, CandidateMime, QuarantinedBlob, StagePrivateBlob} from 
 
 // INTERNAL private-user quota gate. Requires trusted auth caller; never publishes staged bytes.
 export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota} from './private-quota.js';
+
+// Internal RBAC-only catalog metadata queries. Never mount as a public route without rights verification.
+export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin} from './catalog-search.js';

@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {eq} from 'drizzle-orm';
-import {createFolioDb, createCanonicalAuthor, createCanonicalWork, getCanonicalWorkDetails, schema} from '../src/index.js';
+import {createFolioDb, createCanonicalAuthor, createCanonicalWork, getCanonicalWorkDetails, searchCanonicalWorksForAdmin, searchCanonicalAuthorsForAdmin, schema} from '../src/index.js';
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
@@ -42,6 +42,35 @@ async function main(): Promise<void> {
     if (!rejected || beforeCount!==afterCount) throw new Error('Broken author reference was not atomically rolled back');
     const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.entityId,work.id));
     if (!audit.some(e=>e.action==='work.create')) throw new Error('Work creation was not audited');
+    // Internal searches MUST never expose drafts through an unguarded HTTP route.
+    // Test canonical title, alternate title, alias author and edition contributor.
+    const pageOne=await searchCanonicalWorksForAdmin(db,{query:commonTitle,limit:1});
+    if(pageOne.items.length!==1||!pageOne.nextCursor)throw new Error('Draft search cursor page missing');
+    const pageTwo=await searchCanonicalWorksForAdmin(db,{query:commonTitle,limit:1,cursor:pageOne.nextCursor});
+    if(pageTwo.items.length!==1||pageTwo.items[0]?.id===pageOne.items[0]?.id||pageTwo.nextCursor!==null){
+      throw new Error('Draft catalog UUID cursor repeated or dropped a work');
+    }
+    const english=await searchCanonicalWorksForAdmin(db,{query:`Translation ${suffix}`});
+    if(!english.items.some(i=>i.id===work.id))throw new Error('Translated title search missing canonical work');
+    const viaAlias=await searchCanonicalWorksForAdmin(db,{query:`Alias ${suffix}`});
+    if(!viaAlias.items.some(i=>i.id===work.id))throw new Error('Writer alias failed to find work');
+    const viaContributor=await searchCanonicalWorksForAdmin(db,{query:`Lab Translator ${suffix}`});
+    if(!viaContributor.items.some(i=>i.id===work.id))throw new Error('Edition contributor failed to find work');
+    const matchedAuthor=await searchCanonicalAuthorsForAdmin(db,{query:`Alias ${suffix}`});
+    if(!matchedAuthor.items.some(i=>i.id===writer.id))throw new Error('Author alias lookup failed');
+
+    const literal=await createCanonicalWork(db,actor,{...input,
+      originalTitle:`Percent % ${suffix}`,titles:[],editions:[]});
+    const exactLike=await searchCanonicalWorksForAdmin(db,{query:`% ${suffix}`,limit:50});
+    if(exactLike.items.length!==1||exactLike.items[0]?.id!==literal.id){
+      throw new Error('A literal SQL LIKE wildcard broadened the catalog search');
+    }
+    let invalidSearch=false;
+    try{await searchCanonicalWorksForAdmin(db,{query:'',limit:99});}
+    catch{invalidSearch=true;}
+    if(!invalidSearch)throw new Error('Unbounded/empty admin catalog search was accepted');
+    if(pageOne.items[0]?.publicationStatus!=='draft')throw new Error('Catalog preview misrepresented a draft work');
+    console.log('Internal work/author search PASS: UUID cursor, aliases, translators, alternate title, literal LIKE escape, bounded paging; draft never made public.');
     console.log('Canonical catalog PASS: aliases/IDs, N:M authors, 2 language editions/contributors, repeated ISBN/title, FK rollback and audit; all unpublished draft.');
   } finally {await pool.end();}
 }
