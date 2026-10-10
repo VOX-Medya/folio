@@ -152,6 +152,9 @@ export const adminCatalogWorkCreatedSchema=z.object({
   id:z.uuid(),publicationStatus:z.literal('draft'),
 }).strict();
 
+/** Strict canonical resource IDs from authenticated admin URL params. */
+export const adminCatalogIdSchema=z.uuid();
+
 /** ADMIN ONLY: a safe projection of ONE repeatable-read relational snapshot.
  * Public catalog/rights access is a different, still default-deny workflow. */
 const catalogDetailWorkSchema=z.object({
