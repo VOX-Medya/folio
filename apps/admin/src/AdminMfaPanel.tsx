@@ -30,7 +30,7 @@ const words={
     verify:'Bu cihazın oturumunu MFA ile doğrula',
     confirmed:'Faktör kaydı onaylandı. Bu oturumu yetkilendirmek için sonraki farklı TOTP kodunu kullanın.',
     verified:'Bu cihaz için MFA kanıtı doğrulandı.',proofExpiry:'Kanıt süresi sonu',
-    noCrud:'Yönetici içerik/üye işlemleri henüz açık değil. Faktör doğrulaması tek başına başka veri erişimi sağlamaz.',
+    noCrud:'Katalog erişimi ayrıca sunucu TLS açma bayrakları ve gerçek katalog rolü gerektirir. Diğer yönetici modülleri hâlâ kapalıdır.',
     busy:'Güvenli işlem sürüyor…',
     invalidCode:'Altı haneli geçerli bir kod girin.',
     errors:{
@@ -63,7 +63,7 @@ const words={
     verify:'Verify MFA for this device session',
     confirmed:'Factor enrollment confirmed. Use a DIFFERENT, fresh TOTP code to authorize this device.',
     verified:'MFA evidence verified for this device.',proofExpiry:'Evidence expires',
-    noCrud:'Administrator content/member operations are not yet enabled. A factor proof does not grant unrelated data access.',
+    noCrud:'Catalog access additionally requires server-side TLS flags and a real catalog role. Other administrator modules remain unavailable.',
     busy:'Secure request in progress…',
     invalidCode:'Enter a valid six-digit TOTP code.',
     errors:{
