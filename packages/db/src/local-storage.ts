@@ -7,7 +7,8 @@ import {TextDecoder} from 'node:util';
 import {z} from 'zod';
 import {PRIVATE_CLAMAV_MAX_BYTES} from './quarantine-scanner.js';
 import type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
-import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure} from './epub-structure.js';
+import {EPUB_ZIP_PREFLIGHT_MAX_BYTES,inspectEpubZipStructure,inspectEpubZipPackageSpine} from './epub-structure.js';
+import type {EpubPackageSpineResult} from './epub-package.js';
 import type {EpubZipStructuralResult} from './epub-structure.js';
 
 /**
@@ -49,6 +50,7 @@ export interface StorageAdapter {
   stage(input:StagePrivateBlob):Promise<QuarantinedBlob>;
   inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>;
   inspectEpubStructure(record:QuarantinedBlob):Promise<EpubZipStructuralResult>;
+  inspectEpubPackageSpine(record:QuarantinedBlob):Promise<EpubPackageSpineResult>;
 }
 
 function requireSha256(value:string):void {
@@ -306,16 +308,21 @@ export class LocalStorageAdapter implements StorageAdapter {
    * A valid ZIP skeleton is NEVER proof of safe XHTML, reliable chapter/spine
    * order, complete EPUB semantics, clean malware, license or publication.
    */
-  async inspectEpubStructure(record:QuarantinedBlob):Promise<EpubZipStructuralResult>{
+  /**
+   * Shared quarantine-only EPUB reader for ZIP and OPF checks. Exact owner,
+   * private inode, size and SHA must match the persisted metadata supplied by
+   * trusted callers. No output exposes bytes/path to an HTTP response.
+   */
+  private async readTrustedEpubBytes(record:QuarantinedBlob):Promise<Buffer>{
     const owner=ownerSchema.parse(record);
     requireBlobKey(record.key);
     requireSha256(record.sha256);
     ensureLimit(record.sizeBytes);
     if(record.status!=='pending_verify'||record.mime!=='application/epub+zip'){
-      throw new Error('EPUB structure admission requires quarantined EPUB metadata');
+      throw new Error('EPUB preflight requires quarantined EPUB metadata');
     }
     if(record.sizeBytes>EPUB_ZIP_PREFLIGHT_MAX_BYTES){
-      throw new Error('EPUB structural preflight size cap exceeded');
+      throw new Error('EPUB preflight size cap exceeded');
     }
     const dir=await this.ensurePrivateDirectories(this.ownerSegments(owner));
     const filename=join(dir,record.key+'.blob');
@@ -331,17 +338,27 @@ export class LocalStorageAdapter implements StorageAdapter {
         createHash('sha256').update(bytes).digest('hex')!==record.sha256){
         throw new Error('Quarantined EPUB source bytes changed');
       }
-      const structure=inspectEpubZipStructure(bytes);
       const after=await handle.stat(),pathState=await lstat(filename);
       if(!safe(after)||!pathState.isFile()||pathState.isSymbolicLink()||
         after.ino!==before.ino||after.dev!==before.dev||
         after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||
         pathState.ino!==before.ino||pathState.dev!==before.dev||
         pathState.mtimeMs!==before.mtimeMs||pathState.ctimeMs!==before.ctimeMs){
-        throw new Error('Quarantined EPUB inode changed during structural preflight');
+        throw new Error('Quarantined EPUB inode changed during preflight');
       }
-      return structure;
+      return bytes;
     }finally{await handle.close();}
+  }
+
+  /** ZIP structure-only. No semantic acceptance or status transition. */
+  async inspectEpubStructure(record:QuarantinedBlob):Promise<EpubZipStructuralResult>{
+    return inspectEpubZipStructure(await this.readTrustedEpubBytes(record));
+  }
+
+  /** Package/spine relationship-only. No XHTML reading-order extraction,
+   * DOM rendering, malware proof, rights decision or verified status. */
+  async inspectEpubPackageSpine(record:QuarantinedBlob):Promise<EpubPackageSpineResult>{
+    return inspectEpubZipPackageSpine(await this.readTrustedEpubBytes(record));
   }
 
   /**
