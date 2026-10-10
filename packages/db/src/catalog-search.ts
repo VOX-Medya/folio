@@ -27,14 +27,26 @@ export async function searchCanonicalWorksForAdmin(db:CatalogDb,raw:unknown){
   const pattern=literalContains(input.query);
   const aliasTitleIds=db.select({workId:schema.workTitles.workId})
     .from(schema.workTitles).where(ilike(schema.workTitles.title,pattern));
+  const aliasAuthorIds=db.select({authorId:schema.authorAliases.authorId})
+    .from(schema.authorAliases).where(ilike(schema.authorAliases.name,pattern));
+  const authorNames=or(
+    ilike(schema.authors.canonicalName,pattern),
+    inArray(schema.authors.id,aliasAuthorIds),
+  );
   const authorWorkIds=db.select({workId:schema.workAuthors.workId})
     .from(schema.workAuthors)
     .innerJoin(schema.authors,eq(schema.workAuthors.authorId,schema.authors.id))
-    .where(ilike(schema.authors.canonicalName,pattern));
+    .where(authorNames);
+  const editionContributorWorkIds=db.select({workId:schema.editions.workId})
+    .from(schema.editionContributors)
+    .innerJoin(schema.editions,eq(schema.editionContributors.editionId,schema.editions.id))
+    .innerJoin(schema.authors,eq(schema.editionContributors.authorId,schema.authors.id))
+    .where(authorNames);
   const matching=or(
     ilike(schema.works.originalTitle,pattern),
     inArray(schema.works.id,aliasTitleIds),
     inArray(schema.works.id,authorWorkIds),
+    inArray(schema.works.id,editionContributorWorkIds),
   );
   const where=input.cursor?and(matching,gt(schema.works.id,input.cursor)):matching;
   const rows=await db.select({
