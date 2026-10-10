@@ -71,6 +71,13 @@
       "when": 1791610000000,
       "tag": "0009_private_upload_quota",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791611000000,
+      "tag": "0010_verified_auth_sessions",
+      "breakpoints": true
     }
   ]
 }
