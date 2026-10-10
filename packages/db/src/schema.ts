@@ -377,6 +377,46 @@ export const adminTotpCredentials=pgTable('admin_totp_credentials',{
     sql`${t.failedAttempts}>=0 and ${t.failedAttempts}<=5`),
 ]);
 
+/** Only dual-superadmin human REVIEW, never an MFA factor reset.
+ * Pending/approved requests are unique per target and become immutable audit
+ * evidence after cancellation or expiry. No recovery tokens are generated. */
+export const adminMfaRecoveryRequests=pgTable('admin_mfa_recovery_requests',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  targetUserId:uuid('target_user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  proposedBy:uuid('proposed_by').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  proposalReference:varchar('proposal_reference',{length:64}).notNull(),
+  reason:text('reason').notNull(),
+  status:varchar('status',{length:12}).notNull().default('pending'),
+  approvedBy:uuid('approved_by').references(()=>userAccounts.id,{onDelete:'restrict'}),
+  approvedAt:timestamp('approved_at',{withTimezone:true}),
+  closedAt:timestamp('closed_at',{withTimezone:true}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+},t=>[
+  uniqueIndex('admin_mfa_recovery_one_open_per_target_idx')
+    .on(t.targetUserId).where(sql`${t.status} in ('pending','approved')`),
+  index('admin_mfa_recovery_target_created_idx').on(t.targetUserId,t.createdAt),
+  check('admin_mfa_recovery_status_ck',
+    sql`${t.status} in ('pending','approved','cancelled','expired')`),
+  check('admin_mfa_recovery_approvers_ck',
+    sql`${t.proposedBy}<>${t.targetUserId} and (
+      ${t.approvedBy} is null or
+      (${t.approvedBy}<>${t.proposedBy} and ${t.approvedBy}<>${t.targetUserId})
+    )`),
+  check('admin_mfa_recovery_expires_ck',
+    sql`${t.expiresAt}>${t.createdAt} and
+      ${t.expiresAt}<=${t.createdAt}+interval '24 hours'`),
+  check('admin_mfa_recovery_approval_ck',sql`(
+    (${t.status}='pending' and ${t.approvedBy} is null
+      and ${t.approvedAt} is null and ${t.closedAt} is null)
+    or (${t.status}='approved' and ${t.approvedBy} is not null
+      and ${t.approvedAt} is not null and ${t.closedAt} is null)
+    or (${t.status} in ('cancelled','expired') and ${t.closedAt} is not null
+      and ((${t.approvedBy} is null and ${t.approvedAt} is null)
+        or (${t.approvedBy} is not null and ${t.approvedAt} is not null)))
+  )`),
+]);
+
 /** Persistent, privacy-preserving 15-minute auth-attempt counters. No raw IP/e-mail. */
 export const authAttemptWindows=pgTable('auth_attempt_windows',{
   bucketKey:varchar('bucket_key',{length:64}).notNull(),
