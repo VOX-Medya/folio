@@ -18,12 +18,12 @@ import {
   adminCatalogEditionAppendedSchema,adminCatalogTitleAppendedSchema,
   adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffSchema,
-  adminCatalogRevisionListSchema,
+  adminCatalogRevisionListSchema,adminCatalogRightsLedgerSchema,
   adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
-  createFolioDb,registerPendingAccount,
+  createFolioDb,registerPendingAccount,submitRightsEvidence,
   schema,signInVerifiedAccount,verifyAccountEmail,
 } from '@folio/db';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
@@ -1122,6 +1122,86 @@ async function main():Promise<void>{
           makeDiffBlock(sourceAdded,addedBlockId,1),
         ]}],
     });
+
+    // #14 rights:read metadata only. Pending claims MUST NOT publish content.
+    // Distinct private evidence and source URL exist in PostgreSQL, never JSON.
+    const rightsWork=await submitRightsEvidence(db,editor.userId,{
+      workId:linkedWorkId,licenseKind:'restricted',
+      evidence:'Synthetic private rights EVIDENCE_WORK_'+suffix+' not approved.',
+      sourceUrl:'https://example.org/private-evidence/'+suffix,
+      territories:['TR'],displayAllowed:true,
+      translationAllowed:false,audioAllowed:false,sharingAllowed:false,
+    });
+    const rightsRevision=await submitRightsEvidence(db,editor.userId,{
+      workId:linkedWorkId,editionId:createdEdition.id,
+      revisionId:changedContent.revision.id,licenseKind:'restricted',
+      evidence:'Synthetic private rights EVIDENCE_REVISION_'+suffix+' not approved.',
+      sourceUrl:'https://example.org/hidden-revision/'+suffix,
+      territories:['TR','GB'],displayAllowed:false,
+      translationAllowed:false,audioAllowed:false,sharingAllowed:false,
+    });
+    const rightsPath=root+'/works/'+linkedWorkId+'/rights';
+    check((await call(true,port,rightsPath+'?limit=1',{
+      authorization:'Bearer '+guestSession.sessionToken,
+    })).status===403,'Unauthenticated rights:read guest saw rights claims');
+    check((await call(true,port,rightsPath+'?limit=1',
+      readonlyEditionBearer)).status===403,
+      'catalog:read-only role was allowed to read rights:read evidence claims');
+    check((await call(true,port,rightsPath+'?limit=1',{
+      ...cookie,origin:'https://evil.example',
+    })).status===403,'Cross-origin browser leaked rights claims');
+    check((await call(true,port,rightsPath+'?limit=1',{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    })).status===401,'Mixed cookie/bearer bypassed rights:read transport');
+    check((await call(false,plainAddress.port,rightsPath+'?limit=1',
+      bearer)).status!==200,'Plain HTTP leaked rights claims metadata');
+    for(const invalid of [
+      rightsPath+'?cursor=../private',rightsPath+'?limit=999',
+      rightsPath+'?ownerId='+editor.userId,
+      root+'/works/'+randomUUID()+'/rights',
+    ]){
+      const response=await call(true,port,invalid,bearer);
+      check([400,404].includes(response.status),
+        'Untrusted rights query or foreign work leaked evidence claims');
+    }
+    const pendingWeb=await call(true,port,rightsPath+'?limit=1',secureCookie);
+    check(pendingWeb.status===200&&
+      pendingWeb.headers['cache-control']==='private, no-store',
+      'Verified exact-origin rights:read Web MFA request failed');
+    const rightsFirst=adminCatalogRightsLedgerSchema.parse(JSON.parse(pendingWeb.body));
+    check(rightsFirst.workId===linkedWorkId&&rightsFirst.isMetadataOnly&&
+      rightsFirst.items.length===1&&rightsFirst.items[0]?.reviewStatus==='pending'&&
+      rightsFirst.nextCursor===rightsFirst.items[0]?.id,
+      'Rights claim read page is unbounded, altered or incorrectly approved');
+    const rightsSecondWire=await call(true,port,
+      rightsPath+'?limit=1&cursor='+rightsFirst.nextCursor,bearer);
+    check(rightsSecondWire.status===200,'Second rights UUID-cursor page failed');
+    const rightsSecond=adminCatalogRightsLedgerSchema.parse(JSON.parse(rightsSecondWire.body));
+    check(rightsSecond.items.length===1&&rightsSecond.nextCursor===null&&
+      new Set([rightsFirst.items[0]?.id,rightsSecond.items[0]?.id]).size===2&&
+      [rightsWork.id,rightsRevision.id].every(id=>
+        [rightsFirst.items[0]?.id,rightsSecond.items[0]?.id].includes(id)),
+      'Rights claims page cursor skipped or duplicated evidence');
+    const bothRights=[...rightsFirst.items,...rightsSecond.items];
+    check(bothRights.some(row=>row.editionId===null&&
+      row.revisionId===null&&row.claims.display===true)&&
+      bothRights.some(row=>row.editionId===createdEdition.id&&
+        row.revisionId===changedContent.revision.id&&
+        row.claims.display===false),
+      'Rights claim scopes or action booleans were conflated');
+    const rawRights=pendingWeb.body+rightsSecondWire.body;
+    check(!rawRights.includes('EVIDENCE_WORK_')&&
+      !rawRights.includes('EVIDENCE_REVISION_')&&
+      !rawRights.includes('private-evidence')&&
+      !rawRights.includes('hidden-revision')&&
+      !rawRights.includes('sourceUrl')&&
+      !rawRights.includes('evidence')&&
+      !rawRights.includes('licenseKind')&&
+      !rawRights.includes('reviewedBy')&&
+      !rawRights.includes(editor.email)&&
+      !rawRights.includes(native.sessionToken),
+      'Rights claim metadata returned raw legal evidence or reviewer secret');
+    console.log('ADMIN RIGHTS LEDGER HTTPS PASS: rights:read MFA not catalog-only, UUID cursor, pending/no publish and no evidence leaks.');
 
     // A verified revision picker must reveal only bounded ID/parent metadata.
     // Each page revalidates role+same-device MFA in the same DB snapshot.

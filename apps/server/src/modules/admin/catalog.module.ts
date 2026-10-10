@@ -15,7 +15,7 @@ import {
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
-  getVerifiedAdminEditionRevisions,
+  getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
@@ -32,6 +32,7 @@ import {
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
+  adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -135,6 +136,9 @@ export class AdminCatalogDb implements OnModuleDestroy {
   revisionList(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminEditionRevisions(this.db(),bearer,input));
   }
+  rightsLedger(bearer:string,input:unknown){
+    return this.authorized(()=>getVerifiedAdminRightsLedger(this.db(),bearer,input));
+  }
   authorDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
   }
@@ -229,6 +233,35 @@ const revisionPositionApi={
     ]},
     textSha256:{type:'string',pattern:'^[0-9a-f]{64}$'},
     includeNormal:{type:'boolean'},includeRsvp:{type:'boolean'},includeAudio:{type:'boolean'},
+  },
+};
+const rightsLedgerResultApi={
+  type:'object',additionalProperties:false,
+  required:['workId','items','nextCursor','isMetadataOnly'],
+  properties:{
+    workId:{type:'string',format:'uuid'},
+    items:{type:'array',maxItems:50,items:{
+      type:'object',additionalProperties:false,
+      required:['id','editionId','revisionId','reviewStatus',
+        'territories','claims','expiresAt'],
+      properties:{
+        id:{type:'string',format:'uuid'},
+        editionId:{type:'string',format:'uuid',nullable:true},
+        revisionId:{type:'string',format:'uuid',nullable:true},
+        reviewStatus:{type:'string',enum:['pending','approved','rejected','withdrawn']},
+        territories:{type:'array',maxItems:250,items:{type:'string',pattern:'^[A-Z]{2}$'}},
+        claims:{type:'object',additionalProperties:false,
+          required:['display','translation','audio','sharing'],
+          properties:{
+            display:{type:'boolean'},translation:{type:'boolean'},
+            audio:{type:'boolean'},sharing:{type:'boolean'},
+          },
+        },
+        expiresAt:{type:'string',format:'date-time',nullable:true},
+      },
+    }},
+    nextCursor:{type:'string',format:'uuid',nullable:true},
+    isMetadataOnly:{type:'boolean',enum:[true]},
   },
 };
 const revisionListResultApi={
@@ -649,6 +682,29 @@ export class AdminCatalogController {
    * all relationship SELECTs. Unknown UUIDs are distinguishable only after
    * current catalog:read, account, device and MFA checks have passed.
    */
+  @Get('works/:workId/rights')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified rights:read MFA/RBAC metadata-only rights claims; not publication'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiQuery({name:'cursor',type:String,format:'uuid',required:false})
+  @ApiQuery({name:'limit',type:Number,required:false,minimum:1,maximum:50})
+  @ApiOkResponse({schema:rightsLedgerResultApi})
+  async rightsLedger(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Query() query:Record<string,unknown>){
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const parsed=adminCatalogRightsLedgerQuerySchema.safeParse(query);
+    if(!workId.success||!parsed.success){
+      throw new BadRequestException('Invalid canonical rights ledger parameters');
+    }
+    const bearer=await this.bearer(request);
+    const result=await this.store.rightsLedger(bearer,{
+      workId:workId.data,...parsed.data,
+    });
+    if(!result)throw new NotFoundException('Canonical rights scope not found');
+    return adminCatalogRightsLedgerSchema.parse(result);
+  }
+
   @Get('works/:workId/editions/:editionId/revisions')
   @Header('Cache-Control','private, no-store')
   @ApiOperation({summary:'Verified same-device MFA/RBAC edition revision UUID list; no source bytes'})

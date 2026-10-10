@@ -239,3 +239,22 @@ html,body,#root{min-width:0;min-height:100%;margin:0}
   .folio-revision-selectors .folio-catalog-actions{align-items:stretch;flex-direction:column}
   .folio-revision-selectors .folio-catalog-actions button{width:100%}
 }
+
+
+/* rights:read claim-only ledger, separate from actual publication authorization. */
+.folio-rights-ledger{min-width:0}
+.folio-rights-ledger code{font-size:12px;overflow-wrap:anywhere;word-break:break-word}
+.folio-rights-rows{display:grid;list-style:none;padding:0;margin:0;gap:12px;min-width:0}
+.folio-rights-rows>li{border:1px solid var(--folio-line);
+  background:var(--folio-surface2);border-radius:12px;padding:14px;min-width:0}
+.folio-rights-rows h4{margin:0 0 12px;font-weight:700;overflow-wrap:anywhere}
+.folio-rights-rows dl{margin:0;display:grid;gap:8px;min-width:0}
+.folio-rights-rows dl>div{display:grid;gap:2px;min-width:0}
+.folio-rights-rows dt{font-size:12px;color:var(--folio-muted);font-weight:650}
+.folio-rights-rows dd{margin:0;overflow-wrap:anywhere;word-break:break-word}
+.folio-rights-rows p{margin:14px 0 5px}
+.folio-rights-claims{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:6px 12px;margin:0;padding:0;list-style:none}
+@media(max-width:599px){
+  .folio-rights-claims{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

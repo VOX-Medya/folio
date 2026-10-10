@@ -403,6 +403,32 @@ export const contentRevisionCreateSchema = z.object({
 });
 export type ContentRevisionCreate = z.infer<typeof contentRevisionCreateSchema>;
 
+/** Privileged RIGHTS:READ evidence claims ledger. This is NOT a rights
+ * decision or grant. Never include raw legal evidence, source URL, reviewer,
+ * owner identity, private object locations or any user library data. */
+export const adminCatalogRightsLedgerQuerySchema=z.object({
+  cursor:z.uuid().optional(),
+  limit:z.coerce.number().int().min(1).max(50).default(20),
+}).strict();
+export const adminCatalogRightsLedgerSchema=z.object({
+  workId:z.uuid(),
+  items:z.array(z.object({
+    id:z.uuid(),
+    editionId:z.uuid().nullable(),
+    revisionId:z.uuid().nullable(),
+    reviewStatus:z.enum(['pending','approved','rejected','withdrawn']),
+    territories:z.array(z.string().regex(/^[A-Z]{2}$/)).max(250),
+    claims:z.object({
+      display:z.boolean(),translation:z.boolean(),
+      audio:z.boolean(),sharing:z.boolean(),
+    }).strict(),
+    expiresAt:z.iso.datetime({offset:true}).nullable(),
+  }).strict()).max(50),
+  nextCursor:z.uuid().nullable(),
+  isMetadataOnly:z.literal(true),
+}).strict();
+export type AdminCatalogRightsLedger=z.infer<typeof adminCatalogRightsLedgerSchema>;
+
 /** A verified, bounded list of immutable edition revision IDENTITIES only.
  * This cannot expose source text, byte hashes, file paths, editor identity,
  * provenance or any rights decision. No anonymous/public route. */

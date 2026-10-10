@@ -3,6 +3,7 @@ import type {FormEvent} from 'react';
 import {AdminWorkRelations} from './AdminWorkRelations.js';
 import {AdminEditionMetadataEditor} from './AdminEditionMetadataEditor.js';
 import {AdminRevisionDiffPanel} from './AdminRevisionDiffPanel.js';
+import {AdminRightsLedgerPanel} from './AdminRightsLedgerPanel.js';
 import {
   authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
@@ -42,7 +43,7 @@ const copy={
     original:'Özgün başlık',year:'İlk yayın yılı',authors:'Yazarlar',
     aliases:'Takma adlar',external:'Kaynak kimlikleri',titles:'Dil başlıkları',
     editions:'Baskılar',contributors:'Katkıda bulunanlar',identifiers:'Tanımlayıcılar',
-    editEdition:'Taslak baskıyı düzenle',reviewRevision:'Revizyon farkları',
+    editEdition:'Taslak baskıyı düzenle',reviewRevision:'Revizyon farkları',viewRights:'Hak kayıtları',
     notAvailable:'Kayıtlı bilgi yok',name:'Kanonik yazar adı',sortName:'Sıralama adı',
     create:'Yeni taslak oluştur',createAction:'Taslağı kaydet',
     edit:'Metadata düzenle',save:'Sürüm kontrolüyle kaydet',cancel:'Vazgeç',
@@ -75,7 +76,7 @@ const copy={
     original:'Original title',year:'First publication year',authors:'Authors',
     aliases:'Aliases',external:'Source identifiers',titles:'Language titles',
     editions:'Editions',contributors:'Contributors',identifiers:'Identifiers',
-    editEdition:'Edit draft edition',reviewRevision:'Revision differences',
+    editEdition:'Edit draft edition',reviewRevision:'Revision differences',viewRights:'Rights ledger',
     notAvailable:'No stored information',name:'Canonical author name',sortName:'Sort name',
     create:'Create new draft',createAction:'Save draft',
     edit:'Edit metadata',save:'Save with version check',cancel:'Cancel',
@@ -131,6 +132,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
   const [editing,setEditing]=useState(false);
   const [editingEditionId,setEditingEditionId]=useState<string|null>(null);
   const [reviewEditionId,setReviewEditionId]=useState<string|null>(null);
+  const [showRights,setShowRights]=useState(false);
   const [creating,setCreating]=useState(false);
   const [busy,setBusy]=useState(false);
   const [stale,setStale]=useState(false);
@@ -187,7 +189,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
     const controller=new AbortController();
     detailAbort.current=controller;
     setDetailId(id);setDetail(null);setDetailState('loading');
-    setEditingEditionId(null);setReviewEditionId(null);
+    setEditingEditionId(null);setReviewEditionId(null);setShowRights(false);
     setDetailError('');setEditing(false);setStale(false);setError('');
     if(!keepMessage)setMessage('');
     try{
@@ -234,7 +236,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
     ++detailSeq.current;
     detailAbort.current?.abort();
     setDetail(null);setDetailId(null);setDetailState('idle');
-    setEditingEditionId(null);setReviewEditionId(null);
+    setEditingEditionId(null);setReviewEditionId(null);setShowRights(false);
     setDetailError('');setEditing(false);setStale(false);
     setError('');setMessage('');
   }
@@ -464,6 +466,9 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
                 onClick={()=>setReviewEditionId(current=>current===edition.id?null:edition.id)}>
                 {w.reviewRevision}</button>
             </li>)}</ul>}
+          <button type="button" className="folio-catalog-secondary"
+            aria-expanded={showRights} disabled={!online||busy||editing||!!editingEditionId}
+            onClick={()=>setShowRights(current=>!current)}>{w.viewRights}</button>
         </>:<>
           <p>{w.sortName}: {detail.value.author.sortName}</p>
           <h4>{w.aliases}</h4>
@@ -557,6 +562,11 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
           </div>
         </form>}
       </section>}
+      {showRights&&detail?.kind==='works'&&
+        <AdminRightsLedgerPanel key={detail.value.work.id}
+          workId={detail.value.work.id} language={language}
+          online={online&&!busy}/>
+      }
       {reviewedEdition&&detail?.kind==='works'&&
         <AdminRevisionDiffPanel
           key={reviewedEdition.id} workId={detail.value.work.id}
