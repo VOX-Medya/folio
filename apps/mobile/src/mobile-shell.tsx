@@ -1,8 +1,8 @@
-import {createContext,useContext,useState} from 'react';
+import {createContext,useContext,useEffect,useState} from 'react';
 import type {ReactNode} from 'react';
 import {Link} from 'expo-router';
 import {
-  Pressable,ScrollView,Text,View,useColorScheme,useWindowDimensions,
+  Platform,Pressable,ScrollView,Text,View,useColorScheme,useWindowDimensions,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {paperbound,responsiveMode,spacing,typography} from '@folio/ui-tokens';
@@ -13,7 +13,23 @@ import type {FolioLocale,MobileSection} from './shell-data';
 interface Settings {locale:FolioLocale;setLocale:(next:FolioLocale)=>void;}
 const SettingsContext=createContext<Settings|undefined>(undefined);
 export function MobileShellProvider({children}:{children:ReactNode}){
-  const [locale,setLocale]=useState<FolioLocale>('tr');
+  const [locale,setLocaleState]=useState<FolioLocale>('tr');
+  // Route history may remount Expo Web screens. Persist ONLY this UI preference,
+  // never a bearer token, account, book body or reading cursor.
+  useEffect(()=>{
+    if(Platform.OS!=='web')return;
+    try{
+      const previous=window.sessionStorage.getItem('folio.ui.locale');
+      if(previous==='tr'||previous==='en')setLocaleState(previous);
+    }catch{return;} // Private browsing may disable session storage
+  },[]);
+  const setLocale=(next:FolioLocale)=>{
+    setLocaleState(next);
+    if(Platform.OS==='web'){
+      try{window.sessionStorage.setItem('folio.ui.locale',next);}
+      catch{return;}
+    }
+  };
   return <SettingsContext.Provider value={{locale,setLocale}}>{children}</SettingsContext.Provider>;
 }
 function useSettings():Settings{
