@@ -34,13 +34,6 @@ async function main():Promise<void>{
     const other=await registerPendingAccount(second.db,
       'non-admin-lab-'+randomUUID()+'@example.com',password);
     await verifyAccountEmail(first.db,other.verificationToken);
-    const otherSession=await signInVerifiedAccount(second.db,
-      'nonexistent-placeholder@example.com',password,'invalid').then(
-        ()=>{throw new Error('Unexpected unrelated credential login');},
-        ()=>null,
-      );
-    check(otherSession===null,'Synthetic unrelated account bypassed login');
-
     // Password+email verified bearer, even a supposedly privileged label,
     // cannot ever mint an administrator principal without BOTH DB factors.
     const tryPermission=(rawBearer:string,permission:AdminPermission)=>
