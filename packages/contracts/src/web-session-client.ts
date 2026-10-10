@@ -1,4 +1,5 @@
-import {webLoginRequestSchema} from './index.js';
+import {deviceSessionIdSchema,deviceSessionInventorySchema,webLoginRequestSchema} from './index.js';
+import type {DeviceSessionInventory} from './index.js';
 import {readFolioError} from './verified-request.js';
 
 /**
@@ -36,7 +37,7 @@ function browserApiOrigin(baseUrl:string):string {
   return url.origin;
 }
 function requestInit(
-  options:WebSessionClientRequest,method:'GET'|'POST',
+  options:WebSessionClientRequest,method:'GET'|'POST'|'DELETE',
   extra?:{body?:string;csrf?:string},
 ):RequestInit{
   return {
@@ -109,6 +110,49 @@ export async function logoutWebSession(options:WebSessionClientRequest):Promise<
   const csrf=await fetchWebSessionCsrf(options);
   const response=await (options.fetcher??fetch)(
     origin+'/v1/auth/web/logout',requestInit(options,'POST',{csrf}),
+  );
+  if(!response.ok)return fail(response);
+  expectNoContent(response);
+}
+
+/**
+ * Read only the authenticated browser cookie owner's active device inventory.
+ * A strict response schema rejects leaked tokens, emails or unknown fields.
+ */
+export async function fetchWebDeviceSessions(
+  options:WebSessionClientRequest,
+):Promise<DeviceSessionInventory>{
+  const origin=browserApiOrigin(options.baseUrl);
+  const response=await (options.fetcher??fetch)(
+    origin+'/v1/me/sessions',requestInit(options,'GET'),
+  );
+  if(!response.ok)return fail(response);
+  if(response.status!==200){
+    throw new WebSessionHttpError(response.status,'UNEXPECTED_HTTP_RESPONSE',null);
+  }
+  let data:unknown;
+  try{data=await response.json();}
+  catch{throw new WebSessionHttpError(200,'INVALID_SESSION_RESPONSE',null);}
+  const parsed=deviceSessionInventorySchema.safeParse(data);
+  if(!parsed.success){
+    throw new WebSessionHttpError(200,'INVALID_SESSION_RESPONSE',null);
+  }
+  return parsed.data;
+}
+
+/**
+ * Revoke exactly one owned session over same-origin HTTPS with fresh CSRF.
+ * The UUID is validated before any network request or session information flows.
+ */
+export async function revokeWebDeviceSession(
+  options:WebSessionClientRequest,rawSessionId:unknown,
+):Promise<void>{
+  const origin=browserApiOrigin(options.baseUrl);
+  const id=deviceSessionIdSchema.parse(rawSessionId);
+  const csrf=await fetchWebSessionCsrf(options);
+  const response=await (options.fetcher??fetch)(
+    origin+'/v1/me/sessions/'+encodeURIComponent(id),
+    requestInit(options,'DELETE',{csrf}),
   );
   if(!response.ok)return fail(response);
   expectNoContent(response);
