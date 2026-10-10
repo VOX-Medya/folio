@@ -1,5 +1,7 @@
 import {TextDecoder} from 'node:util';
 import {inflateRawSync} from 'node:zlib';
+import {inspectEpubPackageSpine} from './epub-package.js';
+import type {EpubPackageSpineResult} from './epub-package.js';
 
 /**
  * Conservative EPUB OCF ZIP *structure* admission, not an EPUB parser.
@@ -90,7 +92,21 @@ function crc32(data:Buffer):number{
  * multi-disk archives, nested archives, rights/encryption.xml and input bombs.
  * A passing result is not a safe-to-render or safe-to-publish conclusion.
  */
+/**
+ * Existing structural API is deliberately unchanged, including its loose
+ * EPUB XML semantics. The separate package/spine gate is opt-in and NEVER
+ * marks a private source verified or makes it available for rendering.
+ */
 export function inspectEpubZipStructure(bytes:Buffer):EpubZipStructuralResult{
+  return validatedZip(bytes).result;
+}
+export function inspectEpubZipPackageSpine(bytes:Buffer):EpubPackageSpineResult{
+  const archive=validatedZip(bytes);
+  return inspectEpubPackageSpine(archive.entries);
+}
+function validatedZip(bytes:Buffer):{
+  result:EpubZipStructuralResult;entries:ReadonlyMap<string,Buffer>
+}{
   if(!Buffer.isBuffer(bytes)||bytes.length<80||
     bytes.length>EPUB_ZIP_PREFLIGHT_MAX_BYTES)return invalid();
   // Exact OCF first local member: uncompressed first "mimetype" with no
@@ -115,6 +131,7 @@ export function inspectEpubZipStructure(bytes:Buffer):EpubZipStructuralResult{
     centralOffset<58||!within(bytes,centralOffset,centralSize)||
     centralOffset+centralSize!==end)return invalid();
 
+  const entries=new Map<string,Buffer>();
   const members:Member[]=[];
   const known=new Set<string>();
   let cursor=centralOffset,totalExpanded=0;
@@ -197,6 +214,7 @@ export function inspectEpubZipStructure(bytes:Buffer):EpubZipStructuralResult{
       }catch{return invalid();}
     }
     if(unpacked.length!==member.expanded||crc32(unpacked)!==member.crc)return invalid();
+    entries.set(member.name,unpacked);
     expectedOffset=dataEnd;
     if((flags&8)!==0){
       if(member.name==='mimetype')return invalid();
@@ -215,6 +233,6 @@ export function inspectEpubZipStructure(bytes:Buffer):EpubZipStructuralResult{
     !known.has('meta-inf/container.xml')||
     !members.some(m=>m.name.toLowerCase().endsWith('.opf'))||
     !members.some(m=>/\.xhtml$/i.test(m.name)))return invalid();
-  return {status:'structure_only',entryCount:count,expandedBytes:totalExpanded,
-    hasContainer:true,hasPackage:true,hasXhtml:true};
+  return {result:{status:'structure_only',entryCount:count,expandedBytes:totalExpanded,
+    hasContainer:true,hasPackage:true,hasXhtml:true},entries};
 }

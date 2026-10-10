@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {Readable} from 'node:stream';
 import {deflateRawSync} from 'node:zlib';
 import {describe,expect,it} from 'vitest';
-import {inspectEpubZipStructure,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
+import {inspectEpubZipStructure,inspectEpubZipPackageSpine,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
 import {LocalStorageAdapter} from './local-storage.js';
 
 interface Entry{
@@ -236,5 +236,178 @@ describe('bounded EPUB ZIP OCF structural admission (never publication)',()=>{
       await writeFile(file,altered);
       await expect(adapter.inspectEpubStructure(record)).rejects.toThrow(/changed/);
     }finally{await rm(root,{recursive:true,force:true});}
+  });
+});
+
+
+/** Complete, but intentionally synthetic, OCF/OPF *relationship* fixtures.
+ * No source text is extracted or published by either inspector. */
+function completePackageEntries():Entry[]{
+  return [
+    {name:'mimetype',content:utf('application/epub+zip')},
+    {name:'META-INF/container.xml',compress:true,content:utf(
+      '<?xml version="1.0" encoding="UTF-8"?>'+
+      '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'+
+      '<rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles>'+
+      '</container>',
+    )},
+    {name:'OPS/book.opf',compress:true,descriptor:true,content:utf(
+      '<?xml version="1.0" encoding="UTF-8"?>'+
+      '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pubid">'+
+      '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'+
+      '<dc:identifier id="pubid">urn:folio:synthetic</dc:identifier>'+
+      '<dc:title>Safe &amp; synthetic</dc:title></metadata>'+
+      '<manifest>'+
+      '<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>'+
+      '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'+
+      '<item id="style" href="style.css" media-type="text/css"/>'+
+      '</manifest><spine><itemref idref="chapter" linear="yes"/></spine>'+
+      '</package>',
+    )},
+    {name:'OPS/chapter.xhtml',compress:true,content:utf(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Synthetic source only.</p></body></html>',
+    )},
+    {name:'OPS/nav.xhtml',compress:true,content:utf(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><nav>Contents</nav></body></html>',
+    )},
+    {name:'OPS/style.css',content:utf('body { margin: 1em; }')},
+  ];
+}
+function replaceEntry(
+  entries:Entry[],name:string,transform:(value:string)=>string,
+):Entry[]{
+  return entries.map(e=>e.name===name?{...e,content:utf(transform(e.content.toString('utf8')))}:e);
+}
+function changedPackage(transform:(value:string)=>string):Buffer {
+  return archive(replaceEntry(completePackageEntries(),'OPS/book.opf',transform));
+}
+function changedContainer(transform:(value:string)=>string):Buffer {
+  return archive(replaceEntry(completePackageEntries(),'META-INF/container.xml',transform));
+}
+const denyPackage=(data:Buffer)=>{
+  // The outer ZIP may still be CRC-perfect; the package/spine relationship
+  // must be rejected separately without blessing or mutating the source.
+  expect(inspectEpubZipStructure(data).status).toBe('structure_only');
+  expect(()=>inspectEpubZipPackageSpine(data)).toThrow(/Unsupported EPUB package\/spine/);
+};
+
+describe('EPUB package and spine relationship preflight (not text validation)',()=>{
+  it('checks exact OCF rootfile + OPF manifest + nav + linear chapter references',()=>{
+    const original=archive(completePackageEntries());
+    const result=inspectEpubZipPackageSpine(original);
+    expect(result).toEqual({
+      status:'package_spine_only',packageCount:1,
+      manifestItems:3,spineItems:1,linearSpineItems:1,navigationCount:1,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/book\.opf|chapter\.xhtml|urn:folio|Synthetic source/);
+    expect('verified' in result).toBe(false);
+  });
+
+  it('rejects a structurally intact EPUB with fake XML/OPF placeholder text',()=>{
+    denyPackage(archive(core()));
+  });
+
+  it('rejects ambiguous, missing or remote container rootfile resolution',()=>{
+    const cases=[
+      (s:string)=>s.replace('OPS/book.opf','OPS/other.opf'),
+      (s:string)=>s.replace('OPS/book.opf','OPS/../OPS/book.opf'),
+      (s:string)=>s.replace('OPS/book.opf','https://example.org/book.opf'),
+      (s:string)=>s.replace('OPS/book.opf','OPS/%62ook.opf'),
+      (s:string)=>s.replace('application/oebps-package+xml','text/plain'),
+      (s:string)=>s.replace('version="1.0"','version="2.0"'),
+      (s:string)=>s.replace('<rootfiles>','<rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/>'),
+      (s:string)=>s.replace('urn:oasis:names:tc:opendocument:xmlns:container','http://evil.invalid/ns'),
+      (s:string)=>s.replace('<rootfiles>','<!DOCTYPE container [<!ENTITY x SYSTEM "file:///etc/passwd">]><rootfiles>'),
+    ];
+    for(const change of cases)denyPackage(changedContainer(change));
+  });
+
+  it('rejects doctypes, custom entities, namespace confusion and malformed XML',()=>{
+    const cases=[
+      (s:string)=>'<!DOCTYPE package [<!ENTITY exploit SYSTEM "file:///etc/passwd">]>'+s,
+      (s:string)=>s.replace('<dc:title>','<dc:title>&leak;'),
+      (s:string)=>s.replace('<dc:title>','<dc:title>&#x41;'),
+      (s:string)=>s.replace('<manifest>','<manifest xmlns="https://evil.invalid/ns">'),
+      (s:string)=>s.replace('http://www.idpf.org/2007/opf','https://fake.invalid/opf'),
+      (s:string)=>s.replace('unique-identifier="pubid"','unique-identifier="x" unique-identifier="y"'),
+      (s:string)=>s.replace('</spine>',''),
+      (s:string)=>s.replace('</manifest>','<script>alert(1)</script></manifest>'),
+      (s:string)=>s.replace('<item id="style"','<item id="style" xmlns="https://evil.invalid"'),
+      (s:string)=>s.replace('<manifest>','<!-- hidden -->'+'<manifest>'),
+    ];
+    for(const change of cases)denyPackage(changedPackage(change));
+  });
+
+  it('rejects OPF manifest missing/duplicate IDs, remote assets and spoofed media types',()=>{
+    const cases=[
+      (s:string)=>s.replace('id="chapter"','id="nav"'),
+      (s:string)=>s.replace('href="chapter.xhtml"','href="nav.xhtml"'),
+      (s:string)=>s.replace('href="chapter.xhtml"','href="https://example.org/chapter.xhtml"'),
+      (s:string)=>s.replace('href="chapter.xhtml"','href="../chapter.xhtml"'),
+      (s:string)=>s.replace('href="chapter.xhtml"','href="chapter.xhtml#fragment"'),
+      (s:string)=>s.replace('href="chapter.xhtml"','href="%63hapter.xhtml"'),
+      (s:string)=>s.replace('media-type="application/xhtml+xml"','media-type="text/html"'),
+      (s:string)=>s.replace('properties="nav"','properties="remote-resources"'),
+      (s:string)=>s.replace('properties="nav"','properties="scripted nav"'),
+      (s:string)=>s.replace('properties="nav"','properties="nav nav"'),
+      (s:string)=>s.replace('<manifest>','<manifest><item id="hidden" href="missing.css" media-type="text/css"/>'),
+      (s:string)=>s.replace('<item id="chapter"','<item fallback="nav" id="chapter"'),
+    ];
+    for(const change of cases)denyPackage(changedPackage(change));
+  });
+
+  it('rejects mismatched/ambiguous or unreadable spine sequence references',()=>{
+    const cases=[
+      (s:string)=>s.replace('idref="chapter"','idref="missing"'),
+      (s:string)=>s.replace('idref="chapter"','idref="style"'),
+      (s:string)=>s.replace('<itemref idref="chapter" linear="yes"/>',
+        '<itemref idref="chapter"/><itemref idref="chapter"/>'),
+      (s:string)=>s.replace('linear="yes"','linear="no"'),
+      (s:string)=>s.replace('linear="yes"','linear="sometimes"'),
+      (s:string)=>s.replace('<itemref idref="chapter" linear="yes"/>',''),
+      (s:string)=>s.replace('<itemref idref="chapter"','<itemref script="enabled" idref="chapter"'),
+      (s:string)=>s.replace('properties="nav"','properties="cover-image"'),
+    ];
+    for(const change of cases)denyPackage(changedPackage(change));
+  });
+
+  it('rejects ZIP files not accounted for by OPF manifest (and unsafe SVG MIME)',()=>{
+    denyPackage(archive([...completePackageEntries(),{
+      name:'OPS/hidden.xhtml',content:utf('<html>Unlisted hidden resource</html>'),
+    }]));
+    const entries=[...completePackageEntries(),{
+      name:'OPS/script.svg',content:utf('<svg onload="alert(1)"/>'),
+    }];
+    const modified=replaceEntry(entries,'OPS/book.opf',s=>s.replace('</manifest>',
+      '<item id="script" href="script.svg" media-type="image/svg+xml"/></manifest>'));
+    denyPackage(archive(modified));
+  });
+
+  it('does not mistake a consistent spine for safe XHTML, prose or publication',()=>{
+    const entries=replaceEntry(completePackageEntries(),'OPS/chapter.xhtml',
+      ()=>'<html><script>alert("not yet sanitized")</script></html>');
+    const result=inspectEpubZipPackageSpine(archive(entries));
+    expect(result.status).toBe('package_spine_only');
+    expect('readyToPublish' in result).toBe(false);
+    expect('spinePaths' in result).toBe(false);
+  });
+
+  it('uses a trusted private inode and hash for package/spine inspection only',async()=>{
+    const root=await mkdtemp(join(tmpdir(),'folio-epub-package-'));
+    try{
+      const storage=await LocalStorageAdapter.create(root);
+      const owner=randomUUID(),data=archive(completePackageEntries());
+      const blob=await storage.stage({
+        owner:{scope:'private-user',ownerUserId:owner},source:Readable.from([data]),
+        declaredSha256:sha(data),declaredMime:'application/epub+zip',maxBytes:data.length,
+      });
+      expect((await storage.inspectEpubPackageSpine(blob)).status).toBe('package_spine_only');
+      await expect(storage.inspectEpubPackageSpine({...blob,ownerUserId:randomUUID()}))
+        .rejects.toThrow();
+      await expect(storage.inspectEpubPackageSpine({...blob,sha256:'f'.repeat(64)}))
+        .rejects.toThrow(/source bytes changed/);
+      await expect(storage.inspectEpubPackageSpine({...blob,mime:'text/plain'}))
+        .rejects.toThrow();
+    }finally{await rm(root,{force:true,recursive:true});}
   });
 });

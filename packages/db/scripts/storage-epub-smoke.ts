@@ -5,7 +5,8 @@ import {join} from 'node:path';
 import {Readable} from 'node:stream';
 import {and,eq} from 'drizzle-orm';
 import {createFolioDb,LocalStorageAdapter,reservePrivateUploadQuota,
-  commitPrivateQuarantinedUpload,observePrivateQuarantineEpubStructure,schema} from '../src/index.js';
+  commitPrivateQuarantinedUpload,observePrivateQuarantineEpubStructure,
+  observePrivateQuarantineEpubPackageSpine,schema} from '../src/index.js';
 function check(ok:unknown,message:string):asserts ok{if(!ok)throw new Error(message);}
 async function deny(label:string,fn:()=>Promise<unknown>){
   let rejected=false;
@@ -19,8 +20,15 @@ function crc32(b:Buffer):number{
   return (c^0xffffffff)>>>0;
 }
 /** Tiny synthetic uncompressed EPUB OCF, not a third-party or copyrighted book. */
-function fixture(){
-  const entries=[
+function fixture(withPackage=false){
+  const entries=withPackage?[
+    ['mimetype','application/epub+zip'],
+    ['META-INF/container.xml','<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'],
+    ['OPS/book.opf','<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata/><manifest><item id="a" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="n" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="a" linear="yes"/></spine></package>'],
+    ['OPS/chapter.xhtml','<html><body>Private synthetic chapter.</body></html>'],
+    ['OPS/nav.xhtml','<html><nav>Private synthetic navigation.</nav></html>'],
+  ]:[
+
     ['mimetype','application/epub+zip'],
     ['META-INF/container.xml','<container version="1.0"/>'],
     ['OPS/book.opf','<package version="3.0"/>'],
@@ -136,6 +144,56 @@ async function main(){
       'Withdrawn EPUB retained invalid positive audit evidence');
     events=await audit(id);
     check(events.length===1,'Owner-matched earlier audit changed unexpectedly');
+    const packageFixture=fixture(true);
+    const ownedPackage=await stage(packageFixture.bytes);
+    const packageAudit=async(id:string)=>first.db.select().from(schema.auditEvents).where(and(
+      eq(schema.auditEvents.entityType,'media_asset'),
+      eq(schema.auditEvents.entityId,id),
+      eq(schema.auditEvents.action,'storage.quarantine.epub_package_observed'),
+    ));
+    await deny('another user package observation',
+      ()=>observePrivateQuarantineEpubPackageSpine(
+        second.db,storage,anotherOwner,ownedPackage));
+    await deny('nonexistent package observation',
+      ()=>observePrivateQuarantineEpubPackageSpine(
+        second.db,storage,owner,randomUUID()));
+    const relations=await observePrivateQuarantineEpubPackageSpine(
+      first.db,storage,owner,ownedPackage);
+    check(relations.assetId===ownedPackage&&relations.status==='package_spine_only'&&
+      relations.assetStatus==='pending_verify'&&relations.manifestItems===2&&
+      relations.spineItems===1&&relations.linearSpineItems===1,
+    'Owned EPUB package/spine observation was not constrained');
+    const [packageRow]=await first.db.select().from(schema.mediaAssets)
+      .where(eq(schema.mediaAssets.id,ownedPackage));
+    const logged=await packageAudit(ownedPackage);
+    check(packageRow?.status==='pending_verify'&&packageRow.verifiedAt===null&&
+      logged.length===1,
+    'Successful package observation incorrectly marked the EPUB as verified');
+    const logJson=JSON.stringify(logged[0]!.afterJson);
+    check(logJson.includes('package_spine_only')&&!logJson.includes(root)&&
+      !logJson.includes(packageRow.storageKey)&&
+      !logJson.includes('chapter.xhtml')&&!logJson.includes('Private synthetic'),
+    'Package audit leaked private path, key or source');
+
+    // Old structure-only fixture has a valid ZIP, but fake/invalid OPF.
+    await deny('structure-only EPUB mistaken for valid package',
+      ()=>observePrivateQuarantineEpubPackageSpine(first.db,storage,owner,id));
+    check((await packageAudit(id)).length===0,
+      'Fake metadata was logged as a successfully validated package');
+    const withdrawnPackage=await stage(packageFixture.bytes);
+    const originalPackage=storage.inspectEpubPackageSpine.bind(storage);
+    storage.inspectEpubPackageSpine=async record=>{
+      const result=await originalPackage(record);
+      await second.db.update(schema.mediaAssets).set({status:'rejected'})
+        .where(eq(schema.mediaAssets.id,withdrawnPackage));
+      return result;
+    };
+    await deny('EPUB package withdrawn while inspection is in progress',
+      ()=>observePrivateQuarantineEpubPackageSpine(
+        first.db,storage,owner,withdrawnPackage));
+    check((await packageAudit(withdrawnPackage)).length===0,
+      'Mid-scan rejected package incorrectly received a success audit');
+    console.log('EPUB package/spine owner PASS: two Folio-only PostgreSQL pools, actual OCF rootfile and OPF relationships, private-owner/RBAC boundary, no source/key in audit, rejected placeholder, revocation and pending_verify preserved.');
     console.log('EPUB structural owner PASS: real two-pool PostgreSQL owner/revocation safety, complete OCF ZIP CRC/size, truncated-header denial, audit without key/content or verified transition. Synthetic Folio folio_test only.');
   }finally{
     await first.pool.end();
