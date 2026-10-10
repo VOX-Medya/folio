@@ -20,15 +20,20 @@ texts/<revision_uuid>/blocks.jsonl  # optional, only if declared in files index
 ```
 pnpm --filter @folio/folioctl exec node bin/folioctl.mjs pack validate --input ./prepared-books
 pnpm --filter @folio/folioctl exec node bin/folioctl.mjs pack build --input ./prepared-books --out ./folio-batch.tar.zst
+pnpm --filter @folio/folioctl exec node bin/folioctl.mjs pack validate --input ./folio-batch.tar.zst
 pnpm --filter @folio/folioctl test
 ```
 
-The preparatory folder is bounded by per-file and total size limits, and symlinks, special files, traversal/absolute paths, unexpected files, duplicated index paths and mismatched hashes are rejected. An existing output archive/symlink is never overwritten. The source folder is not modified; build copies to a temporary staging directory, revalidates it, writes SHA-256 checksums and creates a deterministically ordered tar.zst with normalized timestamps/owner/group. The archive is not automatically extracted or imported.
+Both prepared directories and `tar.zst` archives are validated. An incoming archive is decoded with `zstd` and parsed with a streaming tar reader **without writing archive entries to disk**. Every decoded entry is constrained by path, type, size, entry count and total inflated-byte limits; symlink/hardlink/device entries, duplicated or unindexed files, unsafe PAX paths, modified digests and checksum-index inconsistencies fail closed. The archive includes a required `sha256sums.txt`. Output creation copies the verified staging archive using exclusive-create semantics; existing archive files or symlinks are never overwritten. The source folder remains untouched; tar entry names/owners/timestamps are normalized for reproducible output.
+
+The versioned V1 metadata requires explicit author IDs and work authorship, edition/revision UUID ownership and language agreement, per-block verbatim UTF-8 SHA-256, stable block and chapter IDs with consecutive ordinals, and manually supplied pending rights evidence. Non-text footnotes, page numbers and publisher notes are disallowed from RSVP/audio. Packaged cross-language alignment edges must point to existing prepared blocks of the same canonical work; verified alignment claims and auto-published rights are not accepted as approval. Text and alignment JSONL are parsed **incrementally**, with line and total record caps rather than loading entire large source files. Invalid UTF-8 or forged block hashes are rejected, even if the outer package checksum was updated.
+
+`sha256sums.txt` proves **internal package integrity, not provenance authenticity, editorial approval or a legal license**. Human review and rights validation remain a separate API/admin approval step. Import, public serving or publisher approval never happens during validation.
 
 ## Explicit unfinished acceptance
-- Strict `pack validate` **for untrusted tar.zst archives**, including decompression-bomb, pax path and link abuse protection.
-- Semantic validation of all metadata/JSONL domain IDs and references against the work/edition/revision schema; editor rights review and multilingual/audio source integrity.
-- Authenticated export by work ID or approved library scope; private user files must never leak.
-- Shared back-end `dry-run`, resumable idempotent apply and full audit (#19); currently no import or export commands are enabled.
+- Authenticated export by work ID or approved library scope; private user files must never leak. `folioctl export` is still disabled.
+- Shared back-end `dry-run`, resumable idempotent apply and full audit (#19); `folioctl import` remains disabled.
+- Verify on-disk raw source blob, real audio codec/duration and real rights before publishing; this metadata-only manifest validation cannot attest real media or legal ownership.
+- Human editorial/legal signoff and real rights-aware API/admin integration E2E. Cross-batch references to prior imported revisions require the later database-aware import engine; this V1 preparatory package validator accepts only self-contained revision/alignment references.
 
 No full #18 completion claimed. Test fixtures are synthetic and contain no book corpus.
