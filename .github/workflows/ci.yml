@@ -39,6 +39,7 @@ jobs:
           bash infra/lab.sh storage-quota-smoke
           bash infra/lab.sh auth-smoke
           bash infra/lab.sh admin-rbac-smoke
+          bash infra/lab.sh admin-role-lifecycle-smoke
           bash infra/lab.sh session-cap-smoke
           bash infra/lab.sh auth-rate-smoke
           bash infra/lab.sh auth-http-smoke
