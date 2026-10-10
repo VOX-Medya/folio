@@ -143,6 +143,52 @@ export const workCreateSchema = z.object({
 });
 export type AuthorCreate = z.infer<typeof authorCreateSchema>;
 export type WorkCreate = z.infer<typeof workCreateSchema>;
+
+/** Privileged metadata-only edits, never edition content or publishing status.
+ * expectedVersion is the persisted canonical scalar metadata revision. */
+const metadataVersionSchema=z.number().int().min(0).max(2147483646);
+export const canonicalAuthorMetadataPatchSchema=z.object({
+  expectedVersion:metadataVersionSchema,
+  canonicalName:z.string().trim().min(1).max(240).optional(),
+  sortName:z.string().trim().min(1).max(240).optional(),
+  aliases:z.array(z.object({
+    name:z.string().trim().min(1).max(240),
+    locale:z.string().min(2).max(12).optional(),
+  }).strict()).max(30).optional(),
+  externalIds:z.array(z.object({
+    source:z.string().min(1).max(80),externalId:z.string().min(1).max(400),
+  }).strict()).max(30).optional(),
+}).strict().superRefine((input,ctx)=>{
+  if(input.canonicalName===undefined&&input.sortName===undefined&&
+    input.aliases===undefined&&input.externalIds===undefined){
+    ctx.addIssue({code:'custom',message:'An author metadata change is required'});
+  }
+  if(input.externalIds){
+    const keys=input.externalIds.map(x=>x.source+'\\0'+x.externalId);
+    if(new Set(keys).size!==keys.length){
+      ctx.addIssue({code:'custom',message:'Duplicate external author source IDs'});
+    }
+  }
+});
+export const canonicalWorkMetadataPatchSchema=z.object({
+  expectedVersion:metadataVersionSchema,
+  originalTitle:z.string().trim().min(1).max(600).optional(),
+  firstPublicationYear:z.number().int().min(-4000).max(2500).nullable().optional(),
+}).strict().superRefine((input,ctx)=>{
+  if(input.originalTitle===undefined&&input.firstPublicationYear===undefined){
+    ctx.addIssue({code:'custom',message:'A work metadata change is required'});
+  }
+});
+export type CanonicalAuthorMetadataPatch=z.infer<typeof canonicalAuthorMetadataPatchSchema>;
+export type CanonicalWorkMetadataPatch=z.infer<typeof canonicalWorkMetadataPatchSchema>;
+export const canonicalAuthorMetadataUpdatedSchema=z.object({
+  id:z.uuid(),metadataVersion:metadataVersionSchema,
+}).strict();
+export const canonicalWorkMetadataUpdatedSchema=z.object({
+  id:z.uuid(),metadataVersion:metadataVersionSchema,
+  publicationStatus:z.literal('draft'),
+}).strict();
+
 /** HTTP draft creation acknowledges opaque canonical IDs only.
  * No arbitrary publication status, owner or raw text may be returned. */
 export const adminCatalogAuthorCreatedSchema=z.object({
