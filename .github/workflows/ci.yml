@@ -16,7 +16,10 @@ jobs:
           version: 10.34.5
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm --filter @folio/mobile exec expo export --platform web
+      - name: Export all Expo JavaScript targets (web/Android/iOS)
+        run: pnpm mobile:export
+      - name: Validate CI bundle checker negative cases
+        run: pnpm ci:contract-test
       - run: pnpm licenses list --json > licenses.json && node tools/security/check-licenses.mjs licenses.json
       - run: pnpm e2e
       - name: Build local Docker image (no deployment)
