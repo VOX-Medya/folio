@@ -46,12 +46,33 @@ function ensureLimit(value:number):void {
     throw new Error('Invalid private asset byte limit');
   }
 }
+/**
+ * OCF media-type admission ONLY, not EPUB validation. The W3C-mandated
+ * first ZIP member must be the uncompressed, unencrypted "mimetype" entry
+ * without an extra field and with exact ASCII "application/epub+zip" bytes.
+ * ZIP directory/traversal/bomb safety, DRM and reliable reading order remain
+ * mandatory downstream gates; this method NEVER marks a blob verified.
+ */
+function hasEpubOcfMimetypeHeader(first:Buffer):boolean {
+  if(first.length<58||
+    !first.subarray(0,4).equals(Buffer.from([0x50,0x4b,0x03,0x04])))return false;
+  const version=first.readUInt16LE(4),flags=first.readUInt16LE(6);
+  return [10,20,45].includes(version)&&
+    (flags&(0x1|0x8|0x40|0x2000))===0&&
+    first.readUInt16LE(8)===0&&
+    first.readUInt32LE(18)===20&&
+    first.readUInt32LE(22)===20&&
+    first.readUInt16LE(26)===8&&
+    first.readUInt16LE(28)===0&&
+    first.subarray(30,38).equals(Buffer.from('mimetype','ascii'))&&
+    first.subarray(38,58).equals(Buffer.from('application/epub+zip','ascii'));
+}
 function detectMime(mime:CandidateMime,first:Buffer):void {
   if(mime==='application/pdf'&&!first.subarray(0,5).equals(Buffer.from('%PDF-'))){
     throw new Error('PDF magic mismatch');
   }
-  if(mime==='application/epub+zip'&&!first.subarray(0,4).equals(Buffer.from([0x50,0x4b,0x03,0x04]))){
-    throw new Error('EPUB ZIP magic mismatch');
+  if(mime==='application/epub+zip'&&!hasEpubOcfMimetypeHeader(first)){
+    throw new Error('EPUB OCF mimetype header mismatch');
   }
   if(mime==='audio/mp4'&&(first.length<12||first.toString('ascii',4,8)!=='ftyp')){
     throw new Error('MP4 container magic mismatch');
