@@ -57,3 +57,6 @@ Toplam 6 + 11 + 10 + 9 + 11 + 11 = 58 demo ekranı; V1 52 ekran, gelecek 6 ekran
 - Kritik işlemler confirm + audit log, önceki değer, değişiklik nedeni; kaydetme başarı feedback'i backend sonucu olmadan gösterilmez.
 - Admin renk/tema seçenekleri kayıt olabilir ama V1'de gerçek admin görünüm için Paperbound base ve high-contrast semantic tokens tutarlı.
 - Kabul görsel testleri: Chrome/Safari/Firefox ve Android/iOS simülasyonlarında 320/390/768/1024/1440; light/dark, TR/EN, reduced-motion, VoiceOver/TalkBack, WCAG AA hedefi, yüksek font ölçekleri.
+
+## Uygulanabilir ekran sözleşmesi (#8)
+Kaynak HTML prototiplerindeki 58 mobil ve 30 admin ekran kimliği, V1/gelecek ayrımı, eylem ve hata/çevrimdışı/gizlilik durumları `docs/10-UI-SCREEN-MATRIX.md` içinde tutarlı biçimde doğrulanır. `node tools/design/generate-screen-matrix.mjs --check` prototip/eylem kapsamını ve çıktının güncelliğini denetler. Ortak açık/koyu Paperbound tokenları `packages/ui-tokens/src/index.ts` üzerinden admin ve Expo başlangıç kabuğuna uygulanır. Bu sözleşme V1 ekranlarının tamamının uygulanmış veya kullanıcı tarafından nihai görsel olarak onaylanmış olduğu iddiası değildir.

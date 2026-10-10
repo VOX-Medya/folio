@@ -1,0 +1,74 @@
+mobile|splash|read|Uygulama açılış durumu ve dil tercihini yükle
+mobile|welcome|write|Giriş veya kayıt akışını seç
+mobile|login|write|Güvenli oturum aç
+mobile|signup|write|Kullanıcı hesabı oluştur
+mobile|onboarding|write|Kaldığı yerden onboarding durumunu kaydet
+mobile|interests|write|Okuma ilgi alanlarını kaydet
+mobile|home|read|Son kitap konumuna güvenli şekilde dön
+mobile|library|read|Kullanıcının raflarını ve kişisel kitaplarını getir
+mobile|collections|write|Koleksiyon ekle veya yönet
+mobile|collection-detail|write|Koleksiyon içeriğini düzenle
+mobile|book-detail|write|Hak kontrolünden geçen eseri kütüphaneye ekle
+mobile|editions|write|Baskı ve hazır çeviri seç
+mobile|upload|write|EPUB veya metin PDF dosyasını özel alana yükle
+mobile|match|write|Eser eşleştirme sonucunu doğrula
+mobile|analysis|read|Dosya doğrulama/ayrıştırma durumunu getir
+mobile|downloads|write|Çevrimdışı özel içerik indirmelerini yönet
+mobile|reader|write|Semantik blok okuyucusu ve imleci kaydet
+mobile|reader-settings|write|Okuyucu tipografi ayarlarını kaydet
+mobile|quick|write|RSVP hız, grup ve duraklat kontrollerini kullan
+mobile|audio|write|Yalnız hazır ses varlığını oynat ve konum kaydet
+mobile|voice-select|write|Mevcut ses varyantlarından seç
+mobile|chapters|write|Bölüm konumuna git
+mobile|highlights|write|Paragrafa sabitli alt çizim ekle
+mobile|notes|write|Kişisel not ekle veya düzenle
+mobile|book-search|read|Yalnız kitap içindeki metni ara
+mobile|reading-history|read|Kullanıcının izinli okuma oturumlarını göster
+mobile|discover|read|Editör seçimlerini ve hakları onaylı eserleri getir
+mobile|catalog-search|read|Yalnızca eser ve yazar araması yap
+mobile|search-results|read|Eser/yazar arama sonuçlarını listele
+mobile|author-page|read|Yazarın hakları izinli eserlerini göster
+mobile|public-library|read|Yayımlama hakkı doğrulanmış katalogu getir
+mobile|recommendations|read|Yalnız editöryal önerileri göster
+mobile|reading-list|write|Okumak istediklerim rafını güncelle
+mobile|reviews|read|Kitap yorumlarını moderasyonla görüntüle
+mobile|review-compose|write|Hak denetimli kitap incelemesi gönder
+mobile|social|read|Gizlilik filtresinden geçen arkadaş etkinliklerini gör
+mobile|friends|read|Yalnız onaylı arkadaşlıkları listele
+mobile|friend-invite|write|Süreli ve sınırlı davet kodu oluştur
+mobile|friend-qr|read|Davet kodunun QR gösterimini aç
+mobile|friend-code|write|Davet kodunu doğrula ve arkadaşlık iste
+mobile|friend-requests|write|Arkadaşlık isteğini kabul et veya reddet
+mobile|friend-profile|read|Gizlilik matrisinden geçen profili görüntüle
+mobile|activity|read|İzinli okuma etkinliklerini listele
+mobile|comments|write|Moderasyona tabi kitap etkinliği yorumu gönder
+mobile|profile|read|Kendi profilini ve izinli alanlarını görüntüle
+mobile|edit-profile|write|Profil alanlarını doğrulayarak kaydet
+mobile|privacy|write|Profil ve raf görünürlük seçeneklerini kaydet
+mobile|stats|read|Kullanıcının okuma istatistiklerini göster
+mobile|goals|write|Okuma hedeflerini ve durumu güncelle
+mobile|notifications|write|Uygulama içi bildirimleri oku/işaretle
+mobile|settings|write|Cihaz ve kullanıcı tercihlerini yönet
+mobile|language|write|Arayüz dilini Türkçe/İngilizce değiştir
+admin|dashboard|read|Yetkili içerik ve işlem özetini görüntüle
+admin|analytics|read|Gerçek işlem ve kullanım istatistiklerini getir
+admin|works|write|Eserleri listele/filtrele; yetkili CRUD uygula
+admin|detail|write|Yedi sekmeli eser kayıtlarını yetkili biçimde yönet
+admin|authors|write|Yazar ve katkıda bulunanları düzenle
+admin|editions|write|Eser baskılarını ve dillerini düzenle
+admin|versions|write|Değişmez kaynak için yeni içerik revizyonu oluştur
+admin|translations|write|Hazır çeviriyi içe aktar, revizyonla ilişkilendir
+admin|audios|write|Hazır ses varlıklarını yükle, doğrula ve değiştir
+admin|covers|write|Standart tipografik kapak ayarlarını yönet
+admin|rights|write|Hak kanıtı, bölge ve izinleri denetle
+admin|quality|write|Metin yapısı QA ve manuel onay iş akışı
+admin|jobs|read|Yalnız yerel import/validasyon işlerini görüntüle
+admin|storage|read|Özel dosya, alan ve kota özetlerini görüntüle
+admin|transfer|write|Batch import/export kuru çalışma ve uygulama
+admin|backups|read|Yedekleme ve geri yükleme test raporlarını göster
+admin|members|write|Yetkili kullanıcı destek işlemlerini uygula
+admin|friendship|write|Davet, blok ve gizlilik taleplerini incele
+admin|moderation|write|Yorum raporu ve moderasyon işlemini kaydet
+admin|settings|write|Genel V1 yapılandırmasını düzenle
+admin|roles|write|RBAC yetkilerini denetimli değiştir
+admin|audit|read|Değişmez işlem denetim günlüğünü incele

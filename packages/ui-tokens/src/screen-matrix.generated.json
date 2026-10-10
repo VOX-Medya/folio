@@ -1,0 +1,1547 @@
+{
+  "source": "design/reference HTML prototypes",
+  "mobile": [
+    {
+      "platform": "mobile",
+      "id": "splash",
+      "title": "Açılış ekranı",
+      "groupId": "onboarding",
+      "groupLabel": "Başlangıç ve üyelik",
+      "scope": "V1",
+      "action": "Uygulama açılış durumu ve dil tercihini yükle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+    },
+    {
+      "platform": "mobile",
+      "id": "welcome",
+      "title": "Karşılama",
+      "groupId": "onboarding",
+      "groupLabel": "Başlangıç ve üyelik",
+      "scope": "V1",
+      "action": "Giriş veya kayıt akışını seç",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+    },
+    {
+      "platform": "mobile",
+      "id": "login",
+      "title": "Giriş yap",
+      "groupId": "onboarding",
+      "groupLabel": "Başlangıç ve üyelik",
+      "scope": "V1",
+      "action": "Güvenli oturum aç",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+    },
+    {
+      "platform": "mobile",
+      "id": "signup",
+      "title": "Kayıt ol",
+      "groupId": "onboarding",
+      "groupLabel": "Başlangıç ve üyelik",
+      "scope": "V1",
+      "action": "Kullanıcı hesabı oluştur",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+    },
+    {
+      "platform": "mobile",
+      "id": "onboarding",
+      "title": "Tanıtım akışı",
+      "groupId": "onboarding",
+      "groupLabel": "Başlangıç ve üyelik",
+      "scope": "V1",
+      "action": "Kaldığı yerden onboarding durumunu kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+    },
+    {
+      "platform": "mobile",
+      "id": "interests",
+      "title": "İlgi alanları",
+      "groupId": "onboarding",
+      "groupLabel": "Başlangıç ve üyelik",
+      "scope": "V1",
+      "action": "Okuma ilgi alanlarını kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey/merkez; tablet/desktop: sınırlı genişlik"
+    },
+    {
+      "platform": "mobile",
+      "id": "home",
+      "title": "Ana sayfa",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Son kitap konumuna güvenli şekilde dön",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "library",
+      "title": "Kütüphanem",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Kullanıcının raflarını ve kişisel kitaplarını getir",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "collections",
+      "title": "Koleksiyonlar",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Koleksiyon ekle veya yönet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "collection-detail",
+      "title": "Koleksiyon detayı",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Koleksiyon içeriğini düzenle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "book-detail",
+      "title": "Kitap detayı",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Hak kontrolünden geçen eseri kütüphaneye ekle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission",
+        "withdrawn"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "editions",
+      "title": "Baskı / çeviri seçimi",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Baskı ve hazır çeviri seç",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "upload",
+      "title": "Kitap yükle",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "EPUB veya metin PDF dosyasını özel alana yükle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "match",
+      "title": "Eser eşleştirme",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Eser eşleştirme sonucunu doğrula",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "analysis",
+      "title": "Kitap işleme",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Dosya doğrulama/ayrıştırma durumunu getir",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "queue",
+      "title": "Seslendirme kuyruğu",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "downloads",
+      "title": "İndirilen kitaplar",
+      "groupId": "library",
+      "groupLabel": "Ana sayfa ve kütüphane",
+      "scope": "V1",
+      "action": "Çevrimdışı özel içerik indirmelerini yönet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: sidebar ve 2-4 sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "reader",
+      "title": "E-kitap okuyucu",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Semantik blok okuyucusu ve imleci kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission",
+        "withdrawn"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "reader-settings",
+      "title": "Okuyucu ayarları",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Okuyucu tipografi ayarlarını kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "quick",
+      "title": "Hızlı okuma (RSVP)",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "RSVP hız, grup ve duraklat kontrollerini kullan",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "audio",
+      "title": "Sesli kitap oynatıcı",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Yalnız hazır ses varlığını oynat ve konum kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission",
+        "withdrawn"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "voice-select",
+      "title": "Ses seçimi",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Mevcut ses varyantlarından seç",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "chapters",
+      "title": "İçindekiler",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Bölüm konumuna git",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "highlights",
+      "title": "Altı çizilenler",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Paragrafa sabitli alt çizim ekle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "notes",
+      "title": "Notlar",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Kişisel not ekle veya düzenle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "book-search",
+      "title": "Kitap içi arama",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Yalnız kitap içindeki metni ara",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "reading-history",
+      "title": "Okuma geçmişi",
+      "groupId": "reader",
+      "groupLabel": "Okuma ve dinleme",
+      "scope": "V1",
+      "action": "Kullanıcının izinli okuma oturumlarını göster",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tam ekran; tablet: bölüm paneli; desktop: 60-80 karakter ve yan panel"
+    },
+    {
+      "platform": "mobile",
+      "id": "discover",
+      "title": "Keşfet",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Editör seçimlerini ve hakları onaylı eserleri getir",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "catalog-search",
+      "title": "Eser / yazar ara",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Yalnızca eser ve yazar araması yap",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "search-results",
+      "title": "Arama sonuçları",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Eser/yazar arama sonuçlarını listele",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "author-page",
+      "title": "Yazar profili",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Yazarın hakları izinli eserlerini göster",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "public-library",
+      "title": "Ortak kütüphane",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Yayımlama hakkı doğrulanmış katalogu getir",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "recommendations",
+      "title": "Kitap önerileri",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Yalnız editöryal önerileri göster",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "reading-list",
+      "title": "Okuma listem",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Okumak istediklerim rafını güncelle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "reviews",
+      "title": "Kitap incelemeleri",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Kitap yorumlarını moderasyonla görüntüle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "review-compose",
+      "title": "İnceleme yaz",
+      "groupId": "discover",
+      "groupLabel": "Keşfet ve katalog",
+      "scope": "V1",
+      "action": "Hak denetimli kitap incelemesi gönder",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: tek sütun; tablet: 2 sütun; desktop: sidebar ve çok sütun"
+    },
+    {
+      "platform": "mobile",
+      "id": "social",
+      "title": "Sosyal akış",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Gizlilik filtresinden geçen arkadaş etkinliklerini gör",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "friends",
+      "title": "Arkadaşlarım",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Yalnız onaylı arkadaşlıkları listele",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "friend-invite",
+      "title": "Arkadaş ekle",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Süreli ve sınırlı davet kodu oluştur",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "friend-qr",
+      "title": "QR davet kodu",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Davet kodunun QR gösterimini aç",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "friend-code",
+      "title": "Arkadaşlık kodu gir",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Davet kodunu doğrula ve arkadaşlık iste",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "friend-requests",
+      "title": "Arkadaşlık istekleri",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Arkadaşlık isteğini kabul et veya reddet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "friend-profile",
+      "title": "Arkadaş profili",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Gizlilik matrisinden geçen profili görüntüle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "activity",
+      "title": "Okuma etkinlikleri",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "İzinli okuma etkinliklerini listele",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "comments",
+      "title": "Yorumlar",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "V1",
+      "action": "Moderasyona tabi kitap etkinliği yorumu gönder",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "clubs",
+      "title": "Kitap kulüpleri",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "messages",
+      "title": "Mesajlar",
+      "groupId": "social",
+      "groupLabel": "Arkadaşlar ve topluluk",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: alt gezinme; tablet: 2 sütun; desktop: liste ve bağlam paneli"
+    },
+    {
+      "platform": "mobile",
+      "id": "profile",
+      "title": "Profilim",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Kendi profilini ve izinli alanlarını görüntüle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "edit-profile",
+      "title": "Profili düzenle",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Profil alanlarını doğrulayarak kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "privacy",
+      "title": "Gizlilik",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Profil ve raf görünürlük seçeneklerini kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "stats",
+      "title": "Okuma istatistikleri",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Kullanıcının okuma istatistiklerini göster",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "goals",
+      "title": "Okuma hedefleri",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Okuma hedeflerini ve durumu güncelle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "notifications",
+      "title": "Bildirimler",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Uygulama içi bildirimleri oku/işaretle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "settings",
+      "title": "Ayarlar",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Cihaz ve kullanıcı tercihlerini yönet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "language",
+      "title": "Uygulama dili",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "V1",
+      "action": "Arayüz dilini Türkçe/İngilizce değiştir",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "premium",
+      "title": "Premium üyelik",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "publishing",
+      "title": "Yazar stüdyosu",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    },
+    {
+      "platform": "mobile",
+      "id": "publish-book",
+      "title": "Kitap yayımla",
+      "groupId": "profile",
+      "groupLabel": "Profil ve ayarlar",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: dikey; tablet: 2 sütun; desktop: sidebar ve ayar alanı"
+    }
+  ],
+  "admin": [
+    {
+      "platform": "admin",
+      "id": "dashboard",
+      "title": "Kontrol merkezi",
+      "groupId": "Genel bakış",
+      "groupLabel": "Genel bakış",
+      "scope": "V1",
+      "action": "Yetkili içerik ve işlem özetini görüntüle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "analytics",
+      "title": "İşlem ve kullanım raporları",
+      "groupId": "Genel bakış",
+      "groupLabel": "Genel bakış",
+      "scope": "V1",
+      "action": "Gerçek işlem ve kullanım istatistiklerini getir",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "works",
+      "title": "Tüm eserler",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Eserleri listele/filtrele; yetkili CRUD uygula",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "detail",
+      "title": "Eser çalışma alanı",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Yedi sekmeli eser kayıtlarını yetkili biçimde yönet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "authors",
+      "title": "Yazarlar",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Yazar ve katkıda bulunanları düzenle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "editions",
+      "title": "Baskılar ve diller",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Eser baskılarını ve dillerini düzenle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "versions",
+      "title": "Metin sürümleri",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Değişmez kaynak için yeni içerik revizyonu oluştur",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "translations",
+      "title": "Çeviri yönetimi",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Hazır çeviriyi içe aktar, revizyonla ilişkilendir",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "audios",
+      "title": "Ses kütüphanesi",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Hazır ses varlıklarını yükle, doğrula ve değiştir",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "covers",
+      "title": "Kapak şablonları",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Standart tipografik kapak ayarlarını yönet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "rights",
+      "title": "Lisans ve telif",
+      "groupId": "Merkezi katalog",
+      "groupLabel": "Merkezi katalog",
+      "scope": "V1",
+      "action": "Hak kanıtı, bölge ve izinleri denetle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission",
+        "withdrawn"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "sources",
+      "title": "Kaynak entegrasyonları",
+      "groupId": "Kaynaklar ve işleme",
+      "groupLabel": "Kaynaklar ve işleme",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "mapping",
+      "title": "Kaynak alan eşlemesi",
+      "groupId": "Kaynaklar ve işleme",
+      "groupLabel": "Kaynaklar ve işleme",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "staging",
+      "title": "Gelen kayıtlar",
+      "groupId": "Kaynaklar ve işleme",
+      "groupLabel": "Kaynaklar ve işleme",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "pipeline",
+      "title": "İşleme kuralları",
+      "groupId": "Kaynaklar ve işleme",
+      "groupLabel": "Kaynaklar ve işleme",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "quality",
+      "title": "Kalite inceleme",
+      "groupId": "Kaynaklar ve işleme",
+      "groupLabel": "Kaynaklar ve işleme",
+      "scope": "V1",
+      "action": "Metin yapısı QA ve manuel onay iş akışı",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "jobs",
+      "title": "Tüm işlem işleri",
+      "groupId": "Kaynaklar ve işleme",
+      "groupLabel": "Kaynaklar ve işleme",
+      "scope": "V1",
+      "action": "Yalnız yerel import/validasyon işlerini görüntüle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "translationQueue",
+      "title": "Çeviri kuyruğu",
+      "groupId": "AI ve üretim",
+      "groupLabel": "AI ve üretim",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "ttsQueue",
+      "title": "Seslendirme kuyruğu",
+      "groupId": "AI ve üretim",
+      "groupLabel": "AI ve üretim",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "workers",
+      "title": "Yerel & bulut workerlar",
+      "groupId": "AI ve üretim",
+      "groupLabel": "AI ve üretim",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "providers",
+      "title": "Servis sağlayıcıları",
+      "groupId": "AI ve üretim",
+      "groupLabel": "AI ve üretim",
+      "scope": "AFTER-V1",
+      "action": "Pasif: V1 navigasyonu ve API bağlantısı yok",
+      "states": [
+        "disabled"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "storage",
+      "title": "Dosyalar ve depolama",
+      "groupId": "AI ve üretim",
+      "groupLabel": "AI ve üretim",
+      "scope": "V1",
+      "action": "Özel dosya, alan ve kota özetlerini görüntüle",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "transfer",
+      "title": "Import / Export",
+      "groupId": "Veri taşınabilirliği",
+      "groupLabel": "Veri taşınabilirliği",
+      "scope": "V1",
+      "action": "Batch import/export kuru çalışma ve uygulama",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "backups",
+      "title": "Yedek ve geri yükleme",
+      "groupId": "Veri taşınabilirliği",
+      "groupLabel": "Veri taşınabilirliği",
+      "scope": "V1",
+      "action": "Yedekleme ve geri yükleme test raporlarını göster",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "members",
+      "title": "Üyeler",
+      "groupId": "Topluluk",
+      "groupLabel": "Topluluk",
+      "scope": "V1",
+      "action": "Yetkili kullanıcı destek işlemlerini uygula",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "friendship",
+      "title": "Arkadaşlık ve gizlilik",
+      "groupId": "Topluluk",
+      "groupLabel": "Topluluk",
+      "scope": "V1",
+      "action": "Davet, blok ve gizlilik taleplerini incele",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "moderation",
+      "title": "Yorum ve şikâyetler",
+      "groupId": "Topluluk",
+      "groupLabel": "Topluluk",
+      "scope": "V1",
+      "action": "Yorum raporu ve moderasyon işlemini kaydet",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "settings",
+      "title": "Genel ayarlar",
+      "groupId": "Sistem",
+      "groupLabel": "Sistem",
+      "scope": "V1",
+      "action": "Genel V1 yapılandırmasını düzenle",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "roles",
+      "title": "Roller ve yetkiler",
+      "groupId": "Sistem",
+      "groupLabel": "Sistem",
+      "scope": "V1",
+      "action": "RBAC yetkilerini denetimli değiştir",
+      "states": [
+        "loading",
+        "validation",
+        "success",
+        "conflict",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    },
+    {
+      "platform": "admin",
+      "id": "audit",
+      "title": "İşlem günlüğü",
+      "groupId": "Sistem",
+      "groupLabel": "Sistem",
+      "scope": "V1",
+      "action": "Değişmez işlem denetim günlüğünü incele",
+      "states": [
+        "loading",
+        "empty",
+        "error",
+        "offline",
+        "permission"
+      ],
+      "layout": "Phone: drawer ve kaydırma; tablet: kapanır inspector; desktop: 258px sidebar, 76px topbar, ~300px inspector"
+    }
+  ]
+}
