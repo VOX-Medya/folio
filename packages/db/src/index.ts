@@ -44,6 +44,8 @@ export type {AdminRoleChange} from './admin-role-lifecycle.js';
 export {beginAdminTotpEnrollment,confirmAdminTotpEnrollment,verifyAdminTotpForSession} from './admin-totp.js';
 export {rotateAdminTotpEnvelopeForUser,inspectAdminTotpKeyVersions} from './admin-totp-rotation.js';
 export type {TotpEnvelopeRotation} from './admin-totp-rotation.js';
+export {proposeAdminMfaRecoveryReview,approveAdminMfaRecoveryReview,cancelAdminMfaRecoveryReview,ADMIN_MFA_REVIEW_EXPIRY_MS} from './admin-mfa-recovery.js';
+export type {AdminMfaRecoveryReview} from './admin-mfa-recovery.js';
 export {requireTotpKeyring} from './admin-totp-crypto.js';
 export type {TotpKeyring,TotpKeyMaterial,TotpKeyVersion} from './admin-totp-crypto.js';
 export type {VerifiedAdminIdentity} from './admin-authorization.js';
