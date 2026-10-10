@@ -265,7 +265,8 @@ export const mediaAssets=pgTable('media_assets',{
     (${t.durationMs} is null or ${t.durationMs}>0)`),
   check('media_assets_status_ck',sql`
     ${t.status} in ('pending_verify','verified','rejected','deleted') and
-    (${t.status}<>'verified' or ${t.verifiedAt} is not null)`),
+    (${t.status}<>'verified' or ${t.verifiedAt} is not null) and
+    (${t.status}<>'pending_verify' or ${t.verifiedAt} is null)`),
 ]);
 /** Reservation rows serialize quota admission across PostgreSQL connections.
  * This is PRIVATE-USER only; catalog imports have separate editorial rights.
