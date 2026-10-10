@@ -3,10 +3,10 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable} from 'node:stream';
-import {eq} from 'drizzle-orm';
+import {eq,sql} from 'drizzle-orm';
 import {createFolioDb,LocalStorageAdapter,
   reservePrivateUploadQuota,commitPrivateQuarantinedUpload,
-  releasePrivateUploadQuota,inspectPrivateUploadQuota,schema} from '../src/index.js';
+  releasePrivateUploadQuota,inspectPrivateUploadQuota,sweepPrivateQuarantineOrphans,schema} from '../src/index.js';
 
 function expect(ok:unknown,message:string):asserts ok {if(!ok)throw new Error(message);}
 const hash=(data:Buffer)=>createHash('sha256').update(data).digest('hex');
@@ -89,6 +89,70 @@ async function main(){
     const current=await one.db.select().from(schema.storageUploadReservations).where(eq(schema.storageUploadReservations.id,reservation.reservationId));
     expect(current[0]?.status==='committed'&&current[0].committedAssetId===actual.assetId,
       'Committed asset no longer has a durable reservation checkpoint');
+    // Crash recovery / retention uses the same advisory owner lock as quota
+    // reserve and commit. A completed .blob without metadata is old orphan
+    // only after 72h; live reservations and ALL DB-referenced rows survive.
+    const orphan=await storage.stage({owner:{scope:'private-user',ownerUserId:owner},
+      source:Readable.from([payload]),declaredSha256:hash(payload),
+      declaredMime:'text/plain',maxBytes:70});
+    const otherBlob=await storage.stage({
+      owner:{scope:'private-user',ownerUserId:otherOwner},source:Readable.from([payload]),
+      declaredSha256:hash(payload),declaredMime:'text/plain',maxBytes:70,
+    });
+    const catalogBlob=await storage.stage({
+      owner:{scope:'catalog',ownerUserId:null},source:Readable.from([payload]),
+      declaredSha256:hash(payload),declaredMime:'text/plain',maxBytes:70,
+    });
+    const freshReport=await sweepPrivateQuarantineOrphans(one.db,storage,owner);
+    expect(freshReport.removed===0&&freshReport.eligible===0&&freshReport.dryRun,
+      'Fresh in-flight quarantine incorrectly became a reclaimable orphan');
+
+    let waiting:ReturnType<typeof sweepPrivateQuarantineOrphans>|undefined;
+    await one.db.transaction(async tx=>{
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${owner}))`);
+      // Start the collector in a second pool while the owner lock is held.
+      waiting=sweepPrivateQuarantineOrphans(two.db,storage,owner,{apply:true});
+      // A trusted reservation wins the lock and MUST block the collector.
+      await tx.insert(schema.storageUploadReservations).values({
+        ownerUserId:owner,reservedBytes:1,status:'reserved',
+        expiresAt:new Date(Date.now()+60000),
+      });
+    });
+    expect(waiting,'Concurrent collector was not started');
+    const locked=await waiting;
+    expect(locked.blockedByActiveReservation&&locked.removed===0,
+      'Collector bypassed a concurrent live quota reservation');
+    const [active]=await one.db.select().from(schema.storageUploadReservations)
+      .where(eq(schema.storageUploadReservations.ownerUserId,owner))
+      .orderBy(sql`created_at DESC`).limit(1);
+    expect(active?.status==='reserved','Missing test reservation after owner lock');
+    await releasePrivateUploadQuota(one.db,owner,active.id);
+
+    // Explicit synthetic time advance does NOT change the real file clock or
+    // production retention settings; no real user files exist in this test.
+    const agedNow=Date.now()+5*24*60*60*1000;
+    const preview=await sweepPrivateQuarantineOrphans(one.db,storage,owner,
+      {testNowMs:agedNow});
+    expect(preview.eligible===1&&preview.removed===0&&preview.dryRun,
+      'Orphan dry-run did not preserve bytes');
+    const applied=await sweepPrivateQuarantineOrphans(two.db,storage,owner,
+      {apply:true,testNowMs:agedNow});
+    expect(!applied.blockedByActiveReservation&&applied.eligible===1&&applied.removed===1,
+      'Exactly one unreferenced staged private blob was not reclaimed');
+    const repeatSweep=await sweepPrivateQuarantineOrphans(one.db,storage,owner,
+      {apply:true,testNowMs:agedNow});
+    expect(repeatSweep.removed===0,'Orphan sweep was not idempotent');
+    expect((await storage.inspectQuarantined(staged)).sizeBytes===payload.length,
+      'A DB-registered private pending asset was reclaimed');
+    expect((await storage.inspectQuarantined(otherBlob)).sizeBytes===payload.length,
+      'The collector deleted another private owner asset');
+    expect((await storage.inspectQuarantined(catalogBlob)).sizeBytes===payload.length,
+      'The collector deleted a catalog asset');
+    let orphanGone=false;
+    try{await storage.inspectQuarantined(orphan);}catch{orphanGone=true;}
+    expect(orphanGone,'Unreferenced synthetic old blob was not deleted');
+    console.log('Private orphan retention PASS: .part/.blob atomic staging, active reservation owner-lock race, 72h age, dry-run/apply, idempotent, registered/other-user/catalog bytes retained.');
+
     console.log('Private quota PASS: two DB pools 70+70 race, exact bytes, release/replay, expired quota, forged owner denied; asset remains pending_verify. Folio test DB only.');
   }finally{
     await one.pool.end();await two.pool.end();
