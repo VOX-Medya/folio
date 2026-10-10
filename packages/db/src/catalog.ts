@@ -1,4 +1,4 @@
-import {eq} from 'drizzle-orm';
+import {asc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import {authorCreateSchema, workCreateSchema} from '@folio/contracts';
 import type {AuthorCreate, WorkCreate} from '@folio/contracts';
@@ -81,25 +81,52 @@ export async function createCanonicalWork(
   });
 }
 
-/** Internal detail fetch only. Public catalog listing awaits verified publishing rights. */
+/** Internal detail fetch only. Public catalog listing awaits verified publishing rights.
+ *
+ * All child rows must come from one repeatable-read PostgreSQL snapshot: a
+ * concurrent editor must not yield a work from revision A with editions from B.
+ * Explicit sort keys + UUID tie-breakers make multi-author/edition selections
+ * stable between devices and independent of query planner/insert order.
+ */
 export async function getCanonicalWorkDetails(db: CatalogDb, workId: string) {
   const id = z.uuid().parse(workId);
-  const [work] = await db.select().from(schema.works).where(eq(schema.works.id, id)).limit(1);
-  if (!work) return null;
-  const authors = await db.select({
-    id: schema.authors.id,
-    name: schema.authors.canonicalName,
-    role: schema.workAuthors.contribution,
-    sortOrder: schema.workAuthors.sortOrder,
-  }).from(schema.workAuthors)
-    .innerJoin(schema.authors, eq(schema.workAuthors.authorId, schema.authors.id))
-    .where(eq(schema.workAuthors.workId, id));
-  const titles = await db.select().from(schema.workTitles).where(eq(schema.workTitles.workId, id));
-  const editionRows = await db.select().from(schema.editions).where(eq(schema.editions.workId, id));
-  const editionDetails = await Promise.all(editionRows.map(async edition => ({
-    ...edition,
-    identifiers: await db.select().from(schema.editionIdentifiers).where(eq(schema.editionIdentifiers.editionId, edition.id)),
-    contributors: await db.select().from(schema.editionContributors).where(eq(schema.editionContributors.editionId, edition.id)),
-  })));
-  return {work, authors, titles, editions: editionDetails};
+  return db.transaction(async tx => {
+    // The pinned Drizzle PgTransactionConfig supports isolation level but
+    // not the readOnly flag. Make Postgres enforce it before any SELECT.
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    const [work] = await tx.select().from(schema.works)
+      .where(eq(schema.works.id, id)).limit(1);
+    if (!work) return null;
+    const authors = await tx.select({
+      id: schema.authors.id,
+      name: schema.authors.canonicalName,
+      role: schema.workAuthors.contribution,
+      sortOrder: schema.workAuthors.sortOrder,
+    }).from(schema.workAuthors)
+      .innerJoin(schema.authors, eq(schema.workAuthors.authorId, schema.authors.id))
+      .where(eq(schema.workAuthors.workId, id))
+      .orderBy(asc(schema.workAuthors.sortOrder), asc(schema.authors.id));
+    const titles = await tx.select().from(schema.workTitles)
+      .where(eq(schema.workTitles.workId, id))
+      .orderBy(asc(schema.workTitles.language),asc(schema.workTitles.kind),
+        asc(schema.workTitles.title),asc(schema.workTitles.id));
+    const editionRows = await tx.select().from(schema.editions)
+      .where(eq(schema.editions.workId, id))
+      .orderBy(asc(schema.editions.language),asc(schema.editions.label),
+        asc(schema.editions.id));
+    const editionDetails = [];
+    for (const edition of editionRows) {
+      const identifiers = await tx.select().from(schema.editionIdentifiers)
+        .where(eq(schema.editionIdentifiers.editionId, edition.id))
+        .orderBy(asc(schema.editionIdentifiers.kind),
+          asc(schema.editionIdentifiers.value));
+      const contributors = await tx.select().from(schema.editionContributors)
+        .where(eq(schema.editionContributors.editionId, edition.id))
+        .orderBy(asc(schema.editionContributors.sortOrder),
+          asc(schema.editionContributors.role),
+          asc(schema.editionContributors.authorId));
+      editionDetails.push({...edition, identifiers, contributors});
+    }
+    return {work, authors, titles, editions: editionDetails};
+  },{isolationLevel:'repeatable read'});
 }

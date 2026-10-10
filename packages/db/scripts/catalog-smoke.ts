@@ -32,6 +32,61 @@ async function main(): Promise<void> {
     const details = await getCanonicalWorkDetails(db, work.id);
     if (!details || details.work.publicationStatus !== 'draft' || details.authors.length !== 1 || details.editions.length !== 2) throw new Error('Canonical relationships incorrect');
     if (!details.editions.some(e=>e.language==='en'&&e.contributors.some(c=>c.authorId===translator.id))) throw new Error('Translation contributor relationship missing');
+
+    // Inserting deliberately out of display order must NOT determine UI order.
+    // All children are returned from one read-only repeatable-read transaction
+    // with explicit sort key and stable UUID ties.
+    const unorderedWork=await createCanonicalWork(db,actor,{
+      originalTitle:`Ordered Draft ${suffix}`,originalLanguage:'tr',
+      authors:[
+        {authorId:writer.id,contribution:'author',sortOrder:9},
+        {authorId:translator.id,contribution:'co-author',sortOrder:1},
+      ],
+      titles:[
+        {language:'tr',title:`Sonra ${suffix}`,kind:'alternate'},
+        {language:'en',title:`Earlier ${suffix}`,kind:'translation'},
+      ],
+      editions:[
+        {language:'tr',label:'Last TR',identifiers:[
+          {kind:'other',value:'Z'}, {kind:'other',value:'A'},
+        ],contributors:[
+          {authorId:writer.id,role:'author',sortOrder:9},
+          {authorId:translator.id,role:'translator',sortOrder:1},
+        ]},
+        {language:'en',label:'First EN'},
+      ],
+    });
+    const ordered=await getCanonicalWorkDetails(db,unorderedWork.id);
+    if(!ordered||ordered.authors.length!==2||ordered.editions.length!==2){
+      throw new Error('Multi-author or multi-edition snapshot was incomplete');
+    }
+    if(ordered.authors.map(a=>a.id).join(',')!==[translator.id,writer.id].join(',')){
+      throw new Error('Canonical author sortOrder was not respected');
+    }
+    if(ordered.editions.map(e=>e.language).join(',')!=='en,tr'){
+      throw new Error('Canonical edition ordering was nondeterministic');
+    }
+    if(ordered.titles[0]?.language!=='en'){
+      throw new Error('Canonical multilingual title ordering was nondeterministic');
+    }
+    const trEdition=ordered.editions.find(e=>e.language==='tr');
+    if(trEdition?.identifiers.map(i=>i.value).join(',')!=='A,Z'||
+      trEdition?.contributors.map(p=>p.authorId).join(',')!==[translator.id,writer.id].join(',')){
+      throw new Error('Edition identifiers or contributors ignored explicit ordering');
+    }
+    const repeated=await getCanonicalWorkDetails(db,unorderedWork.id);
+    if(JSON.stringify(repeated)!==JSON.stringify(ordered)){
+      throw new Error('Repeated canonical details changed without a DB mutation');
+    }
+    if(await getCanonicalWorkDetails(db,randomUUID())!==null){
+      throw new Error('Unknown catalog UUID resolved to private draft data');
+    }
+    let invalidWorkIdDenied=false;
+    try{await getCanonicalWorkDetails(db,'invalid-user-controlled-work-id');}
+    catch{invalidWorkIdDenied=true;}
+    if(!invalidWorkIdDenied){
+      throw new Error('Malformed catalog work UUID reached a detail query');
+    }
     const storedAliases = await db.select().from(schema.authorAliases).where(eq(schema.authorAliases.authorId,writer.id));
     if (storedAliases.length!==1) throw new Error('Author alias not persisted');
     const storedExternalIds = await db.select().from(schema.authorExternalIds).where(eq(schema.authorExternalIds.authorId,writer.id));
@@ -102,7 +157,7 @@ async function main(): Promise<void> {
     if(!invalidSearch)throw new Error('Unbounded/empty admin catalog search was accepted');
     if(pageOne.items[0]?.publicationStatus!=='draft')throw new Error('Catalog preview misrepresented a draft work');
     console.log('Internal work/author search PASS: UUID cursor, aliases, translators, alternate title, literal LIKE escape, bounded paging; draft never made public.');
-    console.log('Canonical catalog PASS: aliases/IDs, N:M authors, 2 language editions/contributors, repeated ISBN/title, FK rollback, trusted request-ID audit and malformed trace rollback; all unpublished draft.');
+    console.log('Canonical catalog PASS: aliases/IDs, N:M authors, deterministic TR/EN edition/author/contributor/identifier ordering, repeatable-read private snapshots, absent/invalid UUID deny, FK rollback and trusted request-ID audit; all unpublished draft.');
   } finally {await pool.end();}
 }
 void main().catch(error=>{console.error(error);process.exitCode=1;});
