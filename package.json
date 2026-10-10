@@ -11,11 +11,12 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check",
+    "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check && pnpm metro:security-check",
     "e2e": "playwright test",
     "design:check": "node tools/design/generate-screen-matrix.mjs --check",
     "mobile:export": "pnpm --filter @folio/mobile exec expo export --platform all && node tools/ci/check-expo-exports.mjs",
-    "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs"
+    "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs tools/security/*.test.mjs",
+    "metro:security-check": "node tools/security/check-metro-graph.mjs pnpm-lock.yaml"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
