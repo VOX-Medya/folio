@@ -35,3 +35,6 @@ export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,re
 
 // Authenticated-only per-user onboarding preference/version synchronization.
 export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboarding.js';
+
+// Internal fail-closed HMAC-backed auth abuse admission; never trust client IP headers.
+export {admitAuthAttempt} from './auth-rate-limit.js';
