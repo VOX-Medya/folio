@@ -12,3 +12,6 @@ Yukarıdaki bulgular bir güvenlik onayı DEĞİLDİR. CI yüksek önem taramas�
 
 ### Uyum denemesi
 Yamalı `image-size@2.0.4` geçici dependency override ile 10 Ekim'de denendi. Expo Web Metro export `TypeError: The "list" argument must be an instance of SharedArrayBuffer, ArrayBuffer or ArrayBufferView` hatasıyla durdu. Uyumsuz major override geri alındı ve Expo Web tekrar başarıyla export edildi. Güvenlik bulguları sessizce yok sayılmayacak.
+
+## Yerel geliştirme istisnası (10 Ekim 2026)
+Kullanıcı talebiyle prototip geliştirmede bağımlılık audit çıktısı **görünür fakat CI'yı bloklamayan** kontrol olarak çalışır (`continue-on-error`). Bu bir zafiyet çözümü veya güvenlik onayı değildir. Canlı dağıtım, kullanıcı verisi, yayın hakkı ve gizlilik kapıları bu istisnaya dahil değildir. Yayın CI'sında audit tekrar zorunlu bloklayıcı olacaktır; #7 ilgili güvenlik kabul kriteri karşılanana kadar açık kalır.
