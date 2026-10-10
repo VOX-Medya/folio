@@ -263,3 +263,6 @@ export const onboardingSnapshotSchema=z.object({
   interests:onboardingInterestIds,version:z.number().int().nonnegative(),
 }).strict();
 export type OnboardingSnapshot=z.infer<typeof onboardingSnapshotSchema>;
+
+export {fetchOwnOnboarding,updateOwnOnboarding,OnboardingHttpError,OnboardingVersionConflictError} from './onboarding-client.js';
+export type {OwnOnboardingRequest} from './onboarding-client.js';
