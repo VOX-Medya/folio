@@ -6,6 +6,9 @@ import {
   adminCatalogWorkDetailSchema,adminCatalogAuthorDetailSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
   canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
+  adminCatalogEditionAppendSchema,adminCatalogTitleAppendSchema,
+  adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
+  adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
 
@@ -199,6 +202,55 @@ describe('admin-only canonical metadata search contracts',()=>{
     expect(canonicalAuthorMetadataUpdatedSchema.safeParse({
       id,metadataVersion:1,actorId:id,
     }).success).toBe(false);
+  });
+  it('allows bounded DRAFT work editions with multiple identifiers/contributor links, not publishing',()=>{
+    const input={expectedVersion:0,language:'en',label:'Translated Edition',
+      publisher:'Local Folio',identifiers:[
+        {kind:'isbn-13',value:'9780000000001'},
+        {kind:'other',value:'folio:edition:1'},
+      ],contributors:[{authorId:id,role:'translator',sortOrder:1}]};
+    const accepted=adminCatalogEditionAppendSchema.parse(input);
+    expect(accepted.identifiers).toHaveLength(2);
+    expect(accepted.contributors[0]?.role).toBe('translator');
+    expect(adminCatalogEditionAppendedSchema.parse({
+      id,workId:id,metadataVersion:1,status:'draft',
+    }).status).toBe('draft');
+    for(const bad of [
+      {...input,expectedVersion:-1},{...input,expectedVersion:2147483647},
+      {...input,publicationStatus:'published'},
+      {...input,contentRevisionId:id},
+      {...input,ownerId:id},
+      {...input,identifiers:[input.identifiers[0],input.identifiers[0]]},
+      {...input,contributors:[input.contributors[0],input.contributors[0]]},
+      {...input,language:'fr'},
+      {...input,identifiers:[{kind:'drm-key',value:'secret'}]},
+      {...input,contributors:[{authorId:'not-a-uuid',role:'translator'}]},
+    ]){
+      expect(adminCatalogEditionAppendSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+  it('adds metadata-only translated titles and canonical work authors, never text/actor',()=>{
+    const title={expectedVersion:2,language:'en',
+      title:'The Original Book',kind:'translation'};
+    expect(adminCatalogTitleAppendSchema.parse(title)).toEqual(title);
+    expect(adminCatalogTitleAppendedSchema.parse({
+      id,workId:id,metadataVersion:3,
+    }).metadataVersion).toBe(3);
+    const author={expectedVersion:3,authorId:id,contribution:'co-author',sortOrder:2};
+    expect(adminCatalogWorkAuthorAppendSchema.parse(author)).toEqual(author);
+    expect(adminCatalogWorkAuthorAppendedSchema.parse({
+      workId:id,authorId:id,metadataVersion:4,
+    }).authorId).toBe(id);
+    for(const invalid of [
+      {...title,kind:'original'},{...title,rawText:'invented'},
+      {...title,publicationStatus:'published'},
+      {...title,expectedVersion:2.5},{...title,authorId:id},
+    ])expect(adminCatalogTitleAppendSchema.safeParse(invalid).success).toBe(false);
+    for(const invalid of [
+      {...author,ownerId:id},{...author,userId:id},
+      {...author,contribution:'superadmin'},
+      {...author,sortOrder:-1},{...author,expectedVersion:2147483647},
+    ])expect(adminCatalogWorkAuthorAppendSchema.safeParse(invalid).success).toBe(false);
   });
 
 });

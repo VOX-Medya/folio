@@ -12,7 +12,9 @@ import {
   authenticateUserSession,createFolioDb,createVerifiedAdminDraftAuthor,
   createVerifiedAdminDraftWork,getVerifiedAdminAuthorDetails,
   getVerifiedAdminWorkDetails,patchVerifiedAdminAuthorMetadata,
-  patchVerifiedAdminWorkMetadata,searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
+  patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
+  appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
+  searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
   adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
@@ -22,6 +24,9 @@ import {
   adminCatalogSearchQuerySchema,adminCatalogWorkCreatedSchema,
   adminCatalogWorkPageSchema,adminCatalogWorkDetailSchema,
   authorCreateSchema,workCreateSchema,
+  adminCatalogEditionAppendSchema,adminCatalogTitleAppendSchema,
+  adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
+  adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -136,6 +141,18 @@ export class AdminCatalogDb implements OnModuleDestroy {
   patchWork(bearer:string,id:string,input:unknown,requestId:string){
     return this.authorized(()=>
       patchVerifiedAdminWorkMetadata(this.db(),bearer,id,input,requestId));
+  }
+  appendEdition(bearer:string,id:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      appendVerifiedAdminWorkEdition(this.db(),bearer,id,input,requestId));
+  }
+  appendTitle(bearer:string,id:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      appendVerifiedAdminWorkTitle(this.db(),bearer,id,input,requestId));
+  }
+  appendAuthor(bearer:string,id:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      appendVerifiedAdminWorkAuthor(this.db(),bearer,id,input,requestId));
   }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
@@ -376,6 +393,77 @@ const updatedWorkApi={
   },
 };
 
+
+const metadataVersionApi={type:'integer',minimum:0};
+const appendEditionBodyApi={
+  type:'object',additionalProperties:false,
+  required:['expectedVersion','language','label'],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    language:{type:'string',enum:['tr','en']},
+    label:{type:'string',minLength:1,maxLength:400},
+    publisher:{type:'string',maxLength:240},
+    identifiers:{type:'array',maxItems:30,items:{
+      type:'object',additionalProperties:false,required:['kind','value'],
+      properties:{
+        kind:{type:'string',enum:['isbn-10','isbn-13','other']},
+        value:{type:'string',minLength:1,maxLength:150},
+      },
+    }},
+    contributors:{type:'array',maxItems:50,items:{
+      type:'object',additionalProperties:false,required:['authorId','role'],
+      properties:{
+        authorId:detailUuidApi,
+        role:{type:'string',enum:['author','translator','editor','illustrator']},
+        sortOrder:{type:'integer',minimum:0,maximum:10000,default:0},
+      },
+    }},
+  },
+};
+const appendTitleBodyApi={
+  type:'object',additionalProperties:false,
+  required:['expectedVersion','language','title','kind'],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    language:{type:'string',enum:['tr','en']},
+    title:{type:'string',minLength:1,maxLength:600},
+    kind:{type:'string',enum:['translation','alternate']},
+  },
+};
+const appendAuthorBodyApi={
+  type:'object',additionalProperties:false,
+  required:['expectedVersion','authorId'],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    authorId:detailUuidApi,
+    contribution:{type:'string',enum:['author','co-author','editor'],default:'author'},
+    sortOrder:{type:'integer',minimum:0,maximum:10000,default:0},
+  },
+};
+const appendEditionResultApi={
+  type:'object',additionalProperties:false,
+  required:['id','workId','metadataVersion','status'],
+  properties:{
+    id:detailUuidApi,workId:detailUuidApi,
+    metadataVersion:metadataVersionApi,status:{type:'string',enum:['draft']},
+  },
+};
+const appendTitleResultApi={
+  type:'object',additionalProperties:false,
+  required:['id','workId','metadataVersion'],
+  properties:{
+    id:detailUuidApi,workId:detailUuidApi,
+    metadataVersion:metadataVersionApi,
+  },
+};
+const appendAuthorResultApi={
+  type:'object',additionalProperties:false,
+  required:['workId','authorId','metadataVersion'],
+  properties:{
+    workId:detailUuidApi,authorId:detailUuidApi,metadataVersion:metadataVersionApi,
+  },
+};
+
 const authorCreatedApi={
   type:'object',additionalProperties:false,required:['id'],
   properties:{id:{type:'string',format:'uuid'}},
@@ -550,6 +638,72 @@ export class AdminCatalogController {
     const edited=await this.store.patchWork(token,id.data,input.data,this.trace(request));
     if(!edited)throw new NotFoundException('Canonical work not found');
     return canonicalWorkMetadataUpdatedSchema.parse(edited);
+  }
+
+  @Post('works/:workId/editions')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; append DRAFT edition, ISBN and contributors with work revision and trusted audit'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiBody({schema:appendEditionBodyApi})
+  @ApiCreatedResponse({schema:appendEditionResultApi})
+  async appendEdition(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawId:string,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const id=adminCatalogIdSchema.safeParse(rawId);
+    const parsed=adminCatalogEditionAppendSchema.safeParse(raw);
+    if(!id.success||!parsed.success){
+      throw new BadRequestException('Invalid canonical edition input');
+    }
+    const token=await this.bearer(request);
+    const created=await this.store.appendEdition(token,id.data,parsed.data,this.trace(request));
+    if(!created)throw new NotFoundException('Canonical work not found');
+    return adminCatalogEditionAppendedSchema.parse(created);
+  }
+
+  @Post('works/:workId/titles')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; append alternate/translated TITLE metadata only, not text or rights'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiBody({schema:appendTitleBodyApi})
+  @ApiCreatedResponse({schema:appendTitleResultApi})
+  async appendTitle(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawId:string,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const id=adminCatalogIdSchema.safeParse(rawId);
+    const parsed=adminCatalogTitleAppendSchema.safeParse(raw);
+    if(!id.success||!parsed.success){
+      throw new BadRequestException('Invalid canonical alternate title input');
+    }
+    const token=await this.bearer(request);
+    const created=await this.store.appendTitle(token,id.data,parsed.data,this.trace(request));
+    if(!created)throw new NotFoundException('Canonical work not found');
+    return adminCatalogTitleAppendedSchema.parse(created);
+  }
+
+  @Post('works/:workId/authors')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; append a verified canonical coauthor/link with work revision and audit'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiBody({schema:appendAuthorBodyApi})
+  @ApiCreatedResponse({schema:appendAuthorResultApi})
+  async appendAuthor(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawId:string,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const id=adminCatalogIdSchema.safeParse(rawId);
+    const parsed=adminCatalogWorkAuthorAppendSchema.safeParse(raw);
+    if(!id.success||!parsed.success){
+      throw new BadRequestException('Invalid canonical author relation');
+    }
+    const token=await this.bearer(request);
+    const created=await this.store.appendAuthor(token,id.data,parsed.data,this.trace(request));
+    if(!created)throw new NotFoundException('Canonical work not found');
+    return adminCatalogWorkAuthorAppendedSchema.parse(created);
   }
 
   @Post('authors')
