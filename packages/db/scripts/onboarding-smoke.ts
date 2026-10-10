@@ -58,25 +58,31 @@ async function main(){
       interests:['science-fiction','history'],
     });
     check(next.version===2&&next.interests.length===2,'Interest progress was lost');
-    const finished=await updateVerifiedUserOnboarding(first.db,pending.userId,{
+    // No approved notice version or consent receipt exists. Completion must be
+    // impossible through the DB helper, even with a valid account and version.
+    await denied(()=>updateVerifiedUserOnboarding(first.db,pending.userId,{
       expectedVersion:2,stage:'complete',locale:current.locale,
       interests:['science-fiction','history'],
-    });
-    check(finished.stage==='complete'&&finished.version===3,'Onboarding did not complete');
+    }),'Unapproved privacy policy was bypassed by internal DB completion');
     await denied(()=>updateVerifiedUserOnboarding(second.db,pending.userId,{
-      expectedVersion:3,stage:'language',locale:'en',interests:[],
+      expectedVersion:2,stage:'complete',locale:'tr',
+      interests:['science-fiction','history'],
+    }),'Other device bypassed missing privacy consent');
+    await denied(()=>updateVerifiedUserOnboarding(second.db,pending.userId,{
+      expectedVersion:2,stage:'language',locale:'en',interests:[],
     }),'Onboarding stage regression allowed');
     await denied(()=>updateVerifiedUserOnboarding(second.db,pending.userId,{
-      expectedVersion:3,stage:'complete',locale:'en',interests:['history','history'],
+      expectedVersion:2,stage:'complete',locale:'en',interests:['history','history'],
     }),'Repeated interest category accepted');
 
     const reloaded=await getVerifiedUserOnboarding(second.db,pending.userId);
-    check(JSON.stringify(reloaded)===JSON.stringify(finished),
-      'Cross-device reload lost onboarding language/interests/version');
+    check(JSON.stringify(reloaded)===JSON.stringify(next)&&
+      reloaded.stage==='interests'&&reloaded.version===2,
+      'Rejected completion changed backend language/interests/version');
     const audits=await first.db.select().from(schema.auditEvents)
       .where(eq(schema.auditEvents.entityId,pending.userId));
     const preferenceAudits=audits.filter(a=>a.action==='user.onboarding.update');
-    check(preferenceAudits.length===3,'Conflicting update added duplicate audit');
+    check(preferenceAudits.length===2,'Rejected consent completion or conflict added audit');
     check(!JSON.stringify(preferenceAudits).includes('science-fiction'),
       'Audit accidentally copied personal reading interests');
     await first.db.update(schema.userAccounts).set({status:'disabled'})
@@ -84,7 +90,7 @@ async function main(){
     await denied(()=>getVerifiedUserOnboarding(second.db,pending.userId),
       'Disabled account can still retrieve private preference data');
 
-    console.log('ONBOARDING PASS: verified-only, stage order, TR/EN, 2-pool optimistic conflict, exact 3 audits, cross-device persistence, disabled account denied. Synthetic Folio DB only.');
+    console.log('ONBOARDING PASS: verified-only, stage order, TR/EN, 2-pool optimistic conflict, privacy-completion denied with no audit/version change, exact 2 preference audits, cross-device persistence, disabled account denied. Synthetic Folio DB only.');
   }finally{
     await first.pool.end();await second.pool.end();
   }
