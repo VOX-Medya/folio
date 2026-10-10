@@ -261,12 +261,14 @@ async function main(){
     }
     // Persistent CHECK prevents a fabricated second signature even through
     // direct SQL: no status=approved without approved_by and approved_at.
-    await blocked(()=>one.db.insert(schema.adminMfaRecoveryRequests).values({
-      targetUserId:lost.userId,proposedBy:requester.userId,
-      proposalReference:'REC-INVALID-FAKE',reason:proposeReason,
-      status:'approved',createdAt:new Date(),
-      expiresAt:new Date(Date.now()+12*60*60*1000),
-    }), 'DB accepted fabricated approved case without independent approver');
+    await blocked(async()=>{
+      await one.db.insert(schema.adminMfaRecoveryRequests).values({
+        targetUserId:lost.userId,proposedBy:requester.userId,
+        proposalReference:'REC-INVALID-FAKE',reason:proposeReason,
+        status:'approved',createdAt:new Date(),
+        expiresAt:new Date(Date.now()+12*60*60*1000),
+      });
+    }, 'DB accepted fabricated approved case without independent approver');
     console.log('ADMIN MFA RECOVERY REVIEW PASS: real MFA-superadmin proposer and independent signer, 24h expiry, case-reference match, one-open unique index, two-pool races, immutable audit and cancellation. NO factor reset or admin bootstrap; Folio folio_test only.');
   }finally{
     await one.pool.end();
