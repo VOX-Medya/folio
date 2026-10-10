@@ -16,7 +16,7 @@ describe('owner-only device session contract',()=>{
     ])expect(deviceSessionInventorySchema.safeParse({items:[changed]}).success).toBe(false);
   });
   it('rejects invalid UUIDs, dates and more than 100 records',()=>{
-    expect(deviceSessionIdSchema.safeParse('foreign-user')).toBe(false);
+    expect(deviceSessionIdSchema.safeParse('foreign-user').success).toBe(false);
     expect(deviceSessionInventorySchema.safeParse({
       items:[{...item,expiresAt:'invalid'}],
     }).success).toBe(false);
