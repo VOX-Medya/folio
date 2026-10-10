@@ -289,3 +289,7 @@ export const webLoginRequestSchema=z.object({
   email:z.string().trim().max(254).pipe(z.email()),
   password:z.string().min(12).max(128).refine(value=>!value.includes('\0')),
 }).strict();
+
+// Browser-only same-origin HttpOnly cookie client, distinct from native bearer.
+export {loginWebSession,fetchWebSessionCsrf,logoutWebSession,WebSessionHttpError} from './web-session-client.js';
+export type {WebSessionClientRequest} from './web-session-client.js';
