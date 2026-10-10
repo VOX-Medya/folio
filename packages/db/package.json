@@ -30,6 +30,7 @@
     "db:storage-malware-smoke": "tsx scripts/storage-malware-smoke.ts",
     "db:storage-epub-smoke": "tsx scripts/storage-epub-smoke.ts",
     "db:storage-ogg-smoke": "tsx scripts/storage-ogg-smoke.ts",
+    "db:storage-m4a-smoke": "tsx scripts/storage-m4a-smoke.ts",
     "db:admin-rbac-smoke": "tsx scripts/admin-rbac-smoke.ts",
     "db:admin-totp-smoke": "tsx scripts/admin-totp-smoke.ts",
     "db:admin-totp-rotation-smoke": "tsx scripts/admin-totp-rotation-smoke.ts",

@@ -33,6 +33,8 @@ export type {EpubCssResourceResult} from './epub-css.js';
 export type {EpubPngResourcesResult} from './epub-png.js';
 export {inspectOggOpusContainer,OGG_OPUS_PREFLIGHT_MAX_BYTES} from './ogg-opus.js';
 export type {OggOpusContainerResult} from './ogg-opus.js';
+export {inspectM4aContainer,M4A_PREFLIGHT_MAX_BYTES} from './m4a-structure.js';
+export type {M4aContainerResult} from './m4a-structure.js';
 export type {EpubPackageSpineResult} from './epub-package.js';
 export type {EpubZipStructuralResult} from './epub-structure.js';
 
@@ -42,7 +44,7 @@ export {ClamAvStdinScanner,PRIVATE_CLAMAV_ARGS,PRIVATE_CLAMAV_MAX_BYTES} from '.
 export type {QuarantineByteScanner,QuarantineScanVerdict} from './quarantine-scanner.js';
 
 // INTERNAL private-user quota gate. Requires trusted auth caller; never publishes staged bytes.
-export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota,sweepPrivateQuarantineOrphans,observePrivateQuarantineMalware,observePrivateQuarantineEpubStructure,observePrivateQuarantineEpubPackageSpine,observePrivateQuarantineEpubXhtmlMarkup,observePrivateQuarantineEpubCssResources,observePrivateQuarantineEpubPngResources,observePrivateQuarantineOggOpus} from './private-quota.js';
+export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota,sweepPrivateQuarantineOrphans,observePrivateQuarantineMalware,observePrivateQuarantineEpubStructure,observePrivateQuarantineEpubPackageSpine,observePrivateQuarantineEpubXhtmlMarkup,observePrivateQuarantineEpubCssResources,observePrivateQuarantineEpubPngResources,observePrivateQuarantineOggOpus,observePrivateQuarantineM4a} from './private-quota.js';
 
 // Internal RBAC-only catalog metadata queries. Never mount as a public route without rights verification.
 export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin,searchVerifiedAdminWorks,searchVerifiedAdminAuthors} from './catalog-search.js';

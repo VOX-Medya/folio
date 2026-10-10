@@ -1,0 +1,13 @@
+# Folio #26: M4A / MP4 private quarantine-only box-shape preflight
+
+**Scope**: A deliberately tiny nonfragmented **one-track M4A** BMFF structure, always pending_verify. Neither this preflight nor the existing Ogg Opus one decodes, validates or plays audio samples. Source bytes are never provided to a browser. No unsafe direct static URLs or publisher rights decisions.
+
+Checks: input cap 16 MiB, max 64 boxes, 65536 declared samples, max 12-hour claimed container timeline. Exactly three top-level boxes, in order: `ftyp` (major and compatible `M4A `), `moov` and `mdat`. No size=0 or size=1/64-bit boxes, unknown atoms, fragmented `moof`, encrypted `sinf/enca`, binary cover metadata or hidden/trailing bytes.
+
+Nested fixed-shape hierarchy: `mvhd` + single `trak`; `tkhd` + `mdia`; `mdhd` + sound `hdlr` + `minf`; `smhd`, `dinf` (a single self-contained `dref/url `, no external path) and `stbl`. Only one `mp4a` sample entry with an `esds` marker, mono/stereo, 16-bit declared sample size and 44.1/48kHz declared sample rate, and one consistent `stts`, `stsc`, `stsz`, `stco`. Chunk pointer must refer exactly to the one local `mdat` payload, with exact declared sample byte total. Full-box flags/versions and metadata/sample table counters are range checked. Does **not** parse AAC AudioSpecificConfig descriptors, decode AAC frames, verify speaker/sample accuracy or certify playable duration.
+
+`inspectM4aContainer` returns only `m4a_box_shape_only`, box/sample/channel counts, `mediaBytes` and **untrusted** `containerTimelineMs` derived from declared metadata. It cannot be used as verified codec/duration/provenance or legal approval. Real M4A files with extra standard boxes may be rejected intentionally until complete sandbox support exists.
+
+`LocalStorageAdapter.inspectM4a` uses private single-link 0600 `O_NOFOLLOW` read, digest, owner and inode before/after checks, <=16 MiB bound. `observePrivateQuarantineM4a` requires trusted private owner, persisted pending_verify `audio/mp4`, owner advisory lock and unchanged storage key/hash/size/MIME/duration/verifiedAt before only aggregate `storage.quarantine.m4a_observed` audit. Any rejected/changed asset has no positive audit. No status transition or stream API.
+
+Synthetic unit corpus and two-pool Folio-only PostgreSQL smoke verify correct shape, corrupted/missing boxes, external/fragmented/sample table tricks, wrong owner/unknown ID and revocation race. Existing `pnpm check`, full Folio PostgreSQL/TLS, Expo JS export, Chrome E2E, CodeQL and local Docker CI should remain green. Release-security #7, official AV lifecycle, AAC frame decoder, PDF parser, actual verified promotion, rights/territory auth Range/TTL stream and native mobile QA remain blocked; no live deploy.

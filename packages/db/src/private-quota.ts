@@ -581,3 +581,56 @@ export async function observePrivateQuarantineOggOpus(
     return {assetId:id,assetStatus:'pending_verify' as const,...header};
   });
 }
+
+/**
+ * INTERNAL private-user M4A box structure observation, not codec acceptance.
+ * Timelines in this result are untrusted container declarations only.
+ */
+export async function observePrivateQuarantineM4a(
+  db:QuotaDb,storage:LocalStorageAdapter,
+  trustedOwnerId:string,trustedAssetId:string,
+){
+  const owner=uuid.parse(trustedOwnerId),id=uuid.parse(trustedAssetId);
+  const [asset]=await db.select().from(schema.mediaAssets).where(and(
+    eq(schema.mediaAssets.id,id),
+    eq(schema.mediaAssets.ownerScope,'private-user'),
+    eq(schema.mediaAssets.ownerUserId,owner),
+    eq(schema.mediaAssets.status,'pending_verify'),
+    eq(schema.mediaAssets.mime,'audio/mp4'),
+  )).limit(1);
+  if(!asset)throw new Error('Quarantined private M4A unavailable for trusted owner');
+  const record:QuarantinedBlob={
+    scope:'private-user',ownerUserId:owner,key:asset.storageKey,
+    sha256:asset.sha256,sizeBytes:asset.sizeBytes,
+    mime:'audio/mp4',status:'pending_verify',
+  };
+  const shape=await storage.inspectM4a(record);
+  return db.transaction(async tx=>{
+    await tx.execute(lockOwner(owner));
+    const [current]=await tx.select().from(schema.mediaAssets).where(and(
+      eq(schema.mediaAssets.id,id),
+      eq(schema.mediaAssets.ownerScope,'private-user'),
+      eq(schema.mediaAssets.ownerUserId,owner),
+      eq(schema.mediaAssets.status,'pending_verify'),
+      eq(schema.mediaAssets.mime,'audio/mp4'),
+    )).limit(1);
+    if(!current||current.storageKey!==asset.storageKey||
+      current.sha256!==asset.sha256||current.sizeBytes!==asset.sizeBytes||
+      current.mime!==asset.mime||current.durationMs!==asset.durationMs||
+      current.verifiedAt!==null){
+      throw new Error('Private M4A changed or withdrawn during container preflight');
+    }
+    await tx.insert(schema.auditEvents).values({
+      actorId:owner,action:'storage.quarantine.m4a_observed',
+      entityType:'media_asset',entityId:id,
+      afterJson:{
+        ownerScope:'private-user',assetStatus:'pending_verify',
+        inspectionStatus:shape.status,sha256:asset.sha256,
+        boxCount:shape.boxCount,channelCount:shape.channelCount,
+        sampleCount:shape.sampleCount,mediaBytes:shape.mediaBytes,
+        containerTimelineMs:shape.containerTimelineMs,
+      },
+    });
+    return {assetId:id,assetStatus:'pending_verify' as const,...shape};
+  });
+}
