@@ -416,6 +416,19 @@ async function main():Promise<void>{
       nativeAudit.rows[0]?.actor_id===editor.userId&&
       nativeAudit.rows[0]?.request_id===signedNative.headers['x-request-id'],
       'Author audit did not bind exactly one trusted editor and server request ID');
+    const createdAuthorWire=await call(true,port,root+'/authors/'+nativeDraftId,
+      bearer);
+    check(createdAuthorWire.status===200,
+      'Recently committed canonical author could not be read by verified admin');
+    const createdAuthorDetail=adminCatalogAuthorDetailSchema.parse(
+      JSON.parse(createdAuthorWire.body));
+    check(createdAuthorDetail.author.id===nativeDraftId&&
+      createdAuthorDetail.aliases.length===1&&
+      createdAuthorDetail.aliases[0]?.name==='Native Alias '+suffix&&
+      createdAuthorDetail.externalIds.length===1&&
+      createdAuthorDetail.externalIds[0]?.externalId==='native-'+suffix,
+      'Canonical author detail snapshot failed to join aliases and external IDs');
+
 
     // The external author ID is globally unique by source. A failed second
     // command MUST roll back its author row AND audit in the same transaction.
@@ -482,6 +495,73 @@ async function main():Promise<void>{
       workAudit.rows[0]?.request_id===realWork.headers['x-request-id']&&
       workAudit.rows[0]?.after_json?.status==='draft',
       'Work/edition draft and actor+request audit were not committed atomically');
+    const made=await call(true,port,root+'/works/'+createdWork.id,bearer);
+    check(made.status===200&&
+      made.headers['cache-control']==='private, no-store'&&
+      !made.headers['set-cookie'],
+      'Recently created work draft detail was unavailable or cacheable');
+    const madeDetails=adminCatalogWorkDetailSchema.parse(JSON.parse(made.body));
+    check(madeDetails.work.id===createdWork.id&&
+      madeDetails.work.publicationStatus==='draft'&&
+      madeDetails.work.firstPublicationYear===null&&
+      madeDetails.authors.length===1&&
+      madeDetails.authors[0]?.id===nativeDraftId&&
+      madeDetails.titles.map(t=>t.language).join(',')==='en,tr'&&
+      madeDetails.editions.map(e=>e.language).join(',')==='en,tr'&&
+      madeDetails.editions[0]?.contributors[0]?.authorId===author.id&&
+      madeDetails.editions[1]?.identifiers[0]?.value==='9780000000001'&&
+      madeDetails.editions.every(e=>e.status==='draft'),
+      'Work detail did not reflect ordered author/translation/edition contributor links');
+    check(!made.body.includes('createdAt')&&
+      !made.body.includes('rawArtifactKey')&&
+      !made.body.includes('sourceText')&&
+      !made.body.includes('rightsRecords'),
+      'HTTP work details leaked internal, source, or rights table fields');
+
+    // Intentionally insert out-of-order work authors, titles, editions,
+    // identifiers and contributors to prove the actual HTTP route uses the
+    // same deterministic ordering as the internal catalog snapshot.
+    const unorderedWork=await post(port,root+'/works',bearer,{
+      originalTitle:'Out of order '+suffix,originalLanguage:'tr',
+      authors:[
+        {authorId:nativeDraftId,contribution:'co-author',sortOrder:9},
+        {authorId:author.id,contribution:'author',sortOrder:1},
+      ],
+      titles:[
+        {language:'tr',title:'Zulu '+suffix,kind:'alternate'},
+        {language:'en',title:'Alpha '+suffix,kind:'translation'},
+      ],
+      editions:[
+        {language:'tr',label:'Last TR '+suffix,
+          identifiers:[{kind:'other',value:'Z'},{kind:'other',value:'A'}],
+          contributors:[
+            {authorId:nativeDraftId,role:'translator',sortOrder:9},
+            {authorId:author.id,role:'author',sortOrder:1},
+          ]},
+        {language:'en',label:'First EN '+suffix},
+      ],
+    });
+    check(unorderedWork.status===201,
+      'Synthetic out-of-order editorial draft could not be created');
+    const unorderedId=adminCatalogWorkCreatedSchema.parse(
+      JSON.parse(unorderedWork.body)).id;
+    const orderedWire=await call(true,port,root+'/works/'+unorderedId,
+      {authorization:'Bearer '+viewerSession.sessionToken});
+    check(orderedWire.status===200,
+      'Read-only MFA administrator cannot inspect a newly drafted work');
+    const ordered=adminCatalogWorkDetailSchema.parse(JSON.parse(orderedWire.body));
+    check(ordered.authors.map(a=>a.id).join(',')===[author.id,nativeDraftId].join(',')&&
+      ordered.titles.map(t=>t.language).join(',')==='en,tr,tr'&&
+      ordered.editions.map(e=>e.language).join(',')==='en,tr'&&
+      ordered.editions[1]?.identifiers.map(i=>i.value).join(',')==='A,Z'&&
+      ordered.editions[1]?.contributors.map(p=>p.authorId).join(',')===
+        [author.id,nativeDraftId].join(','),
+      'Authenticated metadata snapshot lost canonical stable sort keys');
+    const stable=await call(true,port,root+'/works/'+unorderedId,
+      {authorization:'Bearer '+viewerSession.sessionToken});
+    check(stable.body===orderedWire.body,
+      'Repeated real HTTPS canonical detail changed without an editorial update');
+
 
     // Failure AFTER work, author, title and edition insertion must unwind
     // all of them; not merely reject an invalid foreign ID before writing.
