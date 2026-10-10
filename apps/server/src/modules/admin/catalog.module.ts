@@ -1,7 +1,7 @@
 import {
   BadRequestException,Body,CanActivate,ConflictException,Controller,
   ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
-  NotFoundException,OnModuleDestroy,Param,Post,Query,Req,ServiceUnavailableException,
+  NotFoundException,OnModuleDestroy,Param,Patch,Post,Query,Req,ServiceUnavailableException,
   UnauthorizedException,UseGuards,
 } from '@nestjs/common';
 import {
@@ -11,11 +11,14 @@ import {
 import {
   authenticateUserSession,createFolioDb,createVerifiedAdminDraftAuthor,
   createVerifiedAdminDraftWork,getVerifiedAdminAuthorDetails,
-  getVerifiedAdminWorkDetails,searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
+  getVerifiedAdminWorkDetails,patchVerifiedAdminAuthorMetadata,
+  patchVerifiedAdminWorkMetadata,searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
   adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
   adminCatalogAuthorPageSchema,adminCatalogIdSchema,
+  canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
+  canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
   adminCatalogSearchQuerySchema,adminCatalogWorkCreatedSchema,
   adminCatalogWorkPageSchema,adminCatalogWorkDetailSchema,
   authorCreateSchema,workCreateSchema,
@@ -80,6 +83,12 @@ export class AdminCatalogDb implements OnModuleDestroy {
         error.message==='Verified administrator MFA permission required'){
         throw new ForbiddenException('Current administrator MFA permission required');
       }
+      if(error instanceof Error&&[
+        'Canonical metadata version conflict',
+        'Published canonical work is immutable via draft editor',
+      ].includes(error.message)){
+        throw new ConflictException('Canonical metadata changed or is no longer editable');
+      }
       // Drizzle may wrap a PostgreSQL error in a cause chain. Never include
       // SQL, stack, token, constraint names or arbitrary PG details in HTTP.
       let candidate:unknown=error;
@@ -119,6 +128,14 @@ export class AdminCatalogDb implements OnModuleDestroy {
   createWork(bearer:string,input:unknown,requestId:string){
     return this.authorized(()=>
       createVerifiedAdminDraftWork(this.db(),bearer,input,requestId));
+  }
+  patchAuthor(bearer:string,id:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      patchVerifiedAdminAuthorMetadata(this.db(),bearer,id,input,requestId));
+  }
+  patchWork(bearer:string,id:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      patchVerifiedAdminWorkMetadata(this.db(),bearer,id,input,requestId));
   }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
@@ -172,12 +189,13 @@ const workDetailApi={
   required:['work','authors','titles','editions'],
   properties:{
     work:{type:'object',additionalProperties:false,
-      required:['id','originalTitle','originalLanguage','firstPublicationYear','publicationStatus'],
+      required:['id','originalTitle','originalLanguage','firstPublicationYear','publicationStatus','metadataVersion'],
       properties:{
         id:detailUuidApi,originalTitle:{type:'string'},
         originalLanguage:{type:'string',enum:['tr','en']},
         firstPublicationYear:{type:'integer',nullable:true},
         publicationStatus:{type:'string'},
+        metadataVersion:{type:'integer',minimum:0},
       },
     },
     authors:{type:'array',maxItems:250,items:{
@@ -228,9 +246,10 @@ const authorDetailApi={
   type:'object',additionalProperties:false,required:['author','aliases','externalIds'],
   properties:{
     author:{type:'object',additionalProperties:false,
-      required:['id','canonicalName','sortName'],
+      required:['id','canonicalName','sortName','metadataVersion'],
       properties:{
         id:detailUuidApi,canonicalName:{type:'string'},sortName:{type:'string'},
+        metadataVersion:{type:'integer',minimum:0},
       },
     },
     aliases:{type:'array',maxItems:500,items:{
@@ -320,6 +339,43 @@ const workInputApi={
     }},
   },
 };
+const authorMetadataPatchApi={
+  type:'object',additionalProperties:false,required:['expectedVersion'],
+  anyOf:[
+    {required:['canonicalName']},{required:['sortName']},
+    {required:['aliases']},{required:['externalIds']},
+  ],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    canonicalName:{type:'string',minLength:1,maxLength:240},
+    sortName:{type:'string',minLength:1,maxLength:240},
+    aliases:authorInputApi.properties.aliases,
+    externalIds:authorInputApi.properties.externalIds,
+  },
+};
+const workMetadataPatchApi={
+  type:'object',additionalProperties:false,required:['expectedVersion'],
+  anyOf:[{required:['originalTitle']},{required:['firstPublicationYear']}],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    originalTitle:{type:'string',minLength:1,maxLength:600},
+    firstPublicationYear:{type:'integer',minimum:-4000,maximum:2500,nullable:true},
+  },
+};
+const updatedAuthorApi={
+  type:'object',additionalProperties:false,required:['id','metadataVersion'],
+  properties:{id:detailUuidApi,metadataVersion:{type:'integer',minimum:0}},
+};
+const updatedWorkApi={
+  type:'object',additionalProperties:false,
+  required:['id','metadataVersion','publicationStatus'],
+  properties:{
+    id:detailUuidApi,
+    metadataVersion:{type:'integer',minimum:0},
+    publicationStatus:{type:'string',enum:['draft']},
+  },
+};
+
 const authorCreatedApi={
   type:'object',additionalProperties:false,required:['id'],
   properties:{id:{type:'string',format:'uuid'}},
@@ -450,6 +506,50 @@ export class AdminCatalogController {
       throw new ServiceUnavailableException('Server request tracing unavailable');
     }
     return request.requestId;
+  }
+
+  @Patch('authors/:authorId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA-verified catalog:edit; optimistic-lock canonical author name/aliases/source IDs and audited before/after'})
+  @ApiParam({name:'authorId',type:String,format:'uuid'})
+  @ApiBody({schema:authorMetadataPatchApi})
+  @ApiOkResponse({schema:updatedAuthorApi})
+  async patchAuthor(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('authorId') rawId:string,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const id=adminCatalogIdSchema.safeParse(rawId);
+    const input=canonicalAuthorMetadataPatchSchema.safeParse(raw);
+    if(!id.success||!input.success){
+      throw new BadRequestException('Invalid canonical author metadata edit');
+    }
+    const token=await this.bearer(request);
+    const edited=await this.store.patchAuthor(token,id.data,input.data,this.trace(request));
+    if(!edited)throw new NotFoundException('Canonical author not found');
+    return canonicalAuthorMetadataUpdatedSchema.parse(edited);
+  }
+
+  @Patch('works/:workId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA-verified catalog:edit; optimistic-lock DRAFT original title/year with original-title synchronization and audit'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiBody({schema:workMetadataPatchApi})
+  @ApiOkResponse({schema:updatedWorkApi})
+  async patchWork(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawId:string,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const id=adminCatalogIdSchema.safeParse(rawId);
+    const input=canonicalWorkMetadataPatchSchema.safeParse(raw);
+    if(!id.success||!input.success){
+      throw new BadRequestException('Invalid canonical work metadata edit');
+    }
+    const token=await this.bearer(request);
+    const edited=await this.store.patchWork(token,id.data,input.data,this.trace(request));
+    if(!edited)throw new NotFoundException('Canonical work not found');
+    return canonicalWorkMetadataUpdatedSchema.parse(edited);
   }
 
   @Post('authors')
