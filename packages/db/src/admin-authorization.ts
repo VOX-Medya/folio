@@ -16,9 +16,10 @@ export type VerifiedAdminIdentity={
 /**
  * Internal-only administrator boundary for future secured domain operations.
  *
- * No production code inserts a membership or MFA proof yet. Ordinary login
- * NEVER grants administrator access. An actual authenticated and audited
- * factor-verification path is a separate requirement (#30/#43).
+ * No live admin HTTP route or first-superadmin provisioning exists. An
+ * internal, audited AES-GCM/TOTP verifier (#30) can mint a device proof only
+ * after a fresh OTP; ordinary login NEVER grants administrator access.
+ * The proof alone never bypasses persistent role permission checks.
  *
  * The authorized callback runs inside the SAME transaction as account,
  * session, MFA and role locks. Future admin writes must not authorize with a

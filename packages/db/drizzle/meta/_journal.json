@@ -99,6 +99,13 @@
       "when": 1791614000000,
       "tag": "0013_admin_role_mfa_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791615000000,
+      "tag": "0014_admin_totp_credentials",
+      "breakpoints": true
     }
   ]
 }

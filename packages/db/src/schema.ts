@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, varchar, timestamp, integer, primaryKey, index, jsonb, boolean, uniqueIndex, foreignKey, check } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, varchar, timestamp, integer, bigint, primaryKey, index, jsonb, boolean, uniqueIndex, foreignKey, check } from 'drizzle-orm/pg-core';
 
 /** Minimal catalog storage baseline. Rights and revision modules follow their own V1 issues. */
 export const authors = pgTable('authors', {
@@ -347,6 +347,34 @@ export const adminSessionMfa=pgTable('admin_session_mfa',{
     sql`${t.method} in ('totp','webauthn')`),
   check('admin_session_mfa_expiry_ck',
     sql`${t.expiresAt}>${t.verifiedAt} and ${t.expiresAt}<=${t.verifiedAt}+interval '12 hours'`),
+]);
+
+/** TOTP seed is ALWAYS 256-bit AES-GCM encrypted with a server-only key.
+ * Enrollment never grants privilege; lastAcceptedStep is a PostgreSQL-backed
+ * monotonic replay fence shared by every device. No row/seed is provisioned. */
+export const adminTotpCredentials=pgTable('admin_totp_credentials',{
+  userId:uuid('user_id').primaryKey().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  ciphertext:text('ciphertext').notNull(),
+  nonce:varchar('nonce',{length:24}).notNull(),
+  tag:varchar('tag',{length:32}).notNull(),
+  keyVersion:varchar('key_version',{length:12}).notNull().default('v1'),
+  status:varchar('status',{length:12}).notNull().default('pending'),
+  pendingExpiresAt:timestamp('pending_expires_at',{withTimezone:true}),
+  enabledAt:timestamp('enabled_at',{withTimezone:true}),
+  lastAcceptedStep:bigint('last_accepted_step',{mode:'number'}).notNull().default(-1),
+  failedAttempts:integer('failed_attempts').notNull().default(0),
+  lockedUntil:timestamp('locked_until',{withTimezone:true}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  check('admin_totp_key_version_ck',sql`${t.keyVersion}='v1'`),
+  check('admin_totp_status_ck',sql`(
+    (${t.status}='pending' and ${t.pendingExpiresAt} is not null and ${t.enabledAt} is null)
+    or (${t.status}='active' and ${t.pendingExpiresAt} is null and ${t.enabledAt} is not null)
+  )`),
+  check('admin_totp_step_ck',sql`${t.lastAcceptedStep}>=-1`),
+  check('admin_totp_failed_attempts_ck',
+    sql`${t.failedAttempts}>=0 and ${t.failedAttempts}<=5`),
 ]);
 
 /** Persistent, privacy-preserving 15-minute auth-attempt counters. No raw IP/e-mail. */
