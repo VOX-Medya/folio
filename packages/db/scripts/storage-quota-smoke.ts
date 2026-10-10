@@ -108,25 +108,23 @@ async function main(){
       'Fresh in-flight quarantine incorrectly became a reclaimable orphan');
 
     let waiting:ReturnType<typeof sweepPrivateQuarantineOrphans>|undefined;
+    let activeId:string|undefined;
     await one.db.transaction(async tx=>{
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${owner}))`);
       // Start the collector in a second pool while the owner lock is held.
       waiting=sweepPrivateQuarantineOrphans(two.db,storage,owner,{apply:true});
       // A trusted reservation wins the lock and MUST block the collector.
-      await tx.insert(schema.storageUploadReservations).values({
+      const [live]=await tx.insert(schema.storageUploadReservations).values({
         ownerUserId:owner,reservedBytes:1,status:'reserved',
         expiresAt:new Date(Date.now()+60000),
-      });
+      }).returning({id:schema.storageUploadReservations.id});
+      activeId=live?.id;
     });
-    expect(waiting,'Concurrent collector was not started');
+    expect(waiting&&activeId,'Concurrent collector and reservation were not started');
     const locked=await waiting;
     expect(locked.blockedByActiveReservation&&locked.removed===0,
       'Collector bypassed a concurrent live quota reservation');
-    const [active]=await one.db.select().from(schema.storageUploadReservations)
-      .where(eq(schema.storageUploadReservations.ownerUserId,owner))
-      .orderBy(sql`created_at DESC`).limit(1);
-    expect(active?.status==='reserved','Missing test reservation after owner lock');
-    await releasePrivateUploadQuota(one.db,owner,active.id);
+    await releasePrivateUploadQuota(one.db,owner,activeId);
 
     // Explicit synthetic time advance does NOT change the real file clock or
     // production retention settings; no real user files exist in this test.
