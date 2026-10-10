@@ -41,6 +41,7 @@ jobs:
           bash infra/lab.sh storage-malware-smoke
           bash infra/lab.sh storage-epub-smoke
           bash infra/lab.sh storage-ogg-smoke
+          bash infra/lab.sh storage-m4a-smoke
           bash infra/lab.sh auth-smoke
           bash infra/lab.sh admin-rbac-smoke
           bash infra/lab.sh admin-totp-smoke

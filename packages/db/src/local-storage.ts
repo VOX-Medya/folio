@@ -13,6 +13,8 @@ import type {EpubCssResourceResult} from './epub-css.js';
 import type {EpubPngResourcesResult} from './epub-png.js';
 import {inspectOggOpusContainer,OGG_OPUS_PREFLIGHT_MAX_BYTES} from './ogg-opus.js';
 import type {OggOpusContainerResult} from './ogg-opus.js';
+import {inspectM4aContainer,M4A_PREFLIGHT_MAX_BYTES} from './m4a-structure.js';
+import type {M4aContainerResult} from './m4a-structure.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 import type {EpubZipStructuralResult} from './epub-structure.js';
 
@@ -60,6 +62,7 @@ export interface StorageAdapter {
   inspectEpubCssResources(record:QuarantinedBlob):Promise<EpubCssResourceResult>;
   inspectEpubPngResources(record:QuarantinedBlob):Promise<EpubPngResourcesResult>;
   inspectOggOpus(record:QuarantinedBlob):Promise<OggOpusContainerResult>;
+  inspectM4a(record:QuarantinedBlob):Promise<M4aContainerResult>;
 }
 
 function requireSha256(value:string):void {
@@ -426,6 +429,45 @@ export class LocalStorageAdapter implements StorageAdapter {
         throw new Error('Quarantined Ogg inode changed during preflight');
       }
       return inspectOggOpusContainer(bytes);
+    }finally{await handle.close();}
+  }
+
+  /** Internal MP4 box-shape observation only; not an AAC/MP4 decoder or
+   * verified duration or a media streaming route. */
+  async inspectM4a(record:QuarantinedBlob):Promise<M4aContainerResult>{
+    const owner=ownerSchema.parse(record);
+    requireBlobKey(record.key);
+    requireSha256(record.sha256);
+    ensureLimit(record.sizeBytes);
+    if(record.status!=='pending_verify'||record.mime!=='audio/mp4'){
+      throw new Error('M4A preflight requires pending private audio/mp4');
+    }
+    if(record.sizeBytes>M4A_PREFLIGHT_MAX_BYTES){
+      throw new Error('M4A preflight size cap exceeded');
+    }
+    const dir=await this.ensurePrivateDirectories(this.ownerSegments(owner));
+    const filename=join(dir,record.key+'.blob');
+    const handle=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try{
+      const before=await handle.stat();
+      const safe=(s:typeof before)=>s.isFile()&&s.nlink===1&&
+        s.size===record.sizeBytes&&(s.mode&0o777)===0o600&&
+        (typeof process.getuid!=='function'||s.uid===process.getuid());
+      if(!safe(before))throw new Error('Unsafe quarantined M4A inode or permissions');
+      const bytes=await handle.readFile();
+      if(bytes.length!==record.sizeBytes||
+        createHash('sha256').update(bytes).digest('hex')!==record.sha256){
+        throw new Error('Quarantined M4A source bytes changed');
+      }
+      const after=await handle.stat(),pathState=await lstat(filename);
+      if(!safe(after)||!pathState.isFile()||pathState.isSymbolicLink()||
+        after.ino!==before.ino||after.dev!==before.dev||
+        after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||
+        pathState.ino!==before.ino||pathState.dev!==before.dev||
+        pathState.mtimeMs!==before.mtimeMs||pathState.ctimeMs!==before.ctimeMs){
+        throw new Error('Quarantined M4A inode changed during preflight');
+      }
+      return inspectM4aContainer(bytes);
     }finally{await handle.close();}
   }
 
