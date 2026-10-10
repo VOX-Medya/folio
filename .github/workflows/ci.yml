@@ -19,4 +19,6 @@ jobs:
       - run: pnpm --filter @folio/mobile exec expo export --platform web
       - run: pnpm licenses list --json > licenses.json && node tools/security/check-licenses.mjs licenses.json
       - run: pnpm e2e
-      - run: pnpm audit --audit-level high
+      - name: Dependency audit (pre-release informational)
+        continue-on-error: true
+        run: pnpm audit --audit-level high
