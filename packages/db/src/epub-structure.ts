@@ -65,7 +65,7 @@ function readName(raw:Buffer,flags:number):string {
   try{name=utf8.decode(raw);}catch{return invalid();}
   if(name.normalize('NFC')!==name||name.startsWith('/')||
     name.includes('\\')||name.includes(':')||name.includes('%')||
-    /[\x00-\x1f\x7f]/.test(name))return invalid();
+    [...name].some(ch=>{const n=ch.charCodeAt(0);return n<=31||n===127;}))return invalid();
   const folder=name.endsWith('/');
   const segments=(folder?name.slice(0,-1):name).split('/');
   if(segments.some(s=>!s||s==='.'||s==='..'))return invalid();
