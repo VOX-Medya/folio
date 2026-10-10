@@ -6,6 +6,7 @@
 
 - `GET` önceki veriyi backend'den okur, hiç kayıt yoksa başlangıç `welcome / tr / [] / version=0` durumunu verir; beklenmeyen query argümanları HTTP 400.
 - `PATCH` katı `expectedVersion/stage/locale/interests` sözleşmesini zorunlu tutar; ek `userId` veya bilinmeyen alanlar HTTP 400. Drizzle account ve onboarding row lock altında cihazlar arasında optimistic version ve sıralı stage geçişi korur. Stale sürüm HTTP 409'dur. No-store private response cache policy ile 401/409 yanıtları da önbellek dışıdır.
+- `stage:complete` geçişi veya aynı hedefe güncelleme için onaylı, sürümlü gizlilik metni/hesap rızası altyapısı henüz yoktur. Native bearer ve HTTPS cookie yollarında **sunucu DB mutasyon katmanı HTTP 403 ile kapalıdır**; istemcinin `privacyConsent: true` gibi ekstra alanları 400 döner. Sahte kabul, sürüm artışı veya audit oluşmaz. Eski `complete` kayıtları veri kaybı olmadan yalnız okunabilir kalır; bu gerçek rıza kanıtı sayılmaz.
 - `audit_events.request_id` değeri, güvenilir `RequestIdMiddleware` tarafından üretilen UUID'dir. İlgi alanı dizisi, bearer token veya kimlik bilgileri audit JSON'a kopyalanmaz.
 - Eksik/veritabanı erişilemeyen durumda 503; iptal/disabled/unverified hesap 401. Görevde kullanılan modül tek Folio DB handle'ı kullanır, ayrı auth servisi veya Redis eklenmez.
 - OpenAPI `docs/api/openapi.v1.json` güncellendi; `folioSession` bearer şeması ve typed input/output açıklamaları tanımlandı.
