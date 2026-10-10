@@ -37,6 +37,7 @@ jobs:
           bash infra/lab.sh job-smoke
           bash infra/lab.sh import-smoke
           bash infra/lab.sh storage-quota-smoke
+          bash infra/lab.sh auth-smoke
       - name: Stop isolated Folio CI laboratory
         if: always()
         run: |
