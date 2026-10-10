@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {apiErrorSchema, capabilityPageSchema, cursorQuerySchema, decodeCursor, encodeCursor, paginateCapabilities} from './index.js';
+import {apiErrorSchema, capabilityPageSchema, cursorQuerySchema, decodeCursor, encodeCursor, paginateCapabilities,readinessResponseSchema} from './index.js';
 
 const items = [
   {id: 'read', available: false, note: 'Not deployed'},
@@ -25,5 +25,7 @@ describe('shared API contracts', () => {
   });
   it('requires a request ID in normalized API error output', () => {
     expect(apiErrorSchema.safeParse({error: {code: 'NOT_FOUND', message: 'Not found', requestId: 'not-a-uuid'}}).success).toBe(false);
+    expect(readinessResponseSchema.parse({status:'ready'})).toEqual({status:'ready'});
+    expect(readinessResponseSchema.safeParse({status:'ok'}).success).toBe(false);
   });
 });
