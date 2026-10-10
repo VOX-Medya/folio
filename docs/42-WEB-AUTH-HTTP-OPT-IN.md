@@ -18,3 +18,12 @@
 `bash infra/lab.sh web-auth-https-smoke` sadece Folio `folio_test` DB, OpenSSL ile oluşturulmuş geçici sertifika ve gerçek loopback HTTPS NestJS ile: varsayılan 404, gerçek TLS yokken forged proxy 503, yanlış Origin/mixed credentials 401/403, yanlış parola ve bilinmeyen hesap için genel 401, başarılı girişte secure cookie 204 ve JSON'da token yokluğu, CSRF bootstrap/korumalı logout, revoke sonrası 401, 15dk hesap kotası 429 ve `Retry-After`, missing key 503 ve ayrı public OpenAPI rotalarını test eder. Düz HTTP ile gerçek hesap girişine izin verilmez. Eski unit/integration/Expo Web/Android/iOS JS/Chrome E2E/Docker image build kontrolleri sürer.
 
 **Kalan #30:** public kayıt, SMTP dispatcher, doğrulanmış email linkleri, password reset HTTP, native client login/security, gerçek TLS proxy sınırı, admin MFA, tarayıcı/cihaz kabul testleri. **#7 bağımlılık release gate ayrıca BLOCKED**. Bu PR tamamlanmış V1 veya canlı dağıtım değildir.
+
+
+## Remote session revocation and stale HttpOnly cookie recovery (#30)
+
+Verified browsers must recover safely when another trusted device revokes their session. The login route deliberately denies any existing Cookie (session fixation defense), so leaving a revoked `__Host-folio_session` in the browser otherwise prevents re-authentication.
+
+After **actual application TLS**, valid CSRF HMAC configuration and an **exact same-origin proof** are checked, `GET /v1/auth/web/csrf` clears that cookie with `Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` **only when the backend returns 401 Unauthorized** for a missing/invalid/revoked/disabled verified session. It still returns 401 and never issues a fresh CSRF token or authenticated state. A cross-site or origin-less request must never clear the cookie; database outages remain 503 and do not clear it. The browser naturally uses the expired Set-Cookie and can render sign-in after the unsuccessful bootstrap. An already-loaded profile with a remotely revoked session may need a page refresh to run the bootstrap; private endpoints still return 401 immediately.
+
+The two existing genuine ephemeral TLS + Folio-only PostgreSQL smoke suites test post-logout and owner-revoked cookies, Set-Cookie attributes, cross-site/headerless denial and no CSRF token. This change does **not** enable production TLS/proxy or satisfy public signup, native secure storage, email, MFA, browser/device QA, or #7 release-security gate.
