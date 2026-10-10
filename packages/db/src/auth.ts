@@ -1,12 +1,10 @@
 import {createHash,randomBytes,scrypt as scryptCallback,timingSafeEqual} from 'node:crypto';
-import {promisify} from 'node:util';
 import {and,eq,isNull} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
 
 type AuthDb=ReturnType<typeof createFolioDb>['db'];
-const scrypt=promisify(scryptCallback);
 const emailSchema=z.email().trim().max(254).transform(value=>value.toLowerCase());
 const passwordSchema=z.string().min(12).max(128).refine(value=>!value.includes('\0'));
 const deviceSchema=z.string().trim().min(1).max(80);
@@ -22,8 +20,13 @@ function rawToken(value:string):string {
 }
 function passwordSalt(){return randomBytes(16).toString('hex');}
 async function derive(password:string,salt:string):Promise<string>{
-  const result=await scrypt(password,salt,64,{N:16384,r:8,p:1,maxmem:64*1024*1024});
-  return result.toString('hex');
+  return new Promise<string>((resolve,reject)=>{
+    scryptCallback(password,salt,64,{N:16384,r:8,p:1,maxmem:64*1024*1024},
+      (error,derived)=>{
+        if(error)reject(error);
+        else resolve(derived.toString('hex'));
+      });
+  });
 }
 async function validatePassword(password:string,salt:string,expected:string):Promise<boolean>{
   const actual=Buffer.from(await derive(password,salt),'hex');
