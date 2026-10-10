@@ -43,7 +43,9 @@
       "metro-source-map": "0.83.8",
       "metro-symbolicate": "0.83.8",
       "metro-transform-plugins": "0.83.8",
-      "metro-transform-worker": "0.83.8"
+      "metro-transform-worker": "0.83.8",
+      "drizzle-kit@0.31.11>@esbuild-kit/esm-loader": "-",
+      "js-yaml@5.3.0": "5.4.1"
     }
   }
 }
