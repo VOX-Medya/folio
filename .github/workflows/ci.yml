@@ -28,6 +28,7 @@ jobs:
           bash infra/lab.sh translation-smoke
           bash infra/lab.sh audio-smoke
           bash infra/lab.sh job-smoke
+          bash infra/lab.sh import-smoke
       - name: Stop isolated Folio CI laboratory
         if: always()
         run: |

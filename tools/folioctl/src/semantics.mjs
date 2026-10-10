@@ -130,5 +130,6 @@ export function validateSemanticPackage(manifest,readBuffer,summaries){
     if(record.revision_id&&revisionMap.get(record.revision_id)?.edition_id!==record.edition_id)throw new Error('Rights evidence references an unrelated revision');
     if(record.review_status==='approved'||record.publication_status==='published')throw new Error('Package cannot self-approve rights/publication');
   }
-  return {authors:authors.length,works:works.length,editions:editions.length,revisions:revisions.length,rightsRecords:rightsRecords.length};
+  return {authors:authors.length,works:works.length,editions:editions.length,revisions:revisions.length,rightsRecords:rightsRecords.length,
+    records:{authors,works,editions,revisions,rightsRecords}};
 }

@@ -50,6 +50,20 @@
       "when": 1791600304401,
       "tag": "0006_normal_darwin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791602921852,
+      "tag": "0007_overrated_doctor_doom",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791602957316,
+      "tag": "0008_kind_dark_phoenix",
+      "breakpoints": true
     }
   ]
 }
