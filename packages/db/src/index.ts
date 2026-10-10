@@ -29,3 +29,6 @@ export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateU
 
 // Internal RBAC-only catalog metadata queries. Never mount as a public route without rights verification.
 export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin} from './catalog-search.js';
+
+// Internal verified email/session foundation. No public auth routes until anti-abuse, secure cookie and MFA gates.
+export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,resetAccountPassword,signInVerifiedAccount,authenticateUserSession,revokeUserSession,revokeAllUserSessions} from './auth.js';
