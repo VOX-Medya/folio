@@ -11,7 +11,8 @@ import {NestFactory} from '@nestjs/core';
 import type {INestApplication} from '@nestjs/common';
 import {SwaggerModule} from '@nestjs/swagger';
 import {
-  adminCatalogAuthorPageSchema,adminCatalogWorkPageSchema,apiErrorSchema,
+  adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
+  adminCatalogWorkCreatedSchema,adminCatalogWorkPageSchema,apiErrorSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
@@ -24,10 +25,15 @@ function check(value:unknown,message:string):asserts value{
   if(!value)throw Error(message);
 }
 async function call(secure:boolean,port:number,path:string,
-  headers:Record<string,string>={}):Promise<Wire>{
+  headers:Record<string,string>={},method='GET',body?:unknown):Promise<Wire>{
+  const payload=body===undefined?undefined:JSON.stringify(body);
+  const wireHeaders={...headers,...(payload===undefined?{}:{
+    'content-type':'application/json',
+    'content-length':String(Buffer.byteLength(payload)),
+  })};
   return new Promise((resolve,reject)=>{
     const req=(secure?httpsRequest:httpRequest)({
-      host:'127.0.0.1',port,path,method:'GET',headers,
+      host:'127.0.0.1',port,path,method,headers:wireHeaders,
       ...(secure?{rejectUnauthorized:false}:{}),
       timeout:10000,
     },res=>{
@@ -41,8 +47,11 @@ async function call(secure:boolean,port:number,path:string,
     });
     req.on('error',reject);
     req.on('timeout',()=>req.destroy(Error('Admin catalog HTTPS lab timeout')));
-    req.end();
+    req.end(payload);
   });
+}
+function post(port:number,path:string,headers:Record<string,string>,body:unknown){
+  return call(true,port,path,headers,'POST',body);
 }
 
 async function main():Promise<void>{
@@ -55,7 +64,8 @@ async function main():Promise<void>{
     throw Error('Admin catalog smoke must use dedicated loopback folio_test');
   }
   const names=[
-    'FOLIO_ADMIN_CATALOG_HTTP_MODE','FOLIO_WEB_AUTH_MODE',
+    'FOLIO_ADMIN_CATALOG_HTTP_MODE','FOLIO_ADMIN_CATALOG_WRITE_MODE',
+    'FOLIO_WEB_AUTH_MODE',
     'FOLIO_WEB_AUTH_ORIGIN','FOLIO_WEB_CSRF_KEY_HEX',
   ];
   const original=Object.fromEntries(names.map(name=>[name,process.env[name]]));
@@ -79,17 +89,21 @@ async function main():Promise<void>{
   try{
     // All grants and factor rows are synthetic and restricted to folio_test.
     // Production has no initial administrator provisioning endpoint.
-    const editor=await account(),moderator=await account(),guest=await account();
+    const editor=await account(),moderator=await account(),guest=await account(),
+      viewer=await account();
     await db.insert(schema.adminRoleMemberships).values([
       {userId:editor.userId,role:'editor',grantedBy:guest.userId},
       {userId:moderator.userId,role:'moderator',grantedBy:guest.userId},
+      {userId:viewer.userId,role:'read-only',grantedBy:guest.userId},
     ]);
     const native=await signInVerifiedAccount(db,editor.email,password,'android-lab');
     const web=await signInVerifiedAccount(db,editor.email,password,'web-lab');
     const moderatorSession=await signInVerifiedAccount(db,moderator.email,password,'review-lab');
     const guestSession=await signInVerifiedAccount(db,guest.email,password,'guest-lab');
+    const viewerSession=await signInVerifiedAccount(db,viewer.email,password,'viewer-lab');
     await mfa(native.sessionId,editor.userId);
     await mfa(moderatorSession.sessionId,moderator.userId);
+    await mfa(viewerSession.sessionId,viewer.userId);
     const suffix=randomUUID().slice(0,8);
     const author=await createCanonicalAuthor(db,editor.userId,{
       canonicalName:'Folio Canonical Writer '+suffix,
@@ -113,6 +127,7 @@ async function main():Promise<void>{
       '-keyout',key,'-out',cert,'-days','1','-subj','/CN=localhost'],
       {stdio:'ignore'});
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     httpApp=await NestFactory.create(AppModule,{logger:false});
     httpApp.useGlobalFilters(new ApiExceptionFilter());
     const plain=await httpApp.listen(0,'127.0.0.1');
@@ -137,6 +152,20 @@ async function main():Promise<void>{
     check((await call(true,port,search,bearer)).status===404,
       'Non-contract flag enabled private admin catalog');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
+    const createRoot=root+'/authors';
+    const draftAuthor={canonicalName:'Native Writer '+suffix,
+      aliases:[{name:'Native Alias '+suffix}],
+      externalIds:[{source:'folio_ci',externalId:'native-'+suffix}]};
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Read-only rollout unexpectedly enabled catalog mutation');
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='true';
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Non-contract write flag unexpectedly enabled mutation');
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='direct-tls-only';
+    check((await call(false,plainAddress.port,createRoot,{
+      ...bearer,'x-forwarded-proto':'https',
+    },'POST',draftAuthor)).status===503,
+      'Forged proxy TLS enabled admin draft mutation');
 
     const spoofTls=await call(false,plainAddress.port,search,{
       ...bearer,'x-forwarded-proto':'https',
