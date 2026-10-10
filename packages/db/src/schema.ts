@@ -367,7 +367,7 @@ export const adminTotpCredentials=pgTable('admin_totp_credentials',{
   createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
   updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
 },t=>[
-  check('admin_totp_key_version_ck',sql`${t.keyVersion}='v1'`),
+  check('admin_totp_key_version_ck',sql`${t.keyVersion} in ('v1','v2')`),
   check('admin_totp_status_ck',sql`(
     (${t.status}='pending' and ${t.pendingExpiresAt} is not null and ${t.enabledAt} is null)
     or (${t.status}='active' and ${t.pendingExpiresAt} is null and ${t.enabledAt} is not null)

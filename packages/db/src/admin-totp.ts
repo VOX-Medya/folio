@@ -5,8 +5,10 @@ import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
 import {
   acceptedTotpStep,ADMIN_MFA_PROOF_MS,decryptTotpSeed,ENROLLMENT_MS,
-  newEncryptedTotpSeed,TOTP_LOCK_MS,TOTP_MAX_FAILURES,
+  newEncryptedTotpSeed,requireTotpKeyring,requireVersionedTotpKey,
+  TOTP_LOCK_MS,TOTP_MAX_FAILURES,
 } from './admin-totp-crypto.js';
+import type {TotpKeyMaterial} from './admin-totp-crypto.js';
 
 type AdminDb=ReturnType<typeof createFolioDb>['db'];
 type AdminTx=Parameters<Parameters<AdminDb['transaction']>[0]>[0];
@@ -60,9 +62,12 @@ async function withMemberSession<T>(
  * server-only key and returned once. The returned seed MUST be shown only by
  * a future TLS+CSRF-protected authenticated admin enrollment UI. */
 export async function beginAdminTotpEnrollment(
-  db:AdminDb,bearer:string,keyHex:string,requestId?:string,
+  db:AdminDb,bearer:string,keyMaterial:TotpKeyMaterial,requestId?:string,
 ):Promise<{secretBase32:string;expiresAt:string}>{
   const trace=trustedTrace(requestId);
+  const keyring=requireTotpKeyring(keyMaterial);
+  const writeVersion=keyring.activeVersion;
+  const encryptionKey=requireVersionedTotpKey(keyring,writeVersion);
   return withMemberSession(db,bearer,async(tx,principal)=>{
     const now=new Date();
     const [old]=await tx.select().from(schema.adminTotpCredentials)
@@ -72,7 +77,7 @@ export async function beginAdminTotpEnrollment(
       (old.pendingExpiresAt&&old.pendingExpiresAt.getTime()>now.getTime()))){
       throw rejected(); // Do not disclose existing 2FA state to callers.
     }
-    const generated=newEncryptedTotpSeed(principal.userId,keyHex);
+    const generated=newEncryptedTotpSeed(principal.userId,encryptionKey,writeVersion);
     const expiresAt=new Date(now.getTime()+ENROLLMENT_MS);
     const row={
       ...generated.record,status:'pending' as const,
@@ -104,7 +109,7 @@ export async function beginAdminTotpEnrollment(
  * FOR UPDATE serializes all devices against ONE monotonic lastAcceptedStep.
  */
 async function checkAndConsume(
-  tx:AdminTx,row:Factor,otp:string,keyHex:string,now:Date,
+  tx:AdminTx,row:Factor,otp:string,keyMaterial:TotpKeyMaterial,now:Date,
 ):Promise<boolean>{
   if(row.lockedUntil&&row.lockedUntil.getTime()>now.getTime())return false;
   const factorUsable=row.status==='active'||
@@ -113,7 +118,8 @@ async function checkAndConsume(
   if(!factorUsable)return false;
   let seed:Buffer;
   try{
-    seed=decryptTotpSeed(row.userId,row,keyHex);
+    seed=decryptTotpSeed(row.userId,row,
+      requireVersionedTotpKey(keyMaterial,row.keyVersion));
   }catch{
     // A missing/rotated server secret is a deployment failure, never a
     // password fallback. It must not reset the login attempt counter.
@@ -146,16 +152,17 @@ async function checkAndConsume(
  * NOT issue an admin privilege or session MFA proof; the user must verify a
  * subsequent fresh code in their exact active device session. */
 export async function confirmAdminTotpEnrollment(
-  db:AdminDb,bearer:string,otp:string,keyHex:string,requestId?:string,
+  db:AdminDb,bearer:string,otp:string,keyMaterial:TotpKeyMaterial,requestId?:string,
 ):Promise<{enabled:boolean}>{
   const trace=trustedTrace(requestId);
+  const keyring=requireTotpKeyring(keyMaterial);
   const success=await withMemberSession(db,bearer,async(tx,principal)=>{
     const [row]=await tx.select().from(schema.adminTotpCredentials)
       .where(eq(schema.adminTotpCredentials.userId,principal.userId))
       .limit(1).for('update');
     if(!row||row.status!=='pending')return false;
     const now=new Date();
-    if(!await checkAndConsume(tx,row,otp,keyHex,now))return false;
+    if(!await checkAndConsume(tx,row,otp,keyring,now))return false;
     await tx.update(schema.adminTotpCredentials).set({
       status:'active',pendingExpiresAt:null,enabledAt:now,updatedAt:now,
     }).where(eq(schema.adminTotpCredentials.userId,principal.userId));
@@ -176,16 +183,17 @@ export async function confirmAdminTotpEnrollment(
  * exactly THIS session for 15 minutes. Other devices need their own fresh
  * code, and a later role/device revocation invalidates admin permission. */
 export async function verifyAdminTotpForSession(
-  db:AdminDb,bearer:string,otp:string,keyHex:string,requestId?:string,
+  db:AdminDb,bearer:string,otp:string,keyMaterial:TotpKeyMaterial,requestId?:string,
 ):Promise<{verified:boolean;expiresAt:string}>{
   const trace=trustedTrace(requestId);
+  const keyring=requireTotpKeyring(keyMaterial);
   const result=await withMemberSession(db,bearer,async(tx,principal)=>{
     const [row]=await tx.select().from(schema.adminTotpCredentials)
       .where(eq(schema.adminTotpCredentials.userId,principal.userId))
       .limit(1).for('update');
     if(!row||row.status!=='active')return null;
     const now=new Date();
-    if(!await checkAndConsume(tx,row,otp,keyHex,now))return null;
+    if(!await checkAndConsume(tx,row,otp,keyring,now))return null;
     const expiresAt=new Date(now.getTime()+ADMIN_MFA_PROOF_MS);
     await tx.insert(schema.adminSessionMfa).values({
       sessionId:principal.sessionId,userId:principal.userId,

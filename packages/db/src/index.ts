@@ -42,6 +42,10 @@ export {grantManagedAdminRole,revokeManagedAdminRole} from './admin-role-lifecyc
 export type {AdminRoleChange} from './admin-role-lifecycle.js';
 // Internal verified-admin-member factor enrollment and replay-safe MFA step-up.
 export {beginAdminTotpEnrollment,confirmAdminTotpEnrollment,verifyAdminTotpForSession} from './admin-totp.js';
+export {rotateAdminTotpEnvelopeForUser,inspectAdminTotpKeyVersions} from './admin-totp-rotation.js';
+export type {TotpEnvelopeRotation} from './admin-totp-rotation.js';
+export {requireTotpKeyring} from './admin-totp-crypto.js';
+export type {TotpKeyring,TotpKeyMaterial,TotpKeyVersion} from './admin-totp-crypto.js';
 export type {VerifiedAdminIdentity} from './admin-authorization.js';
 
 // INTERNAL ONLY; caller must provide trusted client IP and server-managed HMAC key.

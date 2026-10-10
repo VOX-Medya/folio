@@ -2,7 +2,8 @@ import {randomBytes} from 'node:crypto';
 import {describe,expect,it} from 'vitest';
 import {
   acceptedTotpStep,decodeTotpBase32,decryptTotpSeed,
-  newEncryptedTotpSeed,totpCodeAtStep,TOTP_STEP_MS,
+  encryptTotpSeedForVersion,newEncryptedTotpSeed,requireTotpKeyring,
+  requireVersionedTotpKey,totpCodeAtStep,TOTP_STEP_MS,
 } from './admin-totp-crypto.js';
 
 describe('RFC 6238 and encrypted admin TOTP verifier (#30)',()=>{
@@ -51,5 +52,40 @@ describe('RFC 6238 and encrypted admin TOTP verifier (#30)',()=>{
     expect(()=>decryptTotpSeed(user,{
       ...generated.record,ciphertext:'AA'+generated.record.ciphertext.slice(2),
     },key)).toThrow();
+  });
+  it('supports authenticated v1->v2 envelope rewrap without changing the OTP seed',()=>{
+    const user='b946d7a4-678e-4d3e-82d8-2f29ef724b6f';
+    const v1=randomBytes(32).toString('hex');
+    const v2=randomBytes(32).toString('hex');
+    const original=newEncryptedTotpSeed(user,v1);
+    const originalSeed=decryptTotpSeed(user,original.record,v1);
+    let updated;
+    try{updated=encryptTotpSeedForVersion(user,originalSeed,v2,'v2');}
+    finally{originalSeed.fill(0);}
+    expect(updated.keyVersion).toBe('v2');
+    expect(updated.nonce).not.toBe(original.record.nonce);
+    expect(JSON.stringify(updated)).not.toContain(original.secretBase32);
+    expect(decodeTotpBase32(original.secretBase32))
+      .toEqual(decryptTotpSeed(user,updated,v2));
+    expect(()=>decryptTotpSeed(user,updated,v1)).toThrow();
+    expect(()=>decryptTotpSeed(user,{
+      ...updated,keyVersion:'v1',
+    },v2)).toThrow();
+    expect(()=>decryptTotpSeed(user,{
+      ...updated,keyVersion:'v3',
+    },v2)).toThrow();
+    expect(()=>decryptTotpSeed('48ef95ef-e3e2-49d6-994f-11664c99835b',
+      updated,v2)).toThrow();
+    expect(requireTotpKeyring({activeVersion:'v2',v1,v2}))
+      .toEqual({activeVersion:'v2',v1,v2});
+    expect(requireVersionedTotpKey({activeVersion:'v2',v1,v2},'v1')).toBe(v1);
+    expect(requireVersionedTotpKey({activeVersion:'v2',v1,v2},'v2')).toBe(v2);
+    expect(()=>requireVersionedTotpKey({activeVersion:'v2',v2},'v1')).toThrow();
+    expect(()=>requireTotpKeyring({activeVersion:'v2',v1})).toThrow();
+    expect(()=>requireTotpKeyring({activeVersion:'v2',v1,v2:v1})).toThrow();
+    expect(()=>requireTotpKeyring({activeVersion:'v1',v1:'bad',v2})).toThrow();
+    expect(()=>requireTotpKeyring({activeVersion:'v1',v1})).not.toThrow();
+    expect(()=>requireTotpKeyring({activeVersion:'v2',v2})).not.toThrow();
+    expect(()=>encryptTotpSeedForVersion(user,Buffer.alloc(0),v2,'v2')).toThrow();
   });
 });
