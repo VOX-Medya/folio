@@ -27,7 +27,6 @@ function Nav({active,locale,mode,colors}:{active:MobileSection;locale:FolioLocal
   mode:ResponsiveMode;colors:Palette}){
   const vertical=mode==='desktop';
   return <View testID={mode==='phone'?'folio-bottom-navigation':'folio-responsive-navigation'}
-    accessibilityRole="navigation"
     accessibilityLabel={locale==='tr'?'Folio V1 gezintisi':'Folio V1 navigation'}
     style={{flexDirection:vertical?'column':'row',gap:vertical?5:0,
       backgroundColor:colors.surface,borderColor:colors.line,
