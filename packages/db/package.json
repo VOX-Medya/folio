@@ -27,6 +27,7 @@
     "db:storage-quota-smoke": "tsx scripts/storage-quota-smoke.ts",
     "db:admin-rbac-smoke": "tsx scripts/admin-rbac-smoke.ts",
     "db:admin-totp-smoke": "tsx scripts/admin-totp-smoke.ts",
+    "db:admin-totp-rotation-smoke": "tsx scripts/admin-totp-rotation-smoke.ts",
     "db:admin-role-lifecycle-smoke": "tsx scripts/admin-role-lifecycle-smoke.ts",
     "db:auth-smoke": "tsx scripts/auth-smoke.ts",
     "db:onboarding-smoke": "tsx scripts/onboarding-smoke.ts",
