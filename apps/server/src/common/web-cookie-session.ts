@@ -182,9 +182,14 @@ export function assertSafeWebCsrfBootstrap(request:WebCookieRequest,policy:WebCo
   const allowed=originOf(policy.origin);
   csrfSecret(policy.csrfKeyHex);
   const rawOrigin=request.headers?.origin;
-  if((rawOrigin!==undefined&&rawOrigin!==allowed)||
-     (request.headers?.['sec-fetch-site']!==undefined&&
-      request.headers['sec-fetch-site']!=='same-origin')){
+  const fetchSite=request.headers?.['sec-fetch-site'];
+  // A cookie alone is not an origin proof. Modern same-origin browser fetches
+  // supply Sec-Fetch-Site; exact Origin is an acceptable alternate signal.
+  // Reject clients that omit both rather than exposing the CSRF bootstrap to
+  // arbitrary credentialed requests with no origin context.
+  if((rawOrigin===undefined&&fetchSite===undefined)||
+     (rawOrigin!==undefined&&rawOrigin!==allowed)||
+     (fetchSite!==undefined&&fetchSite!=='same-origin')){
     throw new ForbiddenException('Cross-origin CSRF bootstrap denied');
   }
 }

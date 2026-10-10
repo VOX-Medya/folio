@@ -3,7 +3,7 @@ import {randomBytes} from 'node:crypto';
 import {ForbiddenException,ServiceUnavailableException,UnauthorizedException} from '@nestjs/common';
 import {
   FOLIO_WEB_SESSION_COOKIE,WEB_SESSION_COOKIE_FLAGS,
-  clearWebSessionCookie,issueWebSessionCookie,verifyWebCookieSession,webSessionCsrfToken,
+  assertSafeWebCsrfBootstrap,clearWebSessionCookie,issueWebSessionCookie,verifyWebCookieSession,webSessionCsrfToken,
 } from './web-cookie-session.js';
 import type {WebCookieRequest,WebCookiePolicy} from './web-cookie-session.js';
 
@@ -17,6 +17,18 @@ const req=(headers:Record<string,string|string[]|undefined>={}):WebCookieRequest
 });
 const lookup=async(raw:string)=>raw===bearer?principal:null;
 describe('web session transport is isolated from native bearer',()=>{
+  it('requires same-origin evidence before issuing a CSRF bootstrap',()=>{
+    expect(()=>assertSafeWebCsrfBootstrap(req(),policy)).toThrow(ForbiddenException);
+    expect(()=>assertSafeWebCsrfBootstrap(req({'sec-fetch-site':'same-origin'}),policy))
+      .not.toThrow();
+    expect(()=>assertSafeWebCsrfBootstrap(req({origin:policy.origin}),policy))
+      .not.toThrow();
+    expect(()=>assertSafeWebCsrfBootstrap(req({origin:'https://evil.example.org'}),policy))
+      .toThrow(ForbiddenException);
+    expect(()=>assertSafeWebCsrfBootstrap(req({'sec-fetch-site':'cross-site'}),policy))
+      .toThrow(ForbiddenException);
+  });
+
   it('only issues secure host-only HttpOnly SameSite cookies on TLS',()=>{
     const issued=issueWebSessionCookie(req({origin:policy.origin,'sec-fetch-site':'same-origin'}),bearer,policy);
     expect(issued).toContain(WEB_SESSION_COOKIE_FLAGS);
