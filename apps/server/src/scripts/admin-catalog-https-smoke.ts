@@ -795,6 +795,36 @@ async function main():Promise<void>{
     check(csrfWire.status===204&&typeof csrf==='string',
       'Real direct-TLS authenticated cookie CSRF bootstrap unavailable');
     const secureCookie={...cookie,'x-folio-csrf':csrf};
+    check((await patch(port,workPath,cookie,{
+      expectedVersion:2,firstPublicationYear:1880,
+    })).status===403,
+      'Web cookie without HMAC-CSRF edited protected metadata');
+    check((await patch(port,workPath,{
+      ...cookie,'x-folio-csrf':'A'.repeat(43),
+    },{expectedVersion:2,firstPublicationYear:1880})).status===403,
+      'Forged Web CSRF value edited canonical metadata');
+    const cookiePatch=await patch(port,workPath,{
+      ...secureCookie,'x-request-id':'forged-browser-update',
+    },{expectedVersion:2,firstPublicationYear:1880});
+    check(cookiePatch.status===200&&
+      cookiePatch.headers['x-request-id']!=='forged-browser-update'&&
+      canonicalWorkMetadataUpdatedSchema.parse(JSON.parse(cookiePatch.body))
+        .metadataVersion===3,
+      'Valid same-origin cookie, HMAC-CSRF and same-device MFA could not PATCH draft');
+    const patchAudits=await pool.query<{request_id:string;actor_id:string}>(
+      'SELECT request_id,actor_id FROM audit_events WHERE entity_id=$1::uuid AND action=$2 ORDER BY created_at DESC',
+      [createdWork.id,'work.metadata.update']);
+    check(patchAudits.rows.some(row=>
+      row.request_id===cookiePatch.headers['x-request-id']&&
+      row.actor_id===editor.userId),
+      'Cookie-based patch audit did not contain the true editor and server trace');
+    const unknownPatch=await patch(port,root+'/works/'+randomUUID(),secureCookie,{
+      expectedVersion:0,originalTitle:'Never exist',
+    });
+    check(unknownPatch.status===404&&
+      unknownPatch.headers['cache-control']==='private, no-store',
+      'Authorized unknown canonical work patch did not return private 404');
+
     const cookieCreated=await post(port,createRoot,{
       ...secureCookie,'x-user-id':guest.userId,'x-admin-role':'superadmin',
       'x-request-id':'forged-cookie-trace',
@@ -867,6 +897,9 @@ async function main():Promise<void>{
       'Expired same-device MFA remained authorized');
     check((await call(true,port,root+'/works/'+createdWork.id,cookie)).status===403,
       'Expired exact-device MFA could still fetch unpublished work details');
+    check((await patch(port,workPath,secureCookie,{
+      expectedVersion:3,firstPublicationYear:1881,
+    })).status===403,'Expired exact-device MFA modified canonical work metadata');
     check((await post(port,createRoot,secureCookie,{
       canonicalName:'Expired web editor '+suffix,
     })).status===403,'Expired same-device MFA still authorized catalog draft POST');
@@ -878,6 +911,9 @@ async function main():Promise<void>{
       'Revoked database role could still read private draft');
     check((await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===403,
       'Revoked persisted role could still fetch canonical author metadata');
+    check((await patch(port,authorPath,bearer,{
+      expectedVersion:2,canonicalName:'Recalled writer',
+    })).status===403,'Revoked catalog:edit role still modified canonical author');
     check((await post(port,createRoot,bearer,{
       canonicalName:'Revoked editor '+suffix,
     })).status===403,'Revoked persisted role still authorized draft POST');
@@ -893,6 +929,8 @@ async function main():Promise<void>{
       !!spec.paths[root+'/authors']?.post&&
       !!spec.paths[root+'/works/{workId}']?.get&&
       !!spec.paths[root+'/authors/{authorId}']?.get&&
+      !!spec.paths[root+'/works/{workId}']?.patch&&
+      !!spec.paths[root+'/authors/{authorId}']?.patch&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
@@ -901,13 +939,19 @@ async function main():Promise<void>{
     check((await call(true,port,root+'/works/'+createdWork.id,bearer)).status===404&&
       (await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===404,
       'Disabling catalog read mode left unpublished detail endpoints available');
+    check((await patch(port,workPath,bearer,{
+      expectedVersion:3,firstPublicationYear:1882,
+    })).status===404,'Read flag shutoff did not hide metadata PATCH');
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Disabling catalog HTTP left POST author creation reachable');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Independent admin write flag failed to turn off mutation');
-    console.log('ADMIN CATALOG HTTPS PASS: default-off TLS catalog GET/POST; verified same-device MFA + persisted catalog:read vs edit, cookie origin HMAC-CSRF and separate native bearer; PostgreSQL REPEATABLE READ author/work detail snapshots with stable sorted links and no private content, work/edition atomic DRAFT create, trusted audit, FK/unique rollback, malformed UUID/role/owner denial, expired MFA/revoked role, no-store responses, OpenAPI. Synthetic folio_test ONLY.');
+    check((await patch(port,authorPath,bearer,{
+      expectedVersion:2,sortName:'Should not update',
+    })).status===404,'Independent write flag shutoff left PATCH enabled');
+    console.log('ADMIN CATALOG HTTPS PASS: real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
