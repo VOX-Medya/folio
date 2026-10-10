@@ -45,3 +45,6 @@
 
 ## Kodlanan ilk kanonik ilişkiler
 `packages/db/src/schema.ts` ve `docs/13-CANONICAL-CATALOG.md`, yazar takma adı/harici kimlik, eserin çoklu başlığı, work_author N:M, baskı/çeviri kimliği, baskıya bağlı ISBN ve editör/çevirmen ilişkilerinin ilk şemasını içerir. Bu aşamada kayıtlar yalnız draft; telif onaysız yayın ve public API yoktur.
+
+## Implemented rights gate baseline
+The work/edition/revision level permission records, country checks and fail-closed actions of #14 are documented in `docs/15-RIGHTS-GATE.md`. Legal review is not inferred or auto-approved, and all test records remain draft.

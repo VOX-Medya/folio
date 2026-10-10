@@ -22,6 +22,8 @@ case "${1:-help}" in
   migrate) pnpm --filter @folio/db db:migrate ;;
   smoke) pnpm --filter @folio/db db:smoke ;;
   api-smoke) pnpm --filter @folio/server exec tsx scripts/check-readiness.ts ;;
+  rights-smoke)
+    DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:rights-smoke ;;
   content-smoke)
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:content-smoke ;;
   catalog-smoke)
@@ -33,5 +35,5 @@ case "${1:-help}" in
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:migrate
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:smoke
     ;;
-  *) echo 'Usage: bash infra/lab.sh {up|db-up|down|health|migrate|smoke|test-db|api-smoke|catalog-smoke|content-smoke}'; exit 2 ;;
+  *) echo 'Usage: bash infra/lab.sh {up|db-up|down|health|migrate|smoke|test-db|api-smoke|catalog-smoke|content-smoke|rights-smoke}'; exit 2 ;;
 esac

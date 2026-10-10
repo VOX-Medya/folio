@@ -18,7 +18,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:smoke": "tsx scripts/smoke.ts",
     "db:catalog-smoke": "tsx scripts/catalog-smoke.ts",
-    "db:content-smoke": "tsx scripts/content-smoke.ts"
+    "db:content-smoke": "tsx scripts/content-smoke.ts",
+    "db:rights-smoke": "tsx scripts/rights-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",
