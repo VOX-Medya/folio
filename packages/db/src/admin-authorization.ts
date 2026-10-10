@@ -29,6 +29,9 @@ export type VerifiedAdminIdentity={
 export async function withVerifiedAdminPermission<T>(
   db:AdminDb,rawBearer:string,permission:AdminPermission,
   action:(tx:AdminTx,identity:VerifiedAdminIdentity)=>Promise<T>,
+  // A detail reader may request one REPEATABLE READ snapshot for every
+  // relationship SELECT. The same persisted MFA/RBAC locks remain held.
+  options?:{isolationLevel:'repeatable read'},
 ):Promise<T>{
   const denied=()=>new Error('Verified administrator MFA permission required');
   // Match the opaque user bearer format; never trust x-admin-role/user-id.
@@ -75,5 +78,5 @@ export async function withVerifiedAdminPermission<T>(
     // The operation is committed or rolled back together with the
     // authorization locks. Callers must audit privileged mutations here.
     return action(tx,{userId:account.id,sessionId:session.id});
-  });
+  },options);
 }
