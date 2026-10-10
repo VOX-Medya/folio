@@ -50,5 +50,5 @@ export function responsiveMode(width: number): ResponsiveMode {
   return 'desktop';
 }
 
-export {renderFolioCoverSvg} from './cover';
-export type {FolioCoverInput,FolioCoverTheme} from './cover.js';
+export {layoutFolioCover,renderFolioCoverSvg} from './cover';
+export type {FolioCoverInput,FolioCoverLayout,FolioCoverTheme} from './cover.js';
