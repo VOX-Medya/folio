@@ -7,12 +7,13 @@ import type { OpenAPIObject } from '@nestjs/swagger';
 import { ApiExceptionFilter, RequestIdMiddleware } from './common/http.js';
 import { SystemModule } from './modules/system/system.module.js';
 import { AccountOnboardingModule } from './modules/account/onboarding.module.js';
+import { WebAuthModule } from './modules/auth/web-auth.module.js';
 
 export {ApiExceptionFilter, RequestIdMiddleware, UserOwnershipGuard} from './common/http.js';
 export {HealthController, CapabilitiesController, ReadinessController, DbReadinessService} from './modules/system/system.module.js';
 
 /** A single modular monolith. Product modules join only when their guarded routes exist. */
-@Module({imports: [SystemModule,AccountOnboardingModule]})
+@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule]})
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes('*');

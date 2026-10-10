@@ -283,3 +283,9 @@ export type DeviceSessionInventory=z.infer<typeof deviceSessionInventorySchema>;
 // Stateless Web/Expo device session API; no token persistence.
 export {fetchOwnDeviceSessions,revokeOwnDeviceSession,DeviceSessionHttpError} from './device-sessions-client.js';
 export type {OwnDeviceSessionsRequest} from './device-sessions-client.js';
+
+/** Strict request for gated HTTPS web sign-in; session token never in response. */
+export const webLoginRequestSchema=z.object({
+  email:z.string().trim().max(254).pipe(z.email()),
+  password:z.string().min(12).max(128).refine(value=>!value.includes('\0')),
+}).strict();
