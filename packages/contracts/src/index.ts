@@ -194,3 +194,20 @@ export const rightsDecisionQuerySchema = z.object({
 }).strict();
 export type RightsDecisionQuery = z.infer<typeof rightsDecisionQuerySchema>;
 export type RightsDecision = {allowed: boolean; reason: 'approved'|'missing'|'unreviewed'|'territory'|'expired'|'prohibited'|'wrong_scope'};
+
+export const translationLinkCreateSchema=z.object({
+  sourceRevisionId:z.uuid(),targetRevisionId:z.uuid(),
+  translatorId:z.uuid().optional(),
+  provenance:z.object({kind:z.literal('manual_import'),packageId:z.string().min(1).max(240),note:z.string().max(2000).optional()}).strict(),
+  alignments:z.array(z.object({
+    sourceBlockId:z.uuid(),targetBlockId:z.uuid(),alignmentKind:z.enum(['manual','approximate']).default('manual'),
+  }).strict()).max(50000).default([]),
+}).strict().superRefine((data,ctx)=>{
+  if(data.sourceRevisionId===data.targetRevisionId)ctx.addIssue({code:'custom',message:'Source and translated revisions must differ'});
+  const keys=data.alignments.map(a=>`${a.sourceBlockId}:${a.targetBlockId}`);
+  if(new Set(keys).size!==keys.length)ctx.addIssue({code:'custom',message:'Repeated source-target alignment pair'});
+});
+export type TranslationLinkCreate=z.infer<typeof translationLinkCreateSchema>;
+export const translationSwitchRequestSchema=z.object({
+  linkId:z.uuid(),sourceBlockId:z.uuid(),
+}).strict();
