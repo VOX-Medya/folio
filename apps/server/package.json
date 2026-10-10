@@ -9,7 +9,8 @@
     "test": "vitest run src",
     "openapi:write": "tsx scripts/export-openapi.ts",
     "openapi:check": "tsx scripts/export-openapi.ts --check",
-    "auth:http-smoke": "tsx src/scripts/auth-http-smoke.ts"
+    "auth:http-smoke": "tsx src/scripts/auth-http-smoke.ts",
+    "auth:admission-http-smoke": "tsx src/scripts/auth-admission-http-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",

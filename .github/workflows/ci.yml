@@ -41,6 +41,7 @@ jobs:
           bash infra/lab.sh session-cap-smoke
           bash infra/lab.sh auth-rate-smoke
           bash infra/lab.sh auth-http-smoke
+          bash infra/lab.sh auth-admission-http-smoke
           bash infra/lab.sh onboarding-smoke
       - name: Stop isolated Folio CI laboratory
         if: always()
