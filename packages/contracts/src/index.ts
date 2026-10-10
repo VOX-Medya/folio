@@ -143,6 +143,15 @@ export const workCreateSchema = z.object({
 });
 export type AuthorCreate = z.infer<typeof authorCreateSchema>;
 export type WorkCreate = z.infer<typeof workCreateSchema>;
+/** HTTP draft creation acknowledges opaque canonical IDs only.
+ * No arbitrary publication status, owner or raw text may be returned. */
+export const adminCatalogAuthorCreatedSchema=z.object({
+  id:z.uuid(),
+}).strict();
+export const adminCatalogWorkCreatedSchema=z.object({
+  id:z.uuid(),publicationStatus:z.literal('draft'),
+}).strict();
+
 
 /** Input is parsed verbatim from a validated, text-bearing local source; no OCR/AI recovery. */
 export const contentBlockKindSchema = z.enum([
