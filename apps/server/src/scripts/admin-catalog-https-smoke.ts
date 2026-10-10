@@ -7,7 +7,6 @@ import {request as httpRequest} from 'node:http';
 import type {IncomingHttpHeaders} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {eq} from 'drizzle-orm';
 import {NestFactory} from '@nestjs/core';
 import type {INestApplication} from '@nestjs/common';
 import {SwaggerModule} from '@nestjs/swagger';
@@ -248,14 +247,16 @@ async function main():Promise<void>{
       !leaked.includes(web.sessionToken)&&!leaked.includes(editor.email)&&
       !leaked.includes(guest.email),
       'Admin read-only metadata responses disclosed session or account secrets');
-    await db.update(schema.adminSessionMfa).set({
-      expiresAt:new Date(Date.now()-1000),
-    }).where(eq(schema.adminSessionMfa.sessionId,web.sessionId));
+    await pool.query(
+      'UPDATE admin_session_mfa SET expires_at=$1 WHERE session_id=$2::uuid',
+      [new Date(Date.now()-1000),web.sessionId],
+    );
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
-    await db.update(schema.adminRoleMemberships).set({
-      revokedAt:new Date(),
-    }).where(eq(schema.adminRoleMemberships.userId,editor.userId));
+    await pool.query(
+      'UPDATE admin_role_memberships SET revoked_at=$1 WHERE user_id=$2::uuid',
+      [new Date(),editor.userId],
+    );
     check((await call(true,port,search,bearer)).status===403,
       'Revoked database role could still read private draft');
 
