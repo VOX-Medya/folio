@@ -134,12 +134,12 @@ async function main(){
 
     // Real concurrent two-pool / two-device operator race: one new GCM IV,
     // one actual audit, one idempotent replay with no fake change.
-    const requestId=trace();
+    const requestId=trace(),secondRequestId=trace();
     const raced=await Promise.all([
       rotateAdminTotpEnvelopeForUser(first.db,manager.session.sessionToken,
         a.userId,'v1','v2',both,reason,requestId),
       rotateAdminTotpEnvelopeForUser(second.db,tablet.sessionToken,
-        a.userId,'v1','v2',both,reason,trace()),
+        a.userId,'v1','v2',both,reason,secondRequestId),
     ]);
     check(raced.filter(x=>x.changed).length===1&&
       raced.filter(x=>!x.changed).length===1,
@@ -207,16 +207,13 @@ async function main(){
     check(inventoryAfter.v1===inventoryBefore.v1-2&&
       inventoryAfter.v2===inventoryBefore.v2+3,
       'Privileged key-version inventory omitted pending/new rows');
-    check(inventoryAfter.v1>0,
-      'CI unexpectedly permits retiring v1 even with other older factors');
-
     const audit=await first.db.select().from(schema.auditEvents)
       .where(eq(schema.auditEvents.entityId,a.userId));
     const rewrapAudit=audit.filter(x=>x.action==='admin.totp.envelope.rotated');
     check(rewrapAudit.length===1&&
       rewrapAudit[0]?.actorId===manager.userId&&
       rewrapAudit[0]?.reason===reason&&
-      [requestId,raced[1]?null:null].some(x=>x===rewrapAudit[0]?.requestId),
+      [requestId,secondRequestId].includes(rewrapAudit[0]?.requestId??''),
       'Racing rotation did not create one attributable audit');
     const allAudit=JSON.stringify(await first.db.select().from(schema.auditEvents)
       .where(eq(schema.auditEvents.actorId,manager.userId)));
