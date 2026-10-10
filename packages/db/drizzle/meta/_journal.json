@@ -113,6 +113,13 @@
       "when": 1791616000000,
       "tag": "0015_admin_totp_key_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791617000000,
+      "tag": "0016_admin_mfa_recovery_review",
+      "breakpoints": true
     }
   ]
 }
