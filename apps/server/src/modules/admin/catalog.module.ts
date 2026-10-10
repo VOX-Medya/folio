@@ -1,6 +1,6 @@
 import {
   BadRequestException,Body,CanActivate,ConflictException,Controller,
-  ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
+  Delete,ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
   NotFoundException,OnModuleDestroy,Param,Patch,Post,Query,Req,ServiceUnavailableException,
   UnauthorizedException,UseGuards,
 } from '@nestjs/common';
@@ -14,6 +14,7 @@ import {
   getVerifiedAdminWorkDetails,patchVerifiedAdminAuthorMetadata,
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
+  removeVerifiedAdminWorkTitle,removeVerifiedAdminWorkAuthor,
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
@@ -30,6 +31,7 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
+  adminCatalogRelationRemoveSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
@@ -98,6 +100,8 @@ export class AdminCatalogDb implements OnModuleDestroy {
         'Canonical metadata version conflict',
         'Published canonical work is immutable via draft editor',
         'Published canonical edition is immutable via draft editor',
+        'Canonical original title cannot be unlinked',
+        'Last canonical author link cannot be removed',
       ].includes(error.message)){
         throw new ConflictException('Canonical metadata changed or is no longer editable');
       }
@@ -173,6 +177,14 @@ export class AdminCatalogDb implements OnModuleDestroy {
   appendAuthor(bearer:string,id:string,input:unknown,requestId:string){
     return this.authorized(()=>
       appendVerifiedAdminWorkAuthor(this.db(),bearer,id,input,requestId));
+  }
+  removeTitle(bearer:string,workId:string,titleId:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      removeVerifiedAdminWorkTitle(this.db(),bearer,workId,titleId,input,requestId));
+  }
+  removeAuthor(bearer:string,workId:string,authorId:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      removeVerifiedAdminWorkAuthor(this.db(),bearer,workId,authorId,input,requestId));
   }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
@@ -568,6 +580,10 @@ const appendAuthorBodyApi={
     sortOrder:{type:'integer',minimum:0,maximum:10000,default:0},
   },
 };
+const removeRelationBodyApi={
+  type:'object',additionalProperties:false,required:['expectedVersion'],
+  properties:{expectedVersion:{type:'integer',minimum:0,maximum:2147483646}},
+};
 const appendEditionResultApi={
   type:'object',additionalProperties:false,
   required:['id','workId','metadataVersion','status'],
@@ -941,6 +957,58 @@ export class AdminCatalogController {
     const created=await this.store.appendAuthor(token,id.data,parsed.data,this.trace(request));
     if(!created)throw new NotFoundException('Canonical work not found');
     return adminCatalogWorkAuthorAppendedSchema.parse(created);
+  }
+
+  @Delete('works/:workId/titles/:titleId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; unlink DRAFT alternate/translation title only; ORIGINAL forbidden; audited'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'titleId',type:String,format:'uuid'})
+  @ApiBody({schema:removeRelationBodyApi})
+  @ApiOkResponse({schema:appendTitleResultApi})
+  async removeTitle(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawWorkId:string,@Param('titleId') rawTitleId:string,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const titleId=adminCatalogIdSchema.safeParse(rawTitleId);
+    const parsed=adminCatalogRelationRemoveSchema.safeParse(raw);
+    if(!workId.success||!titleId.success||!parsed.success){
+      throw new BadRequestException('Invalid draft title relation removal');
+    }
+    const token=await this.bearer(request);
+    const removed=await this.store.removeTitle(
+      token,workId.data,titleId.data,parsed.data,this.trace(request));
+    if(!removed)throw new NotFoundException('Draft title relation not found');
+    return adminCatalogTitleAppendedSchema.parse(removed);
+  }
+
+  @Delete('works/:workId/authors/:authorId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; unlink DRAFT work-author relation, retaining one true author; audited'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'authorId',type:String,format:'uuid'})
+  @ApiBody({schema:removeRelationBodyApi})
+  @ApiOkResponse({schema:appendAuthorResultApi})
+  async removeAuthor(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawWorkId:string,@Param('authorId') rawAuthorId:string,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const authorId=adminCatalogIdSchema.safeParse(rawAuthorId);
+    const parsed=adminCatalogRelationRemoveSchema.safeParse(raw);
+    if(!workId.success||!authorId.success||!parsed.success){
+      throw new BadRequestException('Invalid draft author relation removal');
+    }
+    const token=await this.bearer(request);
+    const removed=await this.store.removeAuthor(
+      token,workId.data,authorId.data,parsed.data,this.trace(request));
+    if(!removed)throw new NotFoundException('Draft work-author relation not found');
+    return adminCatalogWorkAuthorAppendedSchema.parse(removed);
   }
 
   @Post('authors')

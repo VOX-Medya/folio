@@ -739,3 +739,96 @@ test('MFA-scoped original Folio SVG thumbnail is accessible, theme-aware and nev
   await expect(page.getByTestId('admin-catalog-insecure')).toBeVisible();
   await expect(page.getByTestId('admin-folio-cover-preview')).toHaveCount(0);
 });
+
+
+test('HTTPS draft relation unlink requires two-step review, version reload, MFA CSRF and preserves original author/title',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const alternateId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+  let version=1,firstConflict=true;
+  let titles=[
+    {id:authorId,language:'tr',title:'Kanonik Başlık',kind:'original'},
+    {id:alternateId,language:'en',title:'Taslak Ek Başlık',kind:'alternate'},
+  ];
+  let authors=[
+    {id:authorId,name:'Asıl Yazar',role:'author',sortOrder:0},
+    {id:createdAuthorId,name:'İkinci Yazar',role:'co-author',sortOrder:1},
+  ];
+  const writes:Array<{method:string;path:string;body:unknown;csrf:string|undefined}>=[];
+  await page.route('**/v1/**',async route=>{
+    const req=route.request(),path=new URL(req.url()).pathname;
+    if(path==='/v1/auth/web/csrf'){
+      await route.fulfill({status:204,headers:{'x-folio-csrf':'U'.repeat(43)}});
+    }else if(path==='/v1/admin/catalog/works'&&req.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:'Kanonik Başlık',
+        originalLanguage:'tr',publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(path==='/v1/admin/catalog/works/'+workId&&req.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Kanonik Başlık',
+          originalLanguage:'tr',firstPublicationYear:null,
+          publicationStatus:'draft',metadataVersion:version},
+        authors,titles,editions:[],
+      }));
+    }else if(req.method()==='DELETE'&&path.startsWith(
+      '/v1/admin/catalog/works/'+workId+'/')){
+      const body=req.postDataJSON() as unknown;
+      writes.push({method:req.method(),path,body,csrf:req.headers()['x-folio-csrf']});
+      expect(req.headers()['authorization']).toBeUndefined();
+      expect(req.headers()['x-user-id']).toBeUndefined();
+      expect(req.headers()['x-admin-role']).toBeUndefined();
+      expect(req.headers()['x-request-id']).toBeUndefined();
+      if(firstConflict){
+        firstConflict=false;version=2;
+        await route.fulfill(respond({error:{code:'CONFLICT'}},409));
+      }else if(path.endsWith('/titles/'+alternateId)){
+        expect(body).toEqual({expectedVersion:2});
+        version=3;titles=titles.filter(row=>row.id!==alternateId);
+        await route.fulfill(respond({id:alternateId,workId,metadataVersion:3}));
+      }else if(path.endsWith('/authors/'+createdAuthorId)){
+        expect(body).toEqual({expectedVersion:3});
+        version=4;authors=authors.filter(row=>row.id!==createdAuthorId);
+        await route.fulfill(respond({workId,authorId:createdAuthorId,metadataVersion:4}));
+      }else await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+    }else await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+  });
+
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Kanonik');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Kanonik Başlık/}).click();
+  let panel=page.getByTestId('admin-work-relations');
+  await expect(panel).toContainText('Beklenen metadata sürümü: 1');
+  await expect(panel.getByRole('button',{
+    name:'Alternatif başlığı kaldır: Kanonik Başlık',
+  })).toHaveCount(0);
+
+  await panel.getByRole('button',{name:'Alternatif başlığı kaldır: Taslak Ek Başlık'}).click();
+  expect(writes).toHaveLength(0); // no accidental single-click deletion
+  await panel.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'}).click();
+  await expect(panel.getByRole('alert')).toContainText('Başka bir yönetici');
+  expect(writes).toHaveLength(1);
+  await expect(panel.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'})).toBeDisabled();
+  await panel.getByRole('button',{name:'Güncel eseri yeniden yükle'}).click();
+  panel=page.getByTestId('admin-work-relations');
+  await expect(panel).toContainText('Beklenen metadata sürümü: 2');
+  expect(writes).toHaveLength(1);
+  await panel.getByRole('button',{name:'Alternatif başlığı kaldır: Taslak Ek Başlık'}).click();
+  await panel.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'}).click();
+  panel=page.getByTestId('admin-work-relations');
+  await expect(panel).toContainText('Beklenen metadata sürümü: 3');
+  await expect(panel.getByRole('button',{name:'Alternatif başlığı kaldır: Taslak Ek Başlık'}))
+    .toHaveCount(0);
+  await panel.getByRole('button',{name:'Eserden yazar bağını kaldır: İkinci Yazar'}).click();
+  await panel.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'}).click();
+  panel=page.getByTestId('admin-work-relations');
+  await expect(panel).toContainText('Beklenen metadata sürümü: 4');
+  await expect(panel.getByRole('button',{name:/Eserden yazar bağını kaldır/})).toHaveCount(0);
+  await expect(page.getByTestId('admin-catalog-detail')).toContainText('Asıl Yazar');
+  await expect(page.getByTestId('admin-catalog-detail')).toContainText('Kanonik Başlık');
+  expect(writes).toHaveLength(3);
+  expect(writes.every(row=>row.method==='DELETE'&&
+    row.csrf==='U'.repeat(43))).toBe(true);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth))
+    .toBeLessThanOrEqual(1);
+});
