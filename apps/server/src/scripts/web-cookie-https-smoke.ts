@@ -19,7 +19,8 @@ import {apiErrorSchema} from '@folio/contracts';
 import type {BearerSessionLookup} from '../common/session-auth.js';
 import {ApiExceptionFilter,RequestIdMiddleware} from '../common/http.js';
 import {
-  issueWebSessionCookie,verifyWebCookieSession,webSessionCsrfToken,
+  assertSafeWebCsrfBootstrap,issueWebSessionCookie,verifyWebCookieSession,
+  webSessionCsrfToken,
 } from '../common/web-cookie-session.js';
 import type {WebCookiePolicy,WebCookieRequest} from '../common/web-cookie-session.js';
 import {createFolioApp} from '../main.js';
@@ -54,6 +55,8 @@ class WebCookieTestController {
   }
   @Get('csrf')
   async bootstrap(@Req() request:WebCookieRequest,@Res({passthrough:true}) response:SmokeResponse){
+    // Mirror the production /v1/auth/web/csrf handler's origin gate.
+    assertSafeWebCsrfBootstrap(request,this.state.policy);
     const principal=await verifyWebCookieSession(
       request,this.state.lookup,this.state.policy,'GET');
     response.setHeader('Cache-Control','private, no-store');
@@ -183,10 +186,10 @@ async function main(){
         '403 response lost server request ID');
     }
     check((await httpsCall(port,prefix+'/csrf','GET',{
-      authorization:'Bearer '+signed.sessionToken,
+      authorization:'Bearer '+signed.sessionToken,'sec-fetch-site':'same-origin',
     })).status===401,'Native bearer used instead of cookie');
     check((await httpsCall(port,prefix+'/csrf','GET',{
-      cookie:cookie+'; '+cookie,
+      cookie:cookie+'; '+cookie,'sec-fetch-site':'same-origin',
     })).status===401,'Duplicate cookie accepted');
 
     plainApp=await NestFactory.create(TestOnlyModule,{logger:false});
@@ -203,7 +206,9 @@ async function main(){
 
     check((await revokeUserSession(db,signed.sessionToken)).revoked,
       'Synthetic revoke failed');
-    check((await httpsCall(port,prefix+'/csrf','GET',{cookie})).status===401,
+    check((await httpsCall(port,prefix+'/csrf','GET',{
+      cookie,'sec-fetch-site':'same-origin',
+    })).status===401,
       'Revoked cookie remained valid');
 
     productionApp=await createFolioApp();
