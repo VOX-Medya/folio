@@ -4,6 +4,8 @@ import {
   adminCatalogSearchQuerySchema,adminCatalogWorkCreatedSchema,
   adminCatalogWorkPageSchema,adminCatalogIdSchema,
   adminCatalogWorkDetailSchema,adminCatalogAuthorDetailSchema,
+  canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
+  canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
 
@@ -108,7 +110,7 @@ describe('admin-only canonical metadata search contracts',()=>{
     const safe={
       work:{
         id,originalTitle:'Editor Draft',originalLanguage:'tr',
-        firstPublicationYear:null,publicationStatus:'draft',
+        firstPublicationYear:null,publicationStatus:'draft',metadataVersion:0,
       },
       authors:[{id,name:'Writer',role:'author',sortOrder:2}],
       titles:[{id,language:'en',title:'Translation',kind:'translation'}],
@@ -141,7 +143,7 @@ describe('admin-only canonical metadata search contracts',()=>{
 
   it('projects author aliases and source IDs without account or bearer fields',()=>{
     const author={
-      author:{id,canonicalName:'Writer',sortName:'Writer'},
+      author:{id,canonicalName:'Writer',sortName:'Writer',metadataVersion:0},
       aliases:[{id,name:'Pen Name',locale:null}],
       externalIds:[{source:'folio_test',externalId:'test-author'}],
     };
@@ -157,5 +159,46 @@ describe('admin-only canonical metadata search contracts',()=>{
     ]){
       expect(adminCatalogAuthorDetailSchema.safeParse(invalid).success).toBe(false);
     }
+  });  it('accepts only version-conditional metadata PATCH without content/publish/actor selectors',()=>{
+    const author={
+      expectedVersion:0,canonicalName:'  Updated Author  ',
+      aliases:[{name:'New Signature',locale:'en'}],
+      externalIds:[{source:'folio_ci',externalId:'writer-2026'}],
+    };
+    expect(canonicalAuthorMetadataPatchSchema.parse(author).canonicalName)
+      .toBe('Updated Author');
+    const work={expectedVersion:4,originalTitle:'  A Corrected Title  ',
+      firstPublicationYear:null};
+    expect(canonicalWorkMetadataPatchSchema.parse(work).originalTitle)
+      .toBe('A Corrected Title');
+    expect(canonicalAuthorMetadataUpdatedSchema.parse({id,metadataVersion:1}))
+      .toEqual({id,metadataVersion:1});
+    expect(canonicalWorkMetadataUpdatedSchema.parse({
+      id,metadataVersion:5,publicationStatus:'draft',
+    })).toEqual({id,metadataVersion:5,publicationStatus:'draft'});
+    for(const bad of [
+      {expectedVersion:0},{expectedVersion:0,publicationStatus:'published'},
+      {...work,sourceText:'spoof'},{...work,actorId:id},
+      {...work,expectedVersion:-1},{...work,expectedVersion:2147483647},
+      {...work,metadataVersion:2},
+    ]){
+      expect(canonicalWorkMetadataPatchSchema.safeParse(bad).success).toBe(false);
+    }
+    for(const bad of [
+      {expectedVersion:0},{...author,userId:id},{...author,role:'superadmin'},
+      {...author,aliases:[{name:'Alias',userId:id}]},
+      {...author,externalIds:[author.externalIds[0],author.externalIds[0]]},
+      {...author,expectedVersion:-1},{...author,expectedVersion:4.7},
+      {...author,firstPublicationYear:1999},
+    ]){
+      expect(canonicalAuthorMetadataPatchSchema.safeParse(bad).success).toBe(false);
+    }
+    expect(canonicalWorkMetadataUpdatedSchema.safeParse({
+      id,metadataVersion:5,publicationStatus:'published',
+    }).success).toBe(false);
+    expect(canonicalAuthorMetadataUpdatedSchema.safeParse({
+      id,metadataVersion:1,actorId:id,
+    }).success).toBe(false);
   });
+
 });
