@@ -5,6 +5,7 @@ async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('Folio worker DATABASE_URL must be explicit');
   const boss = createFolioBoss(url);
+  boss.on('error', () => console.error('Folio pg-boss reported a queue failure; inspect private job diagnostics'));
   await boss.start();
   await initializeFolioQueues(boss);
   console.log('Folio job queues ready. Feature handlers are not registered yet.');

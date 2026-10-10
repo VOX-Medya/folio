@@ -60,3 +60,6 @@ Ubuntu CI `pnpm check`, paylasilan tipler, Drizzle, NestJS, Vite, unit/HTTP, Ope
 
 ## Runtime NestJS modularization (#9)
 Tek `AppModule` artik yalnizca `SystemModule` baglar ve `common/http.ts` request-id, hata ve ownership sinirlarini uygular. Yeni is bolumleri, auth ve hak denetimleri hazir olduktan sonra ilgili NestJS modulunde kaydedilir; ayrı API/mikroservis kurulmaz. Kabul ve HTTP negatif test kanitlari `docs/11-API-IMPLEMENTATION.md` icindedir.
+
+## Job and migration acceptance baseline (#10)
+The Postgres-backed `folioQueues` policy, separate dead-letter queues, and completion receipts are documented in `docs/19-DURABLE-JOBS.md`. Only transaction-scoped DB effects receive durable replay protection. V1 feature-specific handlers must use the provided transaction for their persistent effects and separately protect any file I/O. Queue provisioning can be repeated after restart; no AI/provider queues are enabled. A separate `folio_test` DB and ephemeral GitHub Actions Folio Postgres integration job provide safe failure/timeout/rollback evidence.

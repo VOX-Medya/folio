@@ -16,6 +16,22 @@ jobs:
           version: 10.34.5
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Isolated Folio PostgreSQL and durable-job integration tests
+        run: |
+          bash infra/lab.sh db-up
+          bash infra/lab.sh migrate
+          bash infra/lab.sh migrate
+          bash infra/lab.sh test-db
+          bash infra/lab.sh catalog-smoke
+          bash infra/lab.sh content-smoke
+          bash infra/lab.sh rights-smoke
+          bash infra/lab.sh translation-smoke
+          bash infra/lab.sh audio-smoke
+          bash infra/lab.sh job-smoke
+      - name: Stop isolated Folio CI laboratory
+        if: always()
+        run: |
+          if test -f infra/.env.lab; then bash infra/lab.sh down; fi
       - name: Export all Expo JavaScript targets (web/Android/iOS)
         run: pnpm mobile:export
       - name: Validate CI bundle checker negative cases

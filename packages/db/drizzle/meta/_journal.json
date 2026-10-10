@@ -43,6 +43,13 @@
       "when": 1791594375571,
       "tag": "0005_simple_sumo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791600304401,
+      "tag": "0006_normal_darwin",
+      "breakpoints": true
     }
   ]
 }

@@ -256,3 +256,12 @@ export const audioSegments=pgTable('audio_segments',{
   primaryKey({columns:[t.variantId,t.chapterId,t.ordinal]}),
   index('audio_segments_asset_idx').on(t.assetId),
 ]);
+
+/** Completion receipt is committed atomically with each job's DB side effects. */
+export const jobCompletionReceipts = pgTable('job_completion_receipts', {
+  queueName: varchar('queue_name', {length: 80}).notNull(),
+  operationKey: varchar('operation_key', {length: 200}).notNull(),
+  payloadSha256: varchar('payload_sha256', {length: 64}).notNull(),
+  firstJobId: uuid('first_job_id').notNull(),
+  completedAt: timestamp('completed_at', {withTimezone: true}).notNull().defaultNow(),
+}, t => [primaryKey({columns: [t.queueName, t.operationKey]})]);
