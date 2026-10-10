@@ -1,4 +1,4 @@
-import {paperbound} from './index.js';
+import {paperbound} from './index';
 
 export type FolioCoverTheme='light'|'dark';
 export interface FolioCoverInput {
