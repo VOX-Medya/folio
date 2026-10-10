@@ -97,6 +97,9 @@ async function main(){
       email:first.email,password:pass,
     });
     check(issued.status===204,'Opted-in TLS account could not log in');
+    const loginRequestId=issued.headers['x-request-id'];
+    check(typeof loginRequestId==='string',
+      'Web login response omitted a server-generated request ID');
     const setCookie=issued.headers['set-cookie']?.[0];
     check(typeof setCookie==='string'&&setCookie.startsWith('__Host-folio_session='),
       'Missing secure browser cookie after login');
@@ -110,7 +113,8 @@ async function main(){
       'Native bearer switched to a web owner');
 
     const webHeaders={cookie,'sec-fetch-site':'same-origin',
-      'x-user-id':unrelated.userId,'x-admin-role':'superadmin'};
+      'x-user-id':unrelated.userId,'x-admin-role':'superadmin',
+      'x-request-id':'client-forged-web-trace'};
     const read=await call(port,onboarding,'GET',webHeaders);
     check(read.status===200&&read.headers['cache-control']==='private, no-store',
       'HttpOnly cookie could not read its owner onboarding');
@@ -141,6 +145,10 @@ async function main(){
     const mutating={...webHeaders,origin,'x-folio-csrf':csrf};
     const saved=await call(port,onboarding,'PATCH',mutating,patch);
     check(saved.status===200,'Cookie session with CSRF could not save onboarding');
+    const onboardingRequestId=saved.headers['x-request-id'];
+    check(typeof onboardingRequestId==='string'&&
+      onboardingRequestId!=='client-forged-web-trace',
+      'Client spoofed a Web onboarding audit request ID');
     const updated=onboardingSnapshotSchema.parse(JSON.parse(saved.body));
     check(updated.userId===first.userId&&updated.version===1&&updated.locale==='en',
       'Web session saved a foreign or incorrect onboarding snapshot');
@@ -163,6 +171,10 @@ async function main(){
       'Web cookie could revoke a foreign user device');
     const deleted=await call(port,sessions+'/'+self,'DELETE',mutating);
     check(deleted.status===204,'CSRF verified web cookie could not revoke own device');
+    const revokedRequestId=deleted.headers['x-request-id'];
+    check(typeof revokedRequestId==='string'&&
+      revokedRequestId!==onboardingRequestId&&revokedRequestId!==loginRequestId,
+      'Session revoke must have a distinct trusted HTTP request ID');
     check((await call(port,onboarding,'GET',webHeaders)).status===401,
       'Self-revoked web cookie still accessed private account data');
     const retired=await call(port,auth+'/csrf','GET',webHeaders);
@@ -187,13 +199,23 @@ async function main(){
     check((await call(port,onboarding,'GET',nativeHeaders)).status===200,
       'Disabling web mode disabled native bearer authentication');
 
-    const audit=await pool.query<{action:string;after_json:unknown}>(
-      'SELECT action,after_json FROM audit_events WHERE actor_id=$1::uuid',
+    const audit=await pool.query<{
+      action:string;request_id:string|null;after_json:unknown;
+    }>(
+      'SELECT action,request_id,after_json FROM audit_events WHERE actor_id=$1::uuid',
       [first.userId],
     );
-    check(audit.rows.filter(row=>row.action==='user.onboarding.update').length===1&&
-      audit.rows.filter(row=>row.action==='auth.session.revoked').length===1,
+    const created=audit.rows.filter(row=>row.action==='auth.session.created');
+    const onboardingAudits=audit.rows.filter(row=>row.action==='user.onboarding.update');
+    const revoked=audit.rows.filter(row=>row.action==='auth.session.revoked');
+    check(created.length===1&&onboardingAudits.length===1&&revoked.length===1,
       'Rejected cookie mutations incorrectly generated audit events');
+    check(created[0]?.request_id===loginRequestId&&
+      onboardingAudits[0]?.request_id===onboardingRequestId&&
+      revoked[0]?.request_id===revokedRequestId,
+      'Web login, onboarding or revoke audit lost its server-issued HTTP request ID');
+    check(new Set([loginRequestId,onboardingRequestId,revokedRequestId]).size===3,
+      'Separate verified Web mutations unexpectedly share an audit request ID');
     check(!JSON.stringify(audit.rows).includes(cookie)&&
       !JSON.stringify(audit.rows).includes(pass),
       'Browser secrets leaked into audit log');
