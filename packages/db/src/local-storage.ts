@@ -20,13 +20,13 @@ export type AssetOwner=z.infer<typeof ownerSchema>;
 
 export const LOCAL_STORAGE_MAX_BYTES=1024*1024*1024;
 export type CandidateMime='text/plain'|'application/pdf'|'application/epub+zip'|'audio/mp4'|'audio/ogg';
-export interface QuarantinedBlob extends AssetOwner {
+export type QuarantinedBlob = AssetOwner & {
   key:string;
   status:'pending_verify';
   sha256:string;
   sizeBytes:number;
   mime:CandidateMime;
-}
+};
 export interface StagePrivateBlob {
   owner:AssetOwner;
   source:AsyncIterable<Uint8Array>;
