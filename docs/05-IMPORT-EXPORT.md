@@ -57,3 +57,8 @@ Tüm gerçek host/credential değerleri secret/env'de; örnek hostname repo'ya k
 - Bulk işlemlerde tahmini disk/asset sayısı ve kullanıcı deneyimine etkisi göster.
 - CLI ve Admin aynı backend import engine'i; farklı davranış göstermemeli.
 - Local original file ve prepared assets için on-disk staging/quarantine; public served asset yalnız approve sonrası.
+
+## Ilk uygulanan CLI temeli (#18, 10 Ekim 2026)
+`tools/folioctl` artik `pack validate --input DIR` ve `pack build --input DIR --out FILE.tar.zst` komutlarini yalniz yerel editor tarafindan hazirlanmis, **draft** kaynak klasorlerinde calistirir. `manifest-v1.schema.json` JSON Schema `schema_version=1.0.0`, UUID paket kimligi, yerel kaynak, dosya/SHA-256/byte indeksi, authors/works/editions/revisions ilan sayilari, elle kaydedilen rights evidence ve tur bilgisi ile birlikte surumlenir. Kod dosya-yol gecisi, gizli dizin, liste disi dosya, symlink, ozel dosya, bayt limitleri, degistirilmis dosya veya manifest, izin verilmeyen sema surumunu reddeder. Paket olusturma orijinal metin/dosyayi degistirmez; `sha256sums.txt` dahil deterministik tar+zstd uretir ve ayni klasorden bitwise ayni arşiv birim testinde dogrulandi.
+
+**Kesin ayrim:** Bu V1-01 #18 icin yalniz `prepared-folder -> signed-by-hash archive` altyapisidir. `pack validate` su an **arşivden geri dogrulama veya güvenli açma yapmaz**; `import --dry-run/apply/resume` (#19) ve hak denetimli `export --scope/--work-id` (#18/#23) kasitli olarak aktif degildir. Tam arsiv dosyasi path/symlink/bomb sinirlari ve JSONL semantik blok referanslarinin dogrulanmasi tamamlanmadan #18 kapatilmayacaktir. Bu arşivler dogrudan public katalog yayini ya da kullaniciya ait private veri tasimasi icin kullanilmaz.

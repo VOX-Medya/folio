@@ -1,1 +1,16 @@
-{"name":"@folio/folioctl","version":"0.1.0","private":true}
+{
+  "name": "@folio/folioctl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "folioctl": "./bin/folioctl.mjs"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.mjs && node src/write-schema.mjs --check",
+    "schema:write": "node src/write-schema.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
