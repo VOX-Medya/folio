@@ -2,6 +2,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {
   CatalogClientError,catalogErrorText,createAdminAuthor,createAdminWork,
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
+  appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
 } from './admin-catalog-client.js';
 
@@ -156,5 +157,94 @@ describe('admin catalog browser privacy/transport contract',()=>{
       expectedVersion:2,aliases:[{name:'Alias',userId:authorId}],
     } as never)).rejects.toMatchObject({kind:'invalid'});
     expect(f).not.toHaveBeenCalled();
+  });  it('appends bounded DRAFT edition/title/coauthor only with fresh HMAC-CSRF and exact revision',async()=>{
+    const calls:Array<{url:string;method:string;body:Record<string,unknown>|null;csrf:string|undefined}>=[];
+    let version=1;
+    const f=vi.fn(async(url:string,init:RequestInit)=>{
+      if(url==='/v1/auth/web/csrf')return bootstrap();
+      const body=JSON.parse(String(init.body)) as Record<string,unknown>;
+      calls.push({url,method:String(init.method),body,
+        csrf:(init.headers as Record<string,string>)['x-folio-csrf']});
+      if(url.endsWith('/editions'))return json({
+        id:authorId,workId,metadataVersion:++version,status:'draft',
+      },201);
+      if(url.endsWith('/titles'))return json({
+        id:authorId,workId,metadataVersion:++version,
+      },201);
+      if(url.endsWith('/authors'))return json({
+        workId,authorId,metadataVersion:++version,
+      },201);
+      throw Error('Unexpected network path');
+    });
+    vi.stubGlobal('fetch',f);
+    expect(await appendAdminWorkEdition(workId,{
+      expectedVersion:1,language:'en',label:'Translation, first print',
+      identifiers:[{kind:'isbn-13',value:'9780123456789'}],
+      contributors:[{authorId,role:'translator',sortOrder:0}],
+    })).toEqual({id:authorId,workId,metadataVersion:2,status:'draft'});
+    expect(await appendAdminWorkTitle(workId,{
+      expectedVersion:2,language:'tr',title:'Alternatif',kind:'alternate',
+    })).toEqual({id:authorId,workId,metadataVersion:3});
+    expect(await appendAdminWorkAuthor(workId,{
+      expectedVersion:3,authorId,contribution:'co-author',sortOrder:1,
+    })).toEqual({workId,authorId,metadataVersion:4});
+    expect(f).toHaveBeenCalledTimes(6);
+    expect(calls.map(v=>v.url)).toEqual([
+      '/v1/admin/catalog/works/'+workId+'/editions',
+      '/v1/admin/catalog/works/'+workId+'/titles',
+      '/v1/admin/catalog/works/'+workId+'/authors',
+    ]);
+    for(const call of calls){
+      expect(call.csrf).toBe('B'.repeat(43));
+      expect(call.method).toBe('POST');
+      expect(call.body).not.toHaveProperty('publicationStatus');
+      expect(call.body).not.toHaveProperty('actorId');
+      expect(call.body).not.toHaveProperty('userId');
+    }
+    expect(calls[0]?.body?.expectedVersion).toBe(1);
+    expect(calls[1]?.body?.expectedVersion).toBe(2);
+    expect(calls[2]?.body?.expectedVersion).toBe(3);
   });
+  it('rejects invalid relation, fake publication, missing author before any fetch/CSRF',async()=>{
+    const f=vi.fn();
+    vi.stubGlobal('fetch',f);
+    await expect(appendAdminWorkEdition(workId,{
+      expectedVersion:0,language:'en',label:'Draft',
+      identifiers:[{kind:'isbn-13',value:'dup'},{kind:'isbn-13',value:'dup'}],
+      contributors:[],
+    })).rejects.toMatchObject({kind:'invalid'});
+    await expect(appendAdminWorkTitle(workId,{
+      expectedVersion:0,language:'en',title:'Translation',kind:'original',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(appendAdminWorkAuthor(workId,{
+      expectedVersion:0,authorId:'not-uuid',contribution:'author',sortOrder:0,
+    })).rejects.toMatchObject({kind:'invalid'});
+    await expect(appendAdminWorkEdition(workId,{
+      expectedVersion:0,language:'en',label:'Draft',
+      identifiers:[],contributors:[],status:'published',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(appendAdminWorkEdition('../cross-site',{
+      expectedVersion:0,language:'tr',label:'Draft',identifiers:[],contributors:[],
+    })).rejects.toMatchObject({kind:'invalid'});
+    expect(f).not.toHaveBeenCalled();
+  });
+  it('does not retry a stale append after server replies with 409 or network failure',async()=>{
+    const f=vi.fn()
+      .mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'CONFLICT'}},409))
+      .mockResolvedValueOnce(bootstrap())
+      .mockRejectedValueOnce(new Error('response lost after commit'));
+    vi.stubGlobal('fetch',f);
+    const input={expectedVersion:5,language:'en' as const,
+      label:'Concurrent edition',identifiers:[],contributors:[]};
+    await expect(appendAdminWorkEdition(workId,input)).rejects.toMatchObject({
+      kind:'conflict',
+    });
+    expect(f).toHaveBeenCalledTimes(2);
+    await expect(appendAdminWorkEdition(workId,input)).rejects.toMatchObject({
+      kind:'network',
+    });
+    expect(f).toHaveBeenCalledTimes(4);
+  });
+
 });

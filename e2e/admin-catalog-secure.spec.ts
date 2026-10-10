@@ -236,3 +236,158 @@ test('HTTPS catalog never renders simulated results after a real 403 permission 
   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+
+test('HTTPS author, edition, ISBN, translator and alternate-title work relations follow server revisions',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  let version=0,conflictSent=false;
+  const inputs:Array<{path:string;body:Record<string,unknown>;csrf:string|undefined}>=[];
+  const editions:Array<Record<string,unknown>>=[];
+  const titles:Array<Record<string,unknown>>=[{
+    id:authorId,language:'tr',title:'Kayıtlı Taslak',kind:'original',
+  }];
+  const authors:Array<Record<string,unknown>>=[{
+    id:authorId,name:'Şule İpek',role:'author',sortOrder:0,
+  }];
+  await page.route('**/v1/**',async route=>{
+    const request=route.request(),url=new URL(request.url()),path=url.pathname;
+    if(path==='/v1/auth/web/csrf'){
+      await route.fulfill({status:204,headers:{'x-folio-csrf':'D'.repeat(43)}});
+    }else if(path==='/v1/admin/catalog/works'&&request.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:'Kayıtlı Taslak',
+        originalLanguage:'tr',publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(path==='/v1/admin/catalog/works/'+workId&&request.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Kayıtlı Taslak',originalLanguage:'tr',
+          firstPublicationYear:null,publicationStatus:'draft',metadataVersion:version},
+        authors,titles,editions,
+      }));
+    }else if(path.startsWith('/v1/admin/catalog/works/'+workId+'/')&&
+      request.method()==='POST'){
+      const body=request.postDataJSON() as Record<string,unknown>;
+      inputs.push({path,body,csrf:request.headers()['x-folio-csrf']});
+      expect(request.headers()['authorization']).toBeUndefined();
+      expect(request.headers()['x-user-id']).toBeUndefined();
+      expect(request.headers()['x-admin-role']).toBeUndefined();
+      if(path.endsWith('/editions')){
+        expect(body.expectedVersion).toBe(0);
+        expect(body).not.toHaveProperty('publicationStatus');
+        editions.push({
+          id:createdAuthorId,language:body.language,label:body.label,
+          publisher:body.publisher??null,status:'draft',
+          identifiers:body.identifiers,contributors:body.contributors,
+        });
+        version=1;
+        await route.fulfill(respond({
+          id:createdAuthorId,workId,metadataVersion:1,status:'draft',
+        },201));
+      }else if(path.endsWith('/titles')){
+        if(!conflictSent){
+          conflictSent=true;
+          // A competing editor committed another revision on the server.
+          version=2;
+          titles.push({id:createdAuthorId,language:'en',
+            title:'Başka editörün başlığı',kind:'alternate'});
+          await route.fulfill(respond({error:{code:'CONFLICT'}},409));
+        }else{
+          expect(body.expectedVersion).toBe(2);
+          version=3;
+          titles.push({
+            id:'822ab87e-bb66-4a60-a6fb-6675c1dba21b',
+            language:body.language,title:body.title,kind:body.kind,
+          });
+          await route.fulfill(respond({
+            id:'822ab87e-bb66-4a60-a6fb-6675c1dba21b',
+            workId,metadataVersion:3,
+          },201));
+        }
+      }else if(path.endsWith('/authors')){
+        expect(body.expectedVersion).toBe(3);
+        version=4;
+        authors.push({
+          id:createdAuthorId,name:'İkinci Yazar',role:body.contribution,
+          sortOrder:body.sortOrder,
+        });
+        await route.fulfill(respond({
+          workId,authorId:createdAuthorId,metadataVersion:4,
+        },201));
+      }else{
+        await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+      }
+    }else{
+      await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+    }
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Taslak');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Kayıtlı Taslak/}).click();
+  const details=page.getByTestId('admin-catalog-detail');
+  await expect(details).toContainText('Metadata sürümü: 0');
+  const panel=page.getByTestId('admin-work-relations');
+  await page.getByRole('button',{name:'Baskı ekle'}).click();
+  await page.getByLabel('Baskı etiketi').fill('İlk İngilizce Baskı');
+  await page.getByLabel('Yayınevi (isteğe bağlı)').fill('Folio Lab');
+  await page.getByRole('button',{name:'Tanımlayıcı ekle'}).click();
+  await page.getByRole('combobox',{name:'Tür 1'}).selectOption('isbn-13');
+  await page.getByRole('textbox',{name:'Değer 1'}).fill('9780123456789');
+  await page.getByRole('button',{name:'Tanımlayıcı ekle'}).click();
+  await page.getByRole('combobox',{name:'Tür 2'}).selectOption('other');
+  await page.getByRole('textbox',{name:'Değer 2'}).fill('folio:edition:sample');
+  await page.getByRole('button',{name:'Katkı veren ekle'}).click();
+  await page.getByRole('textbox',{name:'Kanonik yazar UUID 1'}).fill(authorId);
+  await page.getByRole('combobox',{name:'Baskı katkı görevi 1'}).selectOption('translator');
+  await page.getByRole('button',{name:'Sürüm kontrolüyle ekle'}).click();
+  await expect(details).toContainText('Metadata sürümü: 1');
+  await expect(details).toContainText('İlk İngilizce Baskı');
+  await expect(details).toContainText('9780123456789');
+  expect(inputs[0]?.body).toMatchObject({
+    expectedVersion:0,language:'en',label:'İlk İngilizce Baskı',
+    publisher:'Folio Lab',
+    identifiers:[
+      {kind:'isbn-13',value:'9780123456789'},
+      {kind:'other',value:'folio:edition:sample'},
+    ],
+    contributors:[{authorId,role:'translator',sortOrder:0}],
+  });
+  await panel.getByRole('button',{name:'Alternatif başlık ekle'}).click();
+  await page.getByRole('textbox',{name:'Başlık',exact:true}).fill('A New Translation Title');
+  await page.getByRole('combobox',{name:'Başlık türü'}).selectOption('translation');
+  await panel.getByRole('button',{name:'Sürüm kontrolüyle ekle'}).click();
+  await expect(panel.getByRole('alert')).toContainText('Başka bir yönetici');
+  const writesBeforeReload=inputs.length;
+  await expect(panel.getByRole('button',{name:'Sürüm kontrolüyle ekle'})).toBeDisabled();
+  expect(inputs.length).toBe(writesBeforeReload);
+  await panel.getByRole('button',{name:'Güncel eseri yeniden yükle'}).click();
+  await expect(details).toContainText('Metadata sürümü: 2');
+  await expect(details).toContainText('Başka editörün başlığı');
+  expect(inputs.length).toBe(writesBeforeReload);
+  await page.getByRole('button',{name:'Alternatif başlık ekle'}).click();
+  await page.getByRole('textbox',{name:'Başlık',exact:true}).fill('Verified Translation Title');
+  await page.getByRole('combobox',{name:'Başlık türü'}).selectOption('translation');
+  await page.getByRole('button',{name:'Sürüm kontrolüyle ekle'}).click();
+  await expect(details).toContainText('Metadata sürümü: 3');
+  await expect(details).toContainText('Verified Translation Title');
+  await page.getByRole('button',{name:'Yazar bağla'}).click();
+  await page.getByLabel('Kanonik yazar UUID',{exact:true}).fill(createdAuthorId);
+  await page.getByRole('combobox',{name:'Katkı türü'}).selectOption('co-author');
+  await page.getByRole('textbox',{name:'Sıra',exact:true}).fill('2');
+  await page.getByRole('button',{name:'Sürüm kontrolüyle ekle'}).click();
+  await expect(details).toContainText('Metadata sürümü: 4');
+  await expect(details).toContainText('İkinci Yazar (co-author, 2)');
+  expect(inputs).toHaveLength(4);
+  expect(inputs.map(i=>i.csrf)).toEqual(Array(4).fill('D'.repeat(43)));
+  expect(inputs[2]?.body).toMatchObject({
+    expectedVersion:2,kind:'translation',title:'Verified Translation Title',
+  });
+  expect(inputs[3]?.body).toMatchObject({
+    expectedVersion:3,authorId:createdAuthorId,contribution:'co-author',sortOrder:2,
+  });
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(page.getByTestId('admin-work-relations'))
+    .toContainText('Draft work relationships');
+});
