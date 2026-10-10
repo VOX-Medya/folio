@@ -23,11 +23,11 @@ export {preparedImportSchema,canonicalJson,payloadHash,previewPreparedCatalogImp
 export type {PreparedImport,ImportPlanItem} from './import-staging.js';
 
 // Quarantine-only private byte staging. No public stream or publish API.
-export {LocalStorageAdapter, LOCAL_STORAGE_MAX_BYTES} from './local-storage.js';
+export {LocalStorageAdapter, LOCAL_STORAGE_MAX_BYTES, PRIVATE_ORPHAN_GRACE_MS} from './local-storage.js';
 export type {AssetOwner, CandidateMime, QuarantinedBlob, StagePrivateBlob, StorageAdapter} from './local-storage.js';
 
 // INTERNAL private-user quota gate. Requires trusted auth caller; never publishes staged bytes.
-export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota} from './private-quota.js';
+export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateUploadQuota,inspectPrivateUploadQuota,sweepPrivateQuarantineOrphans} from './private-quota.js';
 
 // Internal RBAC-only catalog metadata queries. Never mount as a public route without rights verification.
 export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin,searchVerifiedAdminWorks,searchVerifiedAdminAuthors} from './catalog-search.js';
