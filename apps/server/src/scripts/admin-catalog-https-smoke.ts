@@ -11,8 +11,9 @@ import {NestFactory} from '@nestjs/core';
 import type {INestApplication} from '@nestjs/common';
 import {SwaggerModule} from '@nestjs/swagger';
 import {
-  adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
-  adminCatalogWorkCreatedSchema,adminCatalogWorkPageSchema,apiErrorSchema,
+  adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
+  adminCatalogAuthorPageSchema,adminCatalogWorkCreatedSchema,
+  adminCatalogWorkDetailSchema,adminCatalogWorkPageSchema,apiErrorSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
@@ -148,6 +149,11 @@ async function main():Promise<void>{
     const off=await call(true,port,search,bearer);
     check(off.status===404&&off.headers['cache-control']==='private, no-store',
       'Default-off metadata API exposed draft works');
+    const firstDetailPath=root+'/works/'+first.id;
+    const authorDetailPath=root+'/authors/'+author.id;
+    check((await call(true,port,firstDetailPath,bearer)).status===404&&
+      (await call(true,port,authorDetailPath,bearer)).status===404,
+      'Default-off admin catalog exposed relational draft details');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='true';
     check((await call(true,port,search,bearer)).status===404,
       'Non-contract flag enabled private admin catalog');
@@ -173,6 +179,10 @@ async function main():Promise<void>{
     check(spoofTls.status===503&&
       spoofTls.headers['cache-control']==='private, no-store',
       'Forged proxy TLS revealed private draft metadata');
+    check((await call(false,plainAddress.port,firstDetailPath,{
+      ...bearer,'x-forwarded-proto':'https',
+    })).status===503,
+      'Forged forwarded HTTPS allowed admin relational snapshot');
 
     const spoof=await call(true,port,search,{
       'x-admin-role':'superadmin','x-user-id':editor.userId,
@@ -194,6 +204,28 @@ async function main():Promise<void>{
     check((await call(true,port,search,{
       authorization:'Bearer '+web.sessionToken,
     })).status===403,'Editor password + role bypassed exact-device MFA');
+    for(const target of [firstDetailPath,authorDetailPath]){
+      const forged=await call(true,port,target,{
+        'x-user-id':editor.userId,'x-admin-role':'superadmin',
+      });
+      check(forged.status===401&&forged.headers['cache-control']==='private, no-store',
+        'Forged identity/role read an admin canonical detail');
+      for(const denied of [
+        {authorization:'Bearer '+guestSession.sessionToken,
+          'x-admin-role':'superadmin'},
+        {authorization:'Bearer '+moderatorSession.sessionToken,
+          'x-admin-role':'editor'},
+        {authorization:'Bearer '+web.sessionToken},
+      ]){
+        const response=await call(true,port,target,denied);
+        check(response.status===403&&
+          apiErrorSchema.parse(JSON.parse(response.body)).error.code==='FORBIDDEN',
+          'Insufficient DB role or device MFA exposed an unpublished detail');
+      }
+      check((await call(true,port,target,{
+        ...bearer,origin:'https://wrong-origin.example',
+      })).status===401,'Browser-bearing native token exposed canonical detail');
+    }
     for(const bad of [
       {origin:'https://admin.example'},
       {'sec-fetch-site':'same-origin'},
