@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {and,eq,inArray,sql} from 'drizzle-orm';
+import {and,asc,eq,inArray,ne,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
@@ -61,7 +61,9 @@ export const preparedImportSchema=z.object({
 export type PreparedImport=z.infer<typeof preparedImportSchema>;
 export type ImportKind='author'|'work'|'edition'|'revision'|'rights';
 export type ImportAction='create'|'noop'|'conflict'|'deferred';
-export type ImportPlanItem={kind:ImportKind;externalId:string;action:ImportAction;reason:string};
+/** Only candidate UUIDs, never auto-merge instruction or personal data. */
+export type ImportPlanItem={kind:ImportKind;externalId:string;action:ImportAction;reason:string;
+  candidateWorkIds?:string[];moreCandidates?:boolean};
 
 /** Hash canonical JSON without depending on JSONB key order across process restarts. */
 export function canonicalJson(value:unknown):string{
@@ -79,6 +81,32 @@ const importedEditionLabel=(e:z.infer<typeof editionSchema>):string=>e.label??au
 
 type RowMap<T extends{id:string}>=Map<string,T>;
 const mapRows=<T extends{id:string}>(rows:T[]):RowMap<T>=>new Map(rows.map(row=>[row.id,row]));
+
+/** Derive untrusted package raw-source SHA-256 per canonical work. A matching
+ * digest proves identical source bytes, NOT that ISBN, translator, licensing,
+ * edition, reviewer approval or canonical identity can be merged. */
+function packageWorkSourceHashes(
+  revisions:readonly z.infer<typeof revisionSchema>[],
+  editions:readonly z.infer<typeof editionSchema>[],
+):Map<string,Set<string>>{
+  const editionWork=new Map(editions.map(row=>[row.id,row.work_id]));
+  const hashes=new Map<string,Set<string>>();
+  for(const revision of revisions){
+    const workId=editionWork.get(revision.edition_id);
+    if(!workId)continue;
+    const list=hashes.get(workId)??new Set<string>();
+    list.add(revision.source_sha256);
+    hashes.set(workId,list);
+  }
+  return hashes;
+}
+const MAX_REVIEW_CANDIDATES=20;
+function boundedCandidates(ids:Iterable<string>,excludeId:string){
+  const unique=[...new Set(ids)].filter(id=>id!==excludeId).sort();
+  return {candidateWorkIds:unique.slice(0,MAX_REVIEW_CANDIDATES),
+    moreCandidates:unique.length>MAX_REVIEW_CANDIDATES};
+}
+
 
 /** Purely READ ONLY: no audit, batch, asset, author, revision, or catalog changes. */
 export async function previewPreparedCatalogImport(db:Database,raw:unknown){
@@ -120,6 +148,40 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
     }
     const existingWorkLinks=existingWorks.size?await tx.select().from(schema.workAuthors)
       .where(inArray(schema.workAuthors.workId,[...existingWorks.keys()])):[];
+
+    // An exact immutable raw SHA-256 can reveal a duplicate whose title is
+    // different. This is REVIEW EVIDENCE, never an automatic work merger.
+    // Batch bound and fail-closed if the match set is too large to examine.
+    const hashesByWork=packageWorkSourceHashes(revisions,editions);
+    const editionById=new Map(editions.map(edition=>[edition.id,edition]));
+    // Multiple package works claiming the same byte-for-byte source are also
+    // ambiguous. Never assume separate IDs or titles establish separate works.
+    const packageWorkIdsByHash=new Map<string,Set<string>>();
+    for(const [workId,sourceHashes] of hashesByWork){
+      for(const digest of sourceHashes){
+        const works=packageWorkIdsByHash.get(digest)??new Set<string>();
+        works.add(workId);
+        packageWorkIdsByHash.set(digest,works);
+      }
+    }
+    const hashes=[...new Set(revisions.map(row=>row.source_sha256))];
+    const workIdsByHash=new Map<string,Set<string>>();
+    for(let i=0;i<hashes.length;i+=200){
+      const matches=await tx.select({
+        rawSha256:schema.contentRevisions.rawSha256,workId:schema.editions.workId,
+      }).from(schema.contentRevisions)
+        .innerJoin(schema.editions,
+          eq(schema.contentRevisions.editionId,schema.editions.id))
+        .where(inArray(schema.contentRevisions.rawSha256,hashes.slice(i,i+200)))
+        .orderBy(asc(schema.contentRevisions.rawSha256),asc(schema.editions.workId))
+        .limit(10001);
+      if(matches.length>10000)throw new Error('Too many source-hash matches for safe manual review');
+      for(const row of matches){
+        const ids=workIdsByHash.get(row.rawSha256)??new Set<string>();
+        ids.add(row.workId);
+        workIdsByHash.set(row.rawSha256,ids);
+      }
+    }
     const items=[] as ImportPlanItem[];
     for(const a of authors){
       const existing=existingAuthors.get(a.id);
@@ -131,12 +193,25 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
     }
     for(const w of works){
       const existing=existingWorks.get(w.id);
-      const sameName=sameTitles.some(row=>row.id!==w.id&&row.title===w.original_title&&row.language===w.original_language);
+      const titleIds=sameTitles.filter(row=>row.id!==w.id&&
+        row.title===w.original_title&&row.language===w.original_language)
+        .map(row=>row.id);
+      const hashes=hashesByWork.get(w.id)??new Set<string>();
+      const sourceMatchIds=[...hashes].flatMap(hash=>[
+        ...(workIdsByHash.get(hash)??[]),...(packageWorkIdsByHash.get(hash)??[]),
+      ]);
+      const match=boundedCandidates([...titleIds,...sourceMatchIds],w.id);
+      const hashCollision=sourceMatchIds.some(id=>id!==w.id);
       const existingAuthorsForWork=existingWorkLinks.filter(link=>link.workId===w.id).map(link=>link.authorId).sort();
       const same=!!existing&&existing.originalTitle===w.original_title&&existing.originalLanguage===w.original_language&&
         canonicalJson(existingAuthorsForWork)===canonicalJson([...w.authors].sort());
-      items.push({kind:'work',externalId:w.id,action:existing?(same?'noop':'conflict'):(sameName?'conflict':'create'),
-        reason:existing?(same?'same_uuid_same_authors':'same_uuid_changed_canonical_work'):(sameName?'possible_title_match_requires_review':'new_uuid')});
+      items.push({kind:'work',externalId:w.id,
+        action:existing?(same?'noop':'conflict'):(match.candidateWorkIds.length?'conflict':'create'),
+        reason:existing?(same?'same_uuid_same_authors':'same_uuid_changed_canonical_work')
+          :(hashCollision?'possible_source_sha256_match_requires_human_review'
+            :(titleIds.length?'possible_title_match_requires_review':'new_uuid')),
+        ...(match.candidateWorkIds.length?match:{}),
+      });
     }
     for(const e of editions){
       const existing=existingEditions.get(e.id);
@@ -147,15 +222,25 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
     for(const r of revisions){
       const existing=existingRevisions.get(r.id);
       const same=!!existing&&existing.editionId===r.edition_id&&existing.language===r.language&&existing.rawSha256===r.source_sha256;
+      const sameSourceWorkIds=new Set([
+        ...(workIdsByHash.get(r.source_sha256)??[]),
+        ...(packageWorkIdsByHash.get(r.source_sha256)??[]),
+      ]);
+      const preparedWorkId=editionById.get(r.edition_id)?.work_id??'';
+      const match=boundedCandidates(sameSourceWorkIds,preparedWorkId);
       items.push({kind:'revision',externalId:r.id,action:existing?(same?'noop':'conflict'):'deferred',
-        reason:existing?(same?'immutable_revision_already_exists':'immutable_revision_collision'):'requires_verified_private_artifact_storage'});
+        reason:existing?(same?'immutable_revision_already_exists':'immutable_revision_collision')
+          :(match.candidateWorkIds.length?'matching_source_sha256_needs_human_review'
+            :'requires_verified_private_artifact_storage'),
+        ...(match.candidateWorkIds.length?match:{}),
+      });
     }
     for(const [i,r] of rightsRecords.entries())items.push({kind:'rights',externalId:`${r.work_id}:${i}`,action:'deferred',reason:'manual_country_and_action_rights_review_required'});
     const totals={create:0,noop:0,conflict:0,deferred:0};
     for(const item of items)totals[item.action]++;
     return {packageId:input.packageId,manifestChecksum:input.manifestChecksum,existingBatchId:older?.id??null,
       batchStatus:older?.status??null,canStage:totals.conflict===0,totals,items};
-  });
+  },{isolationLevel:'repeatable read'});
 }
 
 function stagedPayloads(input:PreparedImport){
@@ -211,6 +296,53 @@ export async function resumeStagedCatalogMetadata(db:Database,actorId:string,bat
   if(!batch)throw new Error('Unknown import stage');
   const items=await db.select().from(schema.importItems).where(eq(schema.importItems.batchId,id));
   if(items.length!==batch.expectedItems)throw new Error('Import stage is incomplete');
+  for(const item of items){
+    if(payloadHash(item.payload)!==item.payloadSha256){
+      throw new Error('Staged payload hash mismatch before canonical duplicate review');
+    }
+  }
+  // Reconstruct from SHA-verified *staged* package records. A source revision
+  // added AFTER dry-run/staging must not silently create a second canonical work.
+  const hashesByWork=packageWorkSourceHashes(
+    items.filter(item=>item.kind==='revision').map(item=>revisionSchema.parse(item.payload)),
+    items.filter(item=>item.kind==='edition').map(item=>editionSchema.parse(item.payload)),
+  );
+  const ownerByDigest=new Map<string,string>();
+  for(const [workId,sourceHashes] of hashesByWork){
+    for(const digest of sourceHashes){
+      const prior=ownerByDigest.get(digest);
+      if(prior!==undefined&&prior!==workId){
+        throw new Error('In-package duplicate source SHA-256 requires human work identity review');
+      }
+      ownerByDigest.set(digest,workId);
+    }
+  }
+
+  // Fail BEFORE applying even the author dependency when previously staged
+  // work source bytes now belong to another canonical work. The per-work
+  // transaction below rechecks to catch a collision after this preflight.
+  await db.transaction(async tx=>{
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    const uniqueDigests=[...ownerByDigest.keys()];
+    for(let i=0;i<uniqueDigests.length;i+=200){
+      const collisions=await tx.select({
+        rawSha256:schema.contentRevisions.rawSha256,
+        workId:schema.editions.workId,
+      }).from(schema.contentRevisions)
+        .innerJoin(schema.editions,
+          eq(schema.contentRevisions.editionId,schema.editions.id))
+        .where(inArray(schema.contentRevisions.rawSha256,
+          uniqueDigests.slice(i,i+200))).limit(10001);
+      if(collisions.length>10000){
+        throw new Error('Too many source-hash matches for safe review');
+      }
+      for(const row of collisions){
+        if(ownerByDigest.get(row.rawSha256)!==row.workId){
+          throw new Error('New canonical source SHA-256 collision requires human identity review');
+        }
+      }
+    }
+  },{isolationLevel:'repeatable read'});
   const order:Record<string,number>={author:0,work:1,edition:2,revision:3,rights:4};
   const sorted=items.filter(item=>item.status==='staged').sort((a,b)=>(order[a.kind]??99)-(order[b.kind]??99)||a.externalId.localeCompare(b.externalId));
   let applied=0;
@@ -249,6 +381,16 @@ export async function resumeStagedCatalogMetadata(db:Database,actorId:string,bat
           const [possibleMatch]=await tx.select().from(schema.works).where(and(
             eq(schema.works.originalTitle,incoming.original_title),eq(schema.works.originalLanguage,incoming.original_language))).limit(1);
           if(possibleMatch)throw new Error('Possible existing work requires human matching');
+          const rawHashes=[...(hashesByWork.get(incoming.id)??[])];
+          if(rawHashes.length){
+            const [sameSource]=await tx.select({workId:schema.editions.workId})
+              .from(schema.contentRevisions)
+              .innerJoin(schema.editions,eq(schema.contentRevisions.editionId,schema.editions.id))
+              .where(and(inArray(schema.contentRevisions.rawSha256,rawHashes),
+                ne(schema.editions.workId,incoming.id))).limit(1);
+            if(sameSource)throw new Error(
+              'Source SHA-256 matches another canonical work; human identity review required');
+          }
           await tx.insert(schema.works).values({id:incoming.id,originalTitle:incoming.original_title,originalLanguage:incoming.original_language,publicationStatus:'draft'});
           await tx.insert(schema.workAuthors).values(incoming.authors.map((authorId,index)=>({workId:incoming.id,authorId,sortOrder:index,contribution:'author'})));
           await tx.insert(schema.workTitles).values({workId:incoming.id,language:incoming.original_language,title:incoming.original_title,kind:'original'});

@@ -167,6 +167,122 @@ async function main(){
         'Repeated concurrent stage changed completed metadata state');
       console.log('Two concurrent PostgreSQL import workers: 12 unique checkpoints, 12 audit events, final status stable.');
     }finally{await secondPool.pool.end();}
+
+    // An unrelated canonical work can have a completely different title but
+    // the EXACT same source artifact digest. That is review evidence, not
+    // permission to deduplicate titles/editions or republish protected text.
+    const donorAuthorId=randomUUID(),donorWorkId=randomUUID();
+    const donorEditionId=randomUUID(),donorProvenanceId=randomUUID();
+    const donorDigest=sha('synthetic-existing-source:'+randomUUID());
+    await db.insert(schema.authors).values({
+      id:donorAuthorId,canonicalName:'Synthetic SHA-256 donor '+donorAuthorId,
+      sortName:'SHA-256 donor',
+    });
+    await db.insert(schema.works).values({
+      id:donorWorkId,originalTitle:'Unrelated Synthetic Donor '+donorWorkId,
+      originalLanguage:'en',publicationStatus:'draft',
+    });
+    await db.insert(schema.workAuthors).values({
+      workId:donorWorkId,authorId:donorAuthorId,
+      contribution:'author',sortOrder:0,
+    });
+    await db.insert(schema.editions).values({
+      id:donorEditionId,workId:donorWorkId,language:'en',
+      label:'Synthetic comparison source',status:'draft',
+    });
+    await db.insert(schema.sourceProvenance).values({
+      id:donorProvenanceId,sourceName:'folio_test_only_manual',
+    });
+    await db.insert(schema.contentRevisions).values({
+      id:randomUUID(),editionId:donorEditionId,language:'en',
+      rawArtifactKey:'synthetic-content-not-created',
+      rawSha256:donorDigest,normalizedSha256:donorDigest,
+      parserVersion:'synthetic-only-1',provenanceId:donorProvenanceId,
+      createdBy:actor,status:'draft',
+    });
+    const hashCollision=generatedPackage(1,randomUUID());
+    hashCollision.records.revisions[0]={
+      ...hashCollision.records.revisions[0]!,source_sha256:donorDigest,
+    };
+    const beforeCollision=await Promise.all([
+      count(schema.authors),count(schema.works),count(schema.editions),
+      count(schema.importBatches),count(schema.importItems),count(schema.auditEvents),
+    ]);
+    const review=await previewPreparedCatalogImport(db,hashCollision);
+    const plannedWork=review.items.find(item=>
+      item.kind==='work'&&item.externalId===hashCollision.records.works[0]?.id);
+    const plannedRevision=review.items.find(item=>
+      item.kind==='revision'&&item.externalId===hashCollision.records.revisions[0]?.id);
+    ensure(review.canStage===false&&review.totals.conflict>=1&&
+      plannedWork?.action==='conflict'&&
+      plannedWork.reason==='possible_source_sha256_match_requires_human_review'&&
+      plannedWork.candidateWorkIds?.includes(donorWorkId)&&
+      plannedRevision?.candidateWorkIds?.includes(donorWorkId),
+      'An exact source digest under another work silently bypassed human review');
+    ensure(plannedWork.candidateWorkIds?.every(id=>id!==hashCollision.records.works[0]?.id),
+      'Reviewer suggestion included the work itself');
+    ensure(JSON.stringify(beforeCollision)===JSON.stringify(await Promise.all([
+      count(schema.authors),count(schema.works),count(schema.editions),
+      count(schema.importBatches),count(schema.importItems),count(schema.auditEvents),
+    ])),'Hash-backed dry-run wrote canonical, stage or audit records');
+    let denied=false;
+    try{await stagePreparedCatalogImport(db,actor,hashCollision);}
+    catch{denied=true;}
+    ensure(denied,'Source hash conflict was staged without a human identity review');
+    console.log('Different-title identical-SHA source: human-review candidates only; no dry-run/staging writes.');
+    // The same digest across TWO new works in a single import is another
+    // review conflict, even without any matching canonical source in DB.
+    const inBatch=generatedPackage(2,randomUUID());
+    const sharedSha=inBatch.records.revisions[0]!.source_sha256;
+    inBatch.records.revisions[1]={
+      ...inBatch.records.revisions[1]!,source_sha256:sharedSha,
+    };
+    const duplicateBatch=await previewPreparedCatalogImport(db,inBatch);
+    const packageWorkIds=inBatch.records.works.map(item=>item.id);
+    const plannedBatchWorks=duplicateBatch.items.filter(item=>item.kind==='work');
+    ensure(!duplicateBatch.canStage&&plannedBatchWorks.length===2&&
+      plannedBatchWorks.every(item=>item.action==='conflict'&&
+        item.reason==='possible_source_sha256_match_requires_human_review'&&
+        item.candidateWorkIds?.includes(packageWorkIds.find(id=>id!==item.externalId)??'')),
+      'Identical in-package source content was silently treated as distinct works');
+    let sameSourceBatchAccepted=false;
+    try{await stagePreparedCatalogImport(db,actor,inBatch);sameSourceBatchAccepted=true;}
+    catch{/* expected: a reviewer must resolve this ambiguous package */}
+    ensure(!sameSourceBatchAccepted,
+      'Duplicate source bytes across independent package works were staged');
+    console.log('Two package works with identical source SHA: both require explicit human review.');
+
+
+    // TOCTOU: metadata staged while no duplicate exists, then a different
+    // canonical source revision arrives before apply. Work apply must recheck
+    // the hash under the item transaction, not trust stale dry-run approval.
+    const stageRace=generatedPackage(1,randomUUID());
+    ensure((await previewPreparedCatalogImport(db,stageRace)).canStage,
+      'Fresh independent staged package unexpectedly collided');
+    const raceBatch=await stagePreparedCatalogImport(db,actor,stageRace);
+    const raceWork=stageRace.records.works[0]!;
+    const raceSha=stageRace.records.revisions[0]!.source_sha256;
+    await db.insert(schema.contentRevisions).values({
+      id:randomUUID(),editionId:donorEditionId,language:'en',
+      rawArtifactKey:'synthetic-late-import-not-created',
+      rawSha256:raceSha,normalizedSha256:raceSha,
+      parserVersion:'synthetic-only-1',provenanceId:donorProvenanceId,
+      createdBy:actor,status:'draft',
+    });
+    let raceBlocked=false;
+    try{await resumeStagedCatalogMetadata(db,actor,raceBatch.batchId);}
+    catch(error){
+      raceBlocked=error instanceof Error&&error.message.includes('human identity review');
+    }
+    ensure(raceBlocked,'Work staged before source SHA collision was applied silently');
+    const newRaceWork=await db.select().from(schema.works)
+      .where(eq(schema.works.id,raceWork.id));
+    ensure(newRaceWork.length===0,'Late SHA collision still created a duplicate canonical work');
+    const raceState=await getStagedCatalogImportStatus(db,raceBatch.batchId);
+    ensure(raceState?.counts['work:staged']===1&&
+      raceState.counts['author:staged']===1,
+      'Late SHA collision advanced a work or its author dependency before review');
+    console.log('Post-staging source SHA race denied before work creation; review remains required.');
   }finally{await pool.end();}
 }
 void main().catch(err=>{console.error(err);process.exitCode=1;});
