@@ -10,9 +10,7 @@ const scrypt=promisify(scryptCallback);
 const emailSchema=z.email().trim().max(254).transform(value=>value.toLowerCase());
 const passwordSchema=z.string().min(12).max(128).refine(value=>!value.includes('\0'));
 const deviceSchema=z.string().trim().min(1).max(80);
-const uuid=z.uuid();
-const challengePurpose=z.enum(['verify_email','password_reset']);
-type Purpose=z.infer<typeof challengePurpose>;
+type Purpose='verify_email'|'password_reset';
 const SESSION_DAYS=30;
 const challengeTtlMs=15*60*1000;
 
