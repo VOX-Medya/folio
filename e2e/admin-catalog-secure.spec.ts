@@ -201,3 +201,38 @@ test('author alias/source editing + real create form are responsive, typed and s
   const viewportOverflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
   expect(viewportOverflow).toBeLessThanOrEqual(1);
 });
+
+
+test('HTTP preview never asks for private author or work data',async({page})=>{
+  const intercepted:string[]=[];
+  await page.route('**/v1/**',async route=>{
+    intercepted.push(route.request().url());
+    await route.abort();
+  });
+  for(const kind of ['works','authors']){
+    await page.goto('http://127.0.0.1:4173/admin/'+kind);
+    await expect(page.getByTestId('admin-catalog-insecure')).toBeVisible();
+    await expect(page.getByRole('searchbox')).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'Taslağı kaydet'})).toHaveCount(0);
+  }
+  expect(intercepted).toEqual([]);
+});
+
+test('HTTPS catalog never renders simulated results after a real 403 permission response',async({page})=>{
+  await page.setViewportSize({width:320,height:720});
+  let queries=0;
+  await page.route('**/v1/**',async route=>{
+    queries++;
+    await route.fulfill(respond({error:{code:'FORBIDDEN'}},403));
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Özel Taslak');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await expect(page.getByRole('alert').first())
+    .toContainText('Yönetici rolü ve bu cihazda geçerli MFA');
+  await expect(page.getByTestId('admin-catalog-detail')).toHaveCount(0);
+  await expect(page.getByText('Özel Taslak',{exact:true})).toHaveCount(0);
+  expect(queries).toBe(1);
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
