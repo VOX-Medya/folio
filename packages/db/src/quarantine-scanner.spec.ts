@@ -97,7 +97,7 @@ describe('internal ClamAV stdin-only quarantine scanning',()=>{
       const liar:QuarantineByteScanner={scan:async _source=>'clean'};
       await expect(storage.scanQuarantined(blob,liar))
         .rejects.toThrow(/digest or length mismatched/);
-      const wrong={scan:async source=>{
+      const wrong:QuarantineByteScanner={scan:async source=>{
         for await(const _ of source){/* consume bytes */ }
         return 'verified' as QuarantineScanVerdict;
       }};
