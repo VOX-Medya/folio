@@ -14,3 +14,10 @@ The responsive Expo Web profile now has a manually opened device session invento
 Vitest covers SSR/non-HTTPS/cross-origin rejection before sending cookies, strict response DTO and no extra sensitive fields, same-origin request metadata, fresh CSRF, invalid UUID rejection, 401/404 server errors, missing CSRF and non-204 DELETE. CI retains Folio-only PostgreSQL/HTTPS smokes, Expo Web/Android/iOS JS exports, Playwright HTTP negative tests and non-deploy Docker build. These tests are not a real browser HTTPS device-management E2E or iOS/Android device build.
 
 This is **partial #30**. Public signup/verified-email delivery, password reset, admin MFA, native secure storage, trusted production TLS topology, actual same-origin HTTPS browser acceptance and #7 dependency release gate remain incomplete. No production deployment or secrets.
+
+
+## Recovering a remotely revoked browser session (follow-up)
+
+A session may be revoked by another device **after** this profile has been verified and mounted. In that case `GET /v1/me/sessions` or the protected device DELETE returns 401 while the stale HttpOnly cookie is still stored by the browser. The shared browser-only device client makes exactly **one same-origin GET /v1/auth/web/csrf** to trigger the server's safe revoked-cookie expiration behavior described in `docs/42-WEB-AUTH-HTTP-OPT-IN.md` (follow-up backend PR #112). It does not retry DELETE, trust the bootstrap result as an authentication grant, create a session or overwrite the original 401/UUID error. The responsive UI then removes the old inventory and returns to signed-out state. A 403 or 503 from device endpoints does not initiate cookie retirement. Failure of the cleanup request does not hide the original 401, and a manual refresh remains a fallback.
+
+Additional Vitest negatives assert the exact request sequence, no extra DELETE, no cleanup on 403, no authorization bearer/header leakage and original 401 preservation despite a 503 bootstrap. This client change depends on PR #112's server-side same-origin guarded cookie cleanup. Actual configured HTTPS browser E2E is still required for #30 acceptance.
