@@ -403,6 +403,26 @@ export const contentRevisionCreateSchema = z.object({
 });
 export type ContentRevisionCreate = z.infer<typeof contentRevisionCreateSchema>;
 
+/** A verified, bounded list of immutable edition revision IDENTITIES only.
+ * This cannot expose source text, byte hashes, file paths, editor identity,
+ * provenance or any rights decision. No anonymous/public route. */
+export const adminCatalogRevisionListQuerySchema=z.object({
+  cursor:z.uuid().optional(),
+  limit:z.coerce.number().int().min(1).max(50).default(20),
+}).strict();
+export const adminCatalogRevisionListSchema=z.object({
+  editionId:z.uuid(),
+  items:z.array(z.object({
+    id:z.uuid(),
+    parentRevisionId:z.uuid().nullable(),
+    language:z.enum(['tr','en']),
+    status:z.string().min(1).max(24),
+  }).strict()).max(50),
+  nextCursor:z.uuid().nullable(),
+  isMetadataOnly:z.literal(true),
+}).strict();
+export type AdminCatalogRevisionList=z.infer<typeof adminCatalogRevisionListSchema>;
+
 /** ADMIN-ONLY read-only editorial diff: stable ID metadata, never source
  * text, artifact path, raw provenance, user library or publication approval. */
 export const adminCatalogRevisionDiffQuerySchema=z.object({
