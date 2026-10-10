@@ -42,6 +42,7 @@ jobs:
           bash infra/lab.sh auth-rate-smoke
           bash infra/lab.sh auth-http-smoke
           bash infra/lab.sh auth-admission-http-smoke
+          bash infra/lab.sh web-cookie-https-smoke
           bash infra/lab.sh onboarding-smoke
           bash infra/lab.sh onboarding-http-smoke
           bash infra/lab.sh device-sessions-http-smoke
