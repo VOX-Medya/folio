@@ -31,3 +31,11 @@ Initial Docker Hub image download failed with 502 and was retried; the second pu
 - `bash infra/lab.sh test-db`: PASS in separate `folio_test` DB, including pg_trgm, tables/FK, rollback and persistent pg-boss singleton job.
 - `bash infra/lab.sh api-smoke`: PASS; real HTTP `/v1/ready` -> 200 when DB is configured; no DB -> 503 in contract test.
 - Worker queues for V1 validation/parsing/cover/media are registered, but feature processing handlers have NOT been implemented yet. Retry/error/dead-letter hardening must be verified before closing #10.
+
+## Full Compose lab (#11)
+`bash infra/lab.sh up` builds the Node/pnpm/NestJS lab image and starts both `folio_lab-postgres-1` and `folio_lab-api-1`, waiting for health. The API is bound to **127.0.0.1:3310** on the Ubuntu host and uses a dedicated Docker-private DB hostname. `bash infra/lab.sh db-up` is for database-only local tests. The worker is opt-in behind Compose profile `jobs` until actual V1 job handlers are installed. This keeps unused worker processes off.
+
+`bash infra/lab.sh health` checks the local Postgres and HTTP `/v1/ready`. `bash infra/lab.sh down` stops and removes **only** Folio Compose containers and its project network, never a volume; `bash infra/lab.sh up` restores it. Production deployment and image publishing remain prohibited without explicit approval. The image build excludes `.env`, `.git`, node_modules and reports successful local startup only after an HTTP-ready healthcheck.
+
+## Full Docker lab verification (10 October 2026)
+The Dockerfile built from the checked-in frozen lockfile with pinned Node 22.22.1 and pnpm 10.34.5. `bash infra/lab.sh up` returned a healthy API and PostgreSQL. Host HTTP `GET http://127.0.0.1:3310/v1/ready` returned `{"status":"ready"}`. `down` followed by `up` returned both containers to healthy status, with the Folio data volume retained and migration repeat succeeding. The list of live `isnad-dev` container IDs was captured before and after the cycle and was identical (`diff` PASS); no unrelated container was changed. A Docker image was built locally only; no image was published or production deployed. CI also builds a non-published lab image.

@@ -19,6 +19,8 @@ jobs:
       - run: pnpm --filter @folio/mobile exec expo export --platform web
       - run: pnpm licenses list --json > licenses.json && node tools/security/check-licenses.mjs licenses.json
       - run: pnpm e2e
+      - name: Build local Docker image (no deployment)
+        run: docker build --file infra/Dockerfile --tag folio-ci:local .
       - name: Dependency audit (pre-release informational)
         continue-on-error: true
         run: pnpm audit --audit-level high
