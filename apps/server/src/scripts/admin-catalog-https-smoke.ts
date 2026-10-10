@@ -11,7 +11,8 @@ import {NestFactory} from '@nestjs/core';
 import type {INestApplication} from '@nestjs/common';
 import {SwaggerModule} from '@nestjs/swagger';
 import {
-  adminCatalogAuthorPageSchema,adminCatalogWorkPageSchema,apiErrorSchema,
+  adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
+  adminCatalogWorkCreatedSchema,adminCatalogWorkPageSchema,apiErrorSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
@@ -24,10 +25,15 @@ function check(value:unknown,message:string):asserts value{
   if(!value)throw Error(message);
 }
 async function call(secure:boolean,port:number,path:string,
-  headers:Record<string,string>={}):Promise<Wire>{
+  headers:Record<string,string>={},method='GET',body?:unknown):Promise<Wire>{
+  const payload=body===undefined?undefined:JSON.stringify(body);
+  const wireHeaders={...headers,...(payload===undefined?{}:{
+    'content-type':'application/json',
+    'content-length':String(Buffer.byteLength(payload)),
+  })};
   return new Promise((resolve,reject)=>{
     const req=(secure?httpsRequest:httpRequest)({
-      host:'127.0.0.1',port,path,method:'GET',headers,
+      host:'127.0.0.1',port,path,method,headers:wireHeaders,
       ...(secure?{rejectUnauthorized:false}:{}),
       timeout:10000,
     },res=>{
@@ -41,8 +47,11 @@ async function call(secure:boolean,port:number,path:string,
     });
     req.on('error',reject);
     req.on('timeout',()=>req.destroy(Error('Admin catalog HTTPS lab timeout')));
-    req.end();
+    req.end(payload);
   });
+}
+function post(port:number,path:string,headers:Record<string,string>,body:unknown){
+  return call(true,port,path,headers,'POST',body);
 }
 
 async function main():Promise<void>{
@@ -55,7 +64,8 @@ async function main():Promise<void>{
     throw Error('Admin catalog smoke must use dedicated loopback folio_test');
   }
   const names=[
-    'FOLIO_ADMIN_CATALOG_HTTP_MODE','FOLIO_WEB_AUTH_MODE',
+    'FOLIO_ADMIN_CATALOG_HTTP_MODE','FOLIO_ADMIN_CATALOG_WRITE_MODE',
+    'FOLIO_WEB_AUTH_MODE',
     'FOLIO_WEB_AUTH_ORIGIN','FOLIO_WEB_CSRF_KEY_HEX',
   ];
   const original=Object.fromEntries(names.map(name=>[name,process.env[name]]));
@@ -79,17 +89,21 @@ async function main():Promise<void>{
   try{
     // All grants and factor rows are synthetic and restricted to folio_test.
     // Production has no initial administrator provisioning endpoint.
-    const editor=await account(),moderator=await account(),guest=await account();
+    const editor=await account(),moderator=await account(),guest=await account(),
+      viewer=await account();
     await db.insert(schema.adminRoleMemberships).values([
       {userId:editor.userId,role:'editor',grantedBy:guest.userId},
       {userId:moderator.userId,role:'moderator',grantedBy:guest.userId},
+      {userId:viewer.userId,role:'read-only',grantedBy:guest.userId},
     ]);
     const native=await signInVerifiedAccount(db,editor.email,password,'android-lab');
     const web=await signInVerifiedAccount(db,editor.email,password,'web-lab');
     const moderatorSession=await signInVerifiedAccount(db,moderator.email,password,'review-lab');
     const guestSession=await signInVerifiedAccount(db,guest.email,password,'guest-lab');
+    const viewerSession=await signInVerifiedAccount(db,viewer.email,password,'viewer-lab');
     await mfa(native.sessionId,editor.userId);
     await mfa(moderatorSession.sessionId,moderator.userId);
+    await mfa(viewerSession.sessionId,viewer.userId);
     const suffix=randomUUID().slice(0,8);
     const author=await createCanonicalAuthor(db,editor.userId,{
       canonicalName:'Folio Canonical Writer '+suffix,
@@ -113,6 +127,7 @@ async function main():Promise<void>{
       '-keyout',key,'-out',cert,'-days','1','-subj','/CN=localhost'],
       {stdio:'ignore'});
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     httpApp=await NestFactory.create(AppModule,{logger:false});
     httpApp.useGlobalFilters(new ApiExceptionFilter());
     const plain=await httpApp.listen(0,'127.0.0.1');
@@ -137,6 +152,20 @@ async function main():Promise<void>{
     check((await call(true,port,search,bearer)).status===404,
       'Non-contract flag enabled private admin catalog');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
+    const createRoot=root+'/authors';
+    const draftAuthor={canonicalName:'Native Writer '+suffix,
+      aliases:[{name:'Native Alias '+suffix}],
+      externalIds:[{source:'folio_ci',externalId:'native-'+suffix}]};
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Read-only rollout unexpectedly enabled catalog mutation');
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='true';
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Non-contract write flag unexpectedly enabled mutation');
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='direct-tls-only';
+    check((await call(false,plainAddress.port,createRoot,{
+      ...bearer,'x-forwarded-proto':'https',
+    },'POST',draftAuthor)).status===503,
+      'Forged proxy TLS enabled admin draft mutation');
 
     const spoofTls=await call(false,plainAddress.port,search,{
       ...bearer,'x-forwarded-proto':'https',
@@ -206,6 +235,176 @@ async function main():Promise<void>{
     const percent=adminCatalogWorkPageSchema.parse(JSON.parse(pct.body));
     check(percent.items.length===1&&percent.items[0]?.id===literal.id,
       'Literal percent search unexpectedly became a SQL wildcard');
+
+    // A role with catalog:read cannot silently acquire catalog:edit, even
+    // with a real same-device MFA proof.
+    const viewerBearer={authorization:'Bearer '+viewerSession.sessionToken};
+    check((await call(true,port,search,viewerBearer)).status===200,
+      'Read-only administrator could not read canonical metadata');
+    const deniedPost=async(headers:Record<string,string>,why:string)=>{
+      const answer=await post(port,createRoot,headers,draftAuthor);
+      check(answer.status===403&&
+        answer.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(answer.body)).error.code==='FORBIDDEN',
+        why);
+    };
+    await deniedPost(viewerBearer,
+      'Read-only role with verified MFA created canonical author');
+    await deniedPost({
+      authorization:'Bearer '+moderatorSession.sessionToken,
+      'x-admin-role':'editor',
+    },'Moderator with MFA and forged role created author');
+    await deniedPost({
+      authorization:'Bearer '+guestSession.sessionToken,
+      'x-admin-role':'superadmin',
+    },'Unprivileged user with forged superadmin header created author');
+    await deniedPost({authorization:'Bearer '+web.sessionToken},
+      'Same editor password+role without device MFA wrote draft');
+    check((await post(port,createRoot,{
+      ...bearer,origin:'https://evil.example',
+    },draftAuthor)).status===401,
+      'Browser Origin-bearing native POST circumvented cookie boundary');
+    check((await post(port,createRoot,{
+      ...bearer,'sec-fetch-site':'same-origin',
+    },draftAuthor)).status===401,
+      'Browser fetch metadata-bearing native POST created author');
+
+    const beforeRejected=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM authors WHERE canonical_name=$1',
+      [draftAuthor.canonicalName],
+    );
+    check(beforeRejected.rows[0]?.count===0,
+      'An unauthorized writer created a record before valid request');
+    for(const invalid of [
+      {...draftAuthor,userId:guest.userId},
+      {...draftAuthor,actorId:guest.userId},
+      {...draftAuthor,role:'superadmin'},
+      {...draftAuthor,publicationStatus:'published'},
+      {canonicalName:'    '},
+    ]){
+      const bad=await post(port,createRoot,bearer,invalid);
+      check(bad.status===400&&
+        bad.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(bad.body)).error.code==='BAD_REQUEST',
+        'Admin author body schema accepted forbidden fields');
+    }
+    check((await post(port,createRoot+'?userId='+guest.userId,
+      bearer,draftAuthor)).status===400,
+      'Privileged POST accepted caller-controlled actor query');
+
+    const signedNative=await post(port,createRoot,{
+      ...bearer,'x-admin-role':'superadmin','x-user-id':guest.userId,
+      'x-request-id':'forged-request-id',
+    },draftAuthor);
+    check(signedNative.status===201&&
+      signedNative.headers['cache-control']==='private, no-store'&&
+      !signedNative.headers['set-cookie']&&
+      signedNative.headers['x-request-id']!=='forged-request-id',
+      'Authenticated draft author was not created with server-owned trace');
+    const nativeDraftId=adminCatalogAuthorCreatedSchema.parse(
+      JSON.parse(signedNative.body)).id;
+    const signedAlias=await pool.query<{name:string}>(
+      'SELECT name FROM author_aliases WHERE author_id=$1::uuid',[nativeDraftId],
+    );
+    check(signedAlias.rows[0]?.name==='Native Alias '+suffix,
+      'Authorized author metadata aliases were not persisted');
+    const nativeAudit=await pool.query<{
+      action:string;actor_id:string;request_id:string;entity_id:string;
+    }>('SELECT action,actor_id,request_id,entity_id FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [nativeDraftId,'author.create']);
+    check(nativeAudit.rows.length===1&&
+      nativeAudit.rows[0]?.actor_id===editor.userId&&
+      nativeAudit.rows[0]?.request_id===signedNative.headers['x-request-id'],
+      'Author audit did not bind exactly one trusted editor and server request ID');
+
+    // The external author ID is globally unique by source. A failed second
+    // command MUST roll back its author row AND audit in the same transaction.
+    const collisionName='Collision Writer '+suffix;
+    const collision=await post(port,createRoot,bearer,{
+      canonicalName:collisionName,
+      externalIds:draftAuthor.externalIds,
+    });
+    check(collision.status===409&&
+      apiErrorSchema.parse(JSON.parse(collision.body)).error.code==='CONFLICT',
+      'Duplicate external author key did not receive sanitized conflict');
+    const collided=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM authors WHERE canonical_name=$1',
+      [collisionName]);
+    check(collided.rows[0]?.count===0,
+      'Duplicate external author key committed partial author row');
+
+    const workInput={
+      originalTitle:'Authorized Draft '+suffix,originalLanguage:'tr',
+      authors:[{authorId:nativeDraftId,contribution:'author',sortOrder:0}],
+      titles:[{language:'en',title:'Reviewed Translation '+suffix,kind:'translation'}],
+      editions:[
+        {language:'tr',label:'Original '+suffix,
+          identifiers:[{kind:'isbn-13',value:'9780000000001'}]},
+        {language:'en',label:'Translation '+suffix,contributors:[
+          {authorId:author.id,role:'translator',sortOrder:0},
+        ]},
+      ],
+    };
+    for(const invalid of [
+      {...workInput,publicationStatus:'published'},
+      {...workInput,ownerId:guest.userId},
+      {...workInput,content:'MADE UP TEXT'},
+      {...workInput,authors:[]},
+      {...workInput,authors:[{authorId:nativeDraftId},{authorId:nativeDraftId}]},
+      {...workInput,editions:[{language:'en',label:'Wrong',status:'published'}]},
+    ]){
+      const denied=await post(port,root+'/works',bearer,invalid);
+      check(denied.status===400&&
+        apiErrorSchema.parse(JSON.parse(denied.body)).error.code==='BAD_REQUEST',
+        'Admin work POST accepted unsupported status or relationship');
+    }
+    const realWork=await post(port,root+'/works',bearer,workInput);
+    check(realWork.status===201&&
+      realWork.headers['cache-control']==='private, no-store',
+      'Verified admin could not create an unpublished work');
+    const createdWork=adminCatalogWorkCreatedSchema.parse(JSON.parse(realWork.body));
+    check(createdWork.publicationStatus==='draft',
+      'Created canonical work became published without rights approval');
+    const workRow=await pool.query<{publication_status:string}>(
+      'SELECT publication_status FROM works WHERE id=$1::uuid',
+      [createdWork.id]);
+    const editionRows=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM editions WHERE work_id=$1::uuid',
+      [createdWork.id]);
+    const workAudit=await pool.query<{
+      actor_id:string;request_id:string;after_json:{status?:string};
+    }>('SELECT actor_id,request_id,after_json FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [createdWork.id,'work.create']);
+    check(workRow.rows[0]?.publication_status==='draft'&&
+      editionRows.rows[0]?.count===2&&
+      workAudit.rows.length===1&&
+      workAudit.rows[0]?.actor_id===editor.userId&&
+      workAudit.rows[0]?.request_id===realWork.headers['x-request-id']&&
+      workAudit.rows[0]?.after_json?.status==='draft',
+      'Work/edition draft and actor+request audit were not committed atomically');
+
+    // Failure AFTER work, author, title and edition insertion must unwind
+    // all of them; not merely reject an invalid foreign ID before writing.
+    const rolledBackName='Rolled Back '+suffix;
+    const invalidContributor=await post(port,root+'/works',bearer,{
+      ...workInput,originalTitle:rolledBackName,
+      editions:[{language:'en',label:'Bad Contributor',contributors:[
+        {authorId:randomUUID(),role:'translator'},
+      ]}],
+    });
+    check(invalidContributor.status===400&&
+      invalidContributor.headers['cache-control']==='private, no-store',
+      'Contributor foreign-key failure was not converted to sanitized 400');
+    const aborted=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM works WHERE original_title=$1',
+      [rolledBackName]);
+    check(aborted.rows[0]?.count===0,
+      'Aborted composite admin mutation committed partial work');
+    const auditSecret=JSON.stringify([...nativeAudit.rows,...workAudit.rows]);
+    check(!auditSecret.includes(native.sessionToken)&&
+      !auditSecret.includes(password)&&!auditSecret.includes(guest.email),
+      'Privileged audit events leaked credentials');
+
     for(const invalid of [
       root+'/works',
       root+'/works?q=',
@@ -233,6 +432,54 @@ async function main():Promise<void>{
     check(browser.status===200&&
       adminCatalogWorkPageSchema.parse(JSON.parse(browser.body)).items.length===1,
       'Real direct-TLS HttpOnly Web session could not query MFA-verified metadata');
+
+    const cookieDraft={canonicalName:'Web Writer '+suffix};
+    check((await post(port,createRoot,cookie,cookieDraft)).status===403,
+      'Web admin POST without CSRF bypassed double-submit boundary');
+    check((await post(port,createRoot,{
+      ...cookie,'x-folio-csrf':'A'.repeat(43),
+    },cookieDraft)).status===403,
+      'Forged HMAC-CSRF permitted privileged author write');
+    check((await post(port,createRoot,{
+      ...cookie,origin:'https://wrong-origin.example',
+      'x-folio-csrf':'A'.repeat(43),
+    },cookieDraft)).status===403,
+      'Cross-origin cookie POST wrote an unpublished author');
+    check((await post(port,createRoot,{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    },cookieDraft)).status===401,
+      'Bearer + cookie crossover created privileged author');
+    const csrfWire=await call(true,port,'/v1/auth/web/csrf',cookie);
+    const csrf=csrfWire.headers['x-folio-csrf'];
+    check(csrfWire.status===204&&typeof csrf==='string',
+      'Real direct-TLS authenticated cookie CSRF bootstrap unavailable');
+    const secureCookie={...cookie,'x-folio-csrf':csrf};
+    const cookieCreated=await post(port,createRoot,{
+      ...secureCookie,'x-user-id':guest.userId,'x-admin-role':'superadmin',
+      'x-request-id':'forged-cookie-trace',
+    },cookieDraft);
+    check(cookieCreated.status===201&&
+      cookieCreated.headers['cache-control']==='private, no-store'&&
+      cookieCreated.headers['x-request-id']!=='forged-cookie-trace',
+      'Same-origin Cookie + CSRF + MFA could not create an audited author');
+    const cookieId=adminCatalogAuthorCreatedSchema.parse(
+      JSON.parse(cookieCreated.body)).id;
+    const cookieAudit=await pool.query<{
+      actor_id:string;request_id:string;
+    }>('SELECT actor_id,request_id FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [cookieId,'author.create']);
+    check(cookieAudit.rows.length===1&&
+      cookieAudit.rows[0]?.actor_id===editor.userId&&
+      cookieAudit.rows[0]?.request_id===cookieCreated.headers['x-request-id'],
+      'CSRF-authorized web mutation did not audit the actual session owner');
+    const cookieWork=await post(port,root+'/works',secureCookie,{
+      originalTitle:'Web Work '+suffix,originalLanguage:'en',
+      authors:[{authorId:cookieId}],
+    });
+    check(cookieWork.status===201&&
+      adminCatalogWorkCreatedSchema.parse(JSON.parse(cookieWork.body))
+        .publicationStatus==='draft',
+      'Valid Web POST did not create a DRAFT-only canonical work');
     check((await call(true,port,search,{
       ...cookie,origin:'https://wrong-origin.example',
     })).status===403,'Cross-origin cookie read private admin draft');
@@ -270,12 +517,18 @@ async function main():Promise<void>{
       'Synthetic expired MFA proof could be denied for a different timestamp reason');
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
+    check((await post(port,createRoot,secureCookie,{
+      canonicalName:'Expired web editor '+suffix,
+    })).status===403,'Expired same-device MFA still authorized catalog draft POST');
     await pool.query(
       'UPDATE admin_role_memberships SET revoked_at=$1 WHERE user_id=$2::uuid',
       [new Date(),editor.userId],
     );
     check((await call(true,port,search,bearer)).status===403,
       'Revoked database role could still read private draft');
+    check((await post(port,createRoot,bearer,{
+      canonicalName:'Revoked editor '+suffix,
+    })).status===403,'Revoked persisted role still authorized draft POST');
 
     const specResponse=await call(true,port,'/openapi-json');
     check(specResponse.status===200,'HTTPS OpenAPI missing');
@@ -283,12 +536,21 @@ async function main():Promise<void>{
       paths:Record<string,Record<string,unknown>>;
     };
     check(!!spec.paths[root+'/works']?.get&&
-      !!spec.paths[root+'/authors']?.get,
-      'Explicit secure admin catalog endpoints missing from versioned OpenAPI');
+      !!spec.paths[root+'/authors']?.get&&
+      !!spec.paths[root+'/works']?.post&&
+      !!spec.paths[root+'/authors']?.post&&
+      !spec.paths[root+'/users'],
+      'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
     check((await call(true,port,search,bearer)).status===404,
       'Flag shutoff did not immediately hide private catalog API');
-    console.log('ADMIN CATALOG HTTPS PASS: default-off, direct socket TLS, signed-in session + exact-device MFA + DB catalog:read in one transaction, read-only TR/EN drafts, canonical aliases, bounded UUID pagination, wildcard literal, no private bodies/user search, cookie origin and native bearer separation, no-store 4xx/5xx, role revoke/expired MFA denial, OpenAPI. Synthetic folio_test ONLY.');
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Disabling catalog HTTP left POST author creation reachable');
+    process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Independent admin write flag failed to turn off mutation');
+    console.log('ADMIN CATALOG HTTPS PASS: independently default-off GET/POST, verified TLS and native/session cookie + same-origin HMAC-CSRF; catalog:read vs edit, exact-device MFA, author and two-edition work DRAFT creation, trusted actor/request audit in one transaction, FK/unique rollback, malicious body/user/role headers denied, 400/401/403/404/409/503 private no-store, revocation/expiry and OpenAPI. Synthetic folio_test ONLY.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();

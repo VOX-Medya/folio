@@ -1,84 +1,132 @@
 import {asc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
-import {authorCreateSchema, workCreateSchema} from '@folio/contracts';
-import type {AuthorCreate, WorkCreate} from '@folio/contracts';
+import {authorCreateSchema,workCreateSchema} from '@folio/contracts';
+import type {AuthorCreate,WorkCreate} from '@folio/contracts';
 import type {createFolioDb} from './index.js';
+import {withVerifiedAdminPermission} from './admin-authorization.js';
 import * as schema from './schema.js';
 
-type CatalogDb = ReturnType<typeof createFolioDb>['db'];
+type CatalogDb=ReturnType<typeof createFolioDb>['db'];
+type CatalogTx=Parameters<Parameters<CatalogDb['transaction']>[0]>[0];
 
-/** Internal, transactional draft commands. Not accessible as unguarded HTTP endpoints. */
-export async function createCanonicalAuthor(
-  db: CatalogDb, actorId: string, raw: unknown, requestId?: string,
-) {
-  const actor = z.uuid().parse(actorId);
-  // HTTP callers must supply only RequestIdMiddleware's request.requestId.
-  // This syntax check is NOT actor authentication or admin role evidence.
-  const traceId = requestId === undefined ? undefined : z.uuid().parse(requestId);
-  const input: AuthorCreate = authorCreateSchema.parse(raw);
-  return db.transaction(async tx => {
-    const [author] = await tx.insert(schema.authors).values({
-      canonicalName: input.canonicalName,
-      sortName: input.sortName ?? input.canonicalName,
-    }).returning();
-    if (!author) throw new Error('Author creation failed');
-    if (input.aliases.length) await tx.insert(schema.authorAliases).values(input.aliases.map(alias => ({
-      authorId: author.id, name: alias.name, locale: alias.locale ?? null,
-    })));
-    if (input.externalIds.length) await tx.insert(schema.authorExternalIds).values(input.externalIds.map(external => ({
-      authorId: author.id, source: external.source, externalId: external.externalId,
-    })));
-    await tx.insert(schema.auditEvents).values({
-      actorId: actor, action: 'author.create', entityType: 'author', entityId: author.id,
-      ...(traceId ? {requestId: traceId} : {}),
-      afterJson: {name: author.canonicalName, aliasCount: input.aliases.length, externalIdCount: input.externalIds.length},
-    });
-    return author;
+/**
+ * INTERNAL draft mutation core. Never nest a new transaction under a
+ * previously verified admin transaction: both the catalog rows and their
+ * audit must commit/roll back with live MFA, session and role locks.
+ * These functions cannot authorize a raw bearer by themselves.
+ */
+async function insertAuthorDraft(
+  tx:CatalogTx,actor:string,input:AuthorCreate,traceId?:string,
+){
+  const [author]=await tx.insert(schema.authors).values({
+    canonicalName:input.canonicalName,
+    sortName:input.sortName??input.canonicalName,
+  }).returning();
+  if(!author)throw new Error('Author creation failed');
+  if(input.aliases.length)await tx.insert(schema.authorAliases).values(input.aliases.map(alias=>({
+    authorId:author.id,name:alias.name,locale:alias.locale??null,
+  })));
+  if(input.externalIds.length)await tx.insert(schema.authorExternalIds).values(input.externalIds.map(ext=>({
+    authorId:author.id,source:ext.source,externalId:ext.externalId,
+  })));
+  await tx.insert(schema.auditEvents).values({
+    actorId:actor,action:'author.create',entityType:'author',entityId:author.id,
+    ...(traceId?{requestId:traceId}:{}),
+    afterJson:{
+      name:author.canonicalName,
+      aliasCount:input.aliases.length,externalIdCount:input.externalIds.length,
+    },
   });
+  return author;
 }
 
-export async function createCanonicalWork(
-  db: CatalogDb, actorId: string, raw: unknown, requestId?: string,
-) {
-  const actor = z.uuid().parse(actorId);
-  const traceId = requestId === undefined ? undefined : z.uuid().parse(requestId);
-  const input: WorkCreate = workCreateSchema.parse(raw);
-  return db.transaction(async tx => {
-    const [work] = await tx.insert(schema.works).values({
-      originalTitle: input.originalTitle,
-      originalLanguage: input.originalLanguage,
-      firstPublicationYear: input.firstPublicationYear ?? null,
-      publicationStatus: 'draft',
+async function insertWorkDraft(
+  tx:CatalogTx,actor:string,input:WorkCreate,traceId?:string,
+){
+  const [work]=await tx.insert(schema.works).values({
+    originalTitle:input.originalTitle,
+    originalLanguage:input.originalLanguage,
+    firstPublicationYear:input.firstPublicationYear??null,
+    publicationStatus:'draft',
+  }).returning();
+  if(!work)throw new Error('Work creation failed');
+  await tx.insert(schema.workAuthors).values(input.authors.map(author=>({
+    workId:work.id,authorId:author.authorId,
+    contribution:author.contribution,sortOrder:author.sortOrder,
+  })));
+  await tx.insert(schema.workTitles).values([
+    {workId:work.id,language:input.originalLanguage,
+      title:input.originalTitle,kind:'original'},
+    ...input.titles.map(title=>({workId:work.id,...title})),
+  ]);
+  for(const edition of input.editions){
+    const [created]=await tx.insert(schema.editions).values({
+      workId:work.id,language:edition.language,label:edition.label,
+      publisher:edition.publisher??null,status:'draft',
     }).returning();
-    if (!work) throw new Error('Work creation failed');
-    await tx.insert(schema.workAuthors).values(input.authors.map(author => ({
-      workId: work.id, authorId: author.authorId,
-      contribution: author.contribution, sortOrder: author.sortOrder,
-    })));
-    await tx.insert(schema.workTitles).values([
-      {workId: work.id, language: input.originalLanguage, title: input.originalTitle, kind: 'original'},
-      ...input.titles.map(title => ({workId: work.id, ...title})),
-    ]);
-    for (const edition of input.editions) {
-      const [created] = await tx.insert(schema.editions).values({
-        workId: work.id, language: edition.language, label: edition.label,
-        publisher: edition.publisher ?? null, status: 'draft',
-      }).returning();
-      if (!created) throw new Error('Edition creation failed');
-      if (edition.identifiers.length) await tx.insert(schema.editionIdentifiers).values(edition.identifiers.map(id => ({
-        editionId: created.id, kind: id.kind, value: id.value,
+    if(!created)throw new Error('Edition creation failed');
+    if(edition.identifiers.length)await tx.insert(schema.editionIdentifiers)
+      .values(edition.identifiers.map(id=>({
+        editionId:created.id,kind:id.kind,value:id.value,
       })));
-      if (edition.contributors.length) await tx.insert(schema.editionContributors).values(edition.contributors.map(person => ({
-        editionId: created.id, authorId: person.authorId, role: person.role, sortOrder: person.sortOrder,
+    if(edition.contributors.length)await tx.insert(schema.editionContributors)
+      .values(edition.contributors.map(person=>({
+        editionId:created.id,authorId:person.authorId,role:person.role,
+        sortOrder:person.sortOrder,
       })));
-    }
-    await tx.insert(schema.auditEvents).values({
-      actorId: actor, action: 'work.create', entityType: 'work', entityId: work.id,
-      ...(traceId ? {requestId: traceId} : {}),
-      afterJson: {status: 'draft', authorCount: input.authors.length, editionCount: input.editions.length},
-    });
-    return work;
+  }
+  await tx.insert(schema.auditEvents).values({
+    actorId:actor,action:'work.create',entityType:'work',entityId:work.id,
+    ...(traceId?{requestId:traceId}:{}),
+    afterJson:{
+      status:'draft',authorCount:input.authors.length,
+      editionCount:input.editions.length,
+    },
   });
+  return work;
+}
+
+/** Existing internal draft importer/CLI foundation; actor is trusted by its caller.
+ * No HTTP controller calls these functions with a user-supplied actor ID. */
+export async function createCanonicalAuthor(
+  db:CatalogDb,actorId:string,raw:unknown,requestId?:string,
+){
+  const actor=z.uuid().parse(actorId);
+  const traceId=requestId===undefined?undefined:z.uuid().parse(requestId);
+  const input=authorCreateSchema.parse(raw);
+  return db.transaction(tx=>insertAuthorDraft(tx,actor,input,traceId));
+}
+export async function createCanonicalWork(
+  db:CatalogDb,actorId:string,raw:unknown,requestId?:string,
+){
+  const actor=z.uuid().parse(actorId);
+  const traceId=requestId===undefined?undefined:z.uuid().parse(requestId);
+  const input=workCreateSchema.parse(raw);
+  return db.transaction(tx=>insertWorkDraft(tx,actor,input,traceId));
+}
+
+/**
+ * SECURITY BOUNDARY for live administrative draft creation.
+ * The only actor ID is returned by the fresh persisted MFA/session/role gate.
+ * This performs SELECT verification, INSERT(s) and audit in ONE PostgreSQL
+ * transaction. A broken edition contributor / author FK rolls back ALL rows.
+ * Cannot publish or overwrite any canonical original text.
+ */
+export async function createVerifiedAdminDraftAuthor(
+  db:CatalogDb,rawBearer:string,raw:unknown,requestId:string,
+){
+  const input=authorCreateSchema.parse(raw);
+  const traceId=z.uuid().parse(requestId);
+  return withVerifiedAdminPermission(db,rawBearer,'catalog:edit',
+    (tx,who)=>insertAuthorDraft(tx,who.userId,input,traceId));
+}
+export async function createVerifiedAdminDraftWork(
+  db:CatalogDb,rawBearer:string,raw:unknown,requestId:string,
+){
+  const input=workCreateSchema.parse(raw);
+  const traceId=z.uuid().parse(requestId);
+  return withVerifiedAdminPermission(db,rawBearer,'catalog:edit',
+    (tx,who)=>insertWorkDraft(tx,who.userId,input,traceId));
 }
 
 /** Internal detail fetch only. Public catalog listing awaits verified publishing rights.
