@@ -36,3 +36,11 @@ GitHub Issues üzerinde `P0` (temel), `P1` (V1 özellik), `P2` (V1 sertleştirme
 
 ## Geliştirme ortamı
 İlk uygulama ve testler yetkili Ubuntu masaüstü laboratuvarında yapılacak; üretim yayını, güvenlik/yedek geri yükleme ve uçtan uca testlerden sonra ayrıca onaylı olarak yapılacak. Fiziksel cihaz/host sırları veya API anahtarları bu depoda tutulmaz.
+## Ubuntu geliştirme ortamı (Issue #7)
+- `mehmet` Ubuntu üzerinde Node.js 22.22.1 ve pnpm 10.34.5; sürümler `.nvmrc` ve `package.json` ile sabitlenmiştir.
+- İlk kurulum: `pnpm install --frozen-lockfile`. Kontroller: `pnpm check`, `pnpm --filter @folio/mobile exec expo export --platform web`, `pnpm licenses list --json > licenses.json` ve `node tools/security/check-licenses.mjs licenses.json`.
+- API: `pnpm --filter @folio/server dev` (localhost:3100, `/v1/health`, `/openapi`). Admin: `pnpm --filter @folio/admin dev`. Expo Web: `pnpm --filter @folio/mobile web`.
+- Başlangıç ekranları yalnızca geliştirme kabuğudur. Henüz kitap kataloğu, kimlik doğrulama, veritabanı veya gerçek kullanıcı işlemleri sunmaz.
+- Docker Compose/PostgreSQL/pg-boss #10 ve #11 ile izole kurulacaktır; ilgili olmayan konteynerlere, ağlara ve verilere dokunulmaz.
+- İlgili bağımlılık riskleri `docs/09-DEPENDENCY-RISKS.md` içinde izlenir; tarama geçmeden #7 kapatılmaz.
+- Gerçek Ubuntu Chrome smoke testleri: `pnpm e2e`. Kontrol edilen başlangıç görünümü genişlikleri: 320, 390, 768 ve 1440 px. Bu testler tüm ürün ekranlarının işlevselliği yerine başlangıç kabuğu ve yatay taşma durumunu doğrular.
