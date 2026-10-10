@@ -495,3 +495,83 @@ test('HTTPS existing DRAFT edition metadata edit rejects stale revision, FK/titl
   await page.getByRole('button',{name:'EN',exact:true}).click();
   await expect(editor).toContainText('Edit draft edition');
 });
+
+test('HTTPS admin edition revision reviewer is read-only, paginated, bilingual and phone-safe',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const editionId='dc2f8287-0f30-4ef5-8a8e-0556d1c1154d';
+  const fromId='f5612fc5-767e-4dc9-86e4-4f636f2f84a1';
+  const toId='5bfcad92-5fa8-4acb-b6ac-bb5e6f203e9a';
+  const firstBlock='05e3d7bc-d7c3-44a3-b58f-b342714f8304';
+  const secondBlock='805f8034-c90e-4dd4-b7c0-9cdeebebd105';
+  const summary={added:2,removed:0,text_changed:0,metadata_changed:0,moved:0,unchanged:0};
+  const requests:string[]=[];
+  const item=(blockId:string,ordinal:number)=>({
+    blockId,kind:'added',before:null,
+    after:{chapterId:authorId,ordinal,kind:'paragraph',
+      textSha256:(ordinal===0?'a':'b').repeat(64),
+      includeNormal:true,includeRsvp:true,includeAudio:false},
+  });
+  await page.route('**/v1/**',async route=>{
+    const req=route.request(),url=new URL(req.url());
+    requests.push(req.method()+' '+url.pathname);
+    if(url.pathname==='/v1/admin/catalog/works'&&req.method()==='GET'){
+      await route.fulfill(respond({items:[{id:workId,
+        originalTitle:'Semantic Revision',originalLanguage:'tr',
+        publicationStatus:'draft'}],nextCursor:null}));
+    }else if(url.pathname==='/v1/admin/catalog/works/'+workId&&req.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Semantic Revision',originalLanguage:'tr',
+          firstPublicationYear:null,publicationStatus:'draft',metadataVersion:1},
+        authors:[{id:authorId,name:'İpek',role:'author',sortOrder:0}],
+        titles:[],editions:[{id:editionId,language:'tr',label:'Draft Edition',
+          publisher:null,status:'draft',identifiers:[],contributors:[]}],
+      }));
+    }else if(url.pathname==='/v1/admin/catalog/works/'+workId+
+      '/editions/'+editionId+'/revisions/'+toId+'/diff'&&req.method()==='GET'){
+      expect(url.searchParams.get('fromRevisionId')).toBe(fromId);
+      expect(url.searchParams.get('limit')).toBe('50');
+      expect(req.headers()['authorization']).toBeUndefined();
+      expect(req.headers()['x-folio-csrf']).toBeUndefined();
+      expect(req.postData()).toBeNull();
+      const cursor=url.searchParams.get('cursor');
+      expect(cursor===null||cursor===firstBlock).toBe(true);
+      await route.fulfill(respond({
+        editionId,fromRevisionId:fromId,toRevisionId:toId,
+        summary,chapterChanges:[{chapterId:authorId,kind:'added'}],
+        items:[cursor===null?item(firstBlock,0):item(secondBlock,1)],
+        nextCursor:cursor===null?firstBlock:null,isMetadataOnly:true,
+      }));
+    }else{
+      await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+    }
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Semantic');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Semantic Revision/}).click();
+  await page.getByRole('button',{name:'Revizyon farkları'}).click();
+  const panel=page.getByTestId('admin-revision-diff');
+  await expect(panel).toContainText('Salt okunur SHA-256');
+  await page.getByRole('textbox',{name:'Önceki revizyon UUID'}).fill(fromId);
+  await page.getByRole('textbox',{name:'Yeni revizyon UUID'}).fill(toId);
+  await panel.getByRole('button',{name:'Metadata farkını getir'}).click();
+  await expect(panel).toContainText(firstBlock);
+  await expect(panel).toContainText('Eklenen');
+  await expect(panel).toContainText('Değişen bölüm sayısı');
+  expect(requests.filter(x=>x.includes('/diff'))).toHaveLength(1);
+  await panel.getByRole('button',{name:'Sonraki blok sayfası'}).click();
+  await expect(panel).toContainText(secondBlock);
+  await expect(panel).not.toContainText(firstBlock);
+  expect(requests.filter(x=>x.includes('/diff'))).toHaveLength(2);
+  await page.getByRole('textbox',{name:'Yeni revizyon UUID'}).fill('invalid');
+  await panel.getByRole('button',{name:'Metadata farkını getir'}).click();
+  await expect(panel.getByRole('alert')).toContainText('geçerli UUID');
+  expect(requests.filter(x=>x.includes('/diff'))).toHaveLength(2);
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(panel).toContainText('Review revision differences');
+  await page.getByRole('button',{name:'Revision differences'}).click();
+  await expect(panel).toHaveCount(0);
+  expect(requests.every(x=>x.startsWith('GET '))).toBe(true);
+});
