@@ -136,12 +136,7 @@ export async function createVerifiedAdminDraftWork(
  * Explicit sort keys + UUID tie-breakers make multi-author/edition selections
  * stable between devices and independent of query planner/insert order.
  */
-export async function getCanonicalWorkDetails(db: CatalogDb, workId: string) {
-  const id = z.uuid().parse(workId);
-  return db.transaction(async tx => {
-    // The pinned Drizzle PgTransactionConfig supports isolation level but
-    // not the readOnly flag. Make Postgres enforce it before any SELECT.
-    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+async function readCanonicalWorkSnapshot(tx:CatalogTx,id:string){
     const [work] = await tx.select().from(schema.works)
       .where(eq(schema.works.id, id)).limit(1);
     if (!work) return null;
@@ -176,5 +171,90 @@ export async function getCanonicalWorkDetails(db: CatalogDb, workId: string) {
       editionDetails.push({...edition, identifiers, contributors});
     }
     return {work, authors, titles, editions: editionDetails};
+}
+
+/** INTERNAL caller retains a database-enforced READ ONLY transaction.
+ * This is NOT an authenticated HTTP/public catalog entrypoint. */
+export async function getCanonicalWorkDetails(db:CatalogDb,workId:string){
+  const id=z.uuid().parse(workId);
+  return db.transaction(async tx=>{
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    return readCanonicalWorkSnapshot(tx,id);
   },{isolationLevel:'repeatable read'});
 }
+
+/**
+ * Only a session with live DB-backed catalog:read, same-device MFA and an
+ * active role can fetch unpublished canonical relational metadata.
+ * Authorizations and EVERY nested relation SELECT use one PostgreSQL
+ * REPEATABLE READ transaction: no unguarded second read or mixed revision.
+ * The security transaction requires FOR SHARE locks and consequently cannot
+ * use SQL SET TRANSACTION READ ONLY; this function itself only SELECTs.
+ * Never serve this outside the default-off admin direct-TLS controller.
+ */
+export async function getVerifiedAdminWorkDetails(
+  db:CatalogDb,bearer:string,workId:string,
+){
+  const id=z.uuid().parse(workId);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',async tx=>{
+    const details=await readCanonicalWorkSnapshot(tx,id);
+    if(!details)return null;
+    const {work,authors,titles,editions}=details;
+    return {
+      work:{
+        id:work.id,originalTitle:work.originalTitle,
+        originalLanguage:work.originalLanguage,
+        firstPublicationYear:work.firstPublicationYear,
+        publicationStatus:work.publicationStatus,
+      },
+      authors:authors.map(author=>({
+        id:author.id,name:author.name,role:author.role,
+        sortOrder:author.sortOrder,
+      })),
+      titles:titles.map(title=>({
+        id:title.id,language:title.language,title:title.title,kind:title.kind,
+      })),
+      editions:editions.map(edition=>({
+        id:edition.id,language:edition.language,label:edition.label,
+        publisher:edition.publisher,status:edition.status,
+        identifiers:edition.identifiers.map(identifier=>({
+          kind:identifier.kind,value:identifier.value,
+        })),
+        contributors:edition.contributors.map(contributor=>({
+          authorId:contributor.authorId,role:contributor.role,
+          sortOrder:contributor.sortOrder,
+        })),
+      })),
+    };
+  },{isolationLevel:'repeatable read'});
+}
+
+/** Author editor metadata; alias and scoped external IDs share that same
+ * authenticated REPEATABLE READ snapshot, with deterministic explicit order. */
+export async function getVerifiedAdminAuthorDetails(
+  db:CatalogDb,bearer:string,authorId:string,
+){
+  const id=z.uuid().parse(authorId);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',async tx=>{
+    const [author]=await tx.select({
+      id:schema.authors.id,canonicalName:schema.authors.canonicalName,
+      sortName:schema.authors.sortName,
+    }).from(schema.authors).where(eq(schema.authors.id,id)).limit(1);
+    if(!author)return null;
+    const aliases=await tx.select({
+      id:schema.authorAliases.id,name:schema.authorAliases.name,
+      locale:schema.authorAliases.locale,
+    }).from(schema.authorAliases)
+      .where(eq(schema.authorAliases.authorId,id))
+      .orderBy(asc(schema.authorAliases.name),asc(schema.authorAliases.id));
+    const externalIds=await tx.select({
+      source:schema.authorExternalIds.source,
+      externalId:schema.authorExternalIds.externalId,
+    }).from(schema.authorExternalIds)
+      .where(eq(schema.authorExternalIds.authorId,id))
+      .orderBy(asc(schema.authorExternalIds.source),
+        asc(schema.authorExternalIds.externalId));
+    return {author,aliases,externalIds};
+  },{isolationLevel:'repeatable read'});
+}
+

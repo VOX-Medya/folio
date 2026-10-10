@@ -1,21 +1,24 @@
 import {
   BadRequestException,Body,CanActivate,ConflictException,Controller,
   ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
-  NotFoundException,OnModuleDestroy,Post,Query,Req,ServiceUnavailableException,
+  NotFoundException,OnModuleDestroy,Param,Post,Query,Req,ServiceUnavailableException,
   UnauthorizedException,UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,ApiBody,ApiCreatedResponse,ApiOkResponse,
-  ApiOperation,ApiQuery,ApiSecurity,ApiTags,
+  ApiOperation,ApiParam,ApiQuery,ApiSecurity,ApiTags,
 } from '@nestjs/swagger';
 import {
   authenticateUserSession,createFolioDb,createVerifiedAdminDraftAuthor,
-  createVerifiedAdminDraftWork,searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
+  createVerifiedAdminDraftWork,getVerifiedAdminAuthorDetails,
+  getVerifiedAdminWorkDetails,searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
-  adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
+  adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
+  adminCatalogAuthorPageSchema,adminCatalogIdSchema,
   adminCatalogSearchQuerySchema,adminCatalogWorkCreatedSchema,
-  adminCatalogWorkPageSchema,authorCreateSchema,workCreateSchema,
+  adminCatalogWorkPageSchema,adminCatalogWorkDetailSchema,
+  authorCreateSchema,workCreateSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -103,6 +106,12 @@ export class AdminCatalogDb implements OnModuleDestroy {
   authors(bearer:string,input:unknown){
     return this.authorized(()=>searchVerifiedAdminAuthors(this.db(),bearer,input));
   }
+  workDetail(bearer:string,id:string){
+    return this.authorized(()=>getVerifiedAdminWorkDetails(this.db(),bearer,id));
+  }
+  authorDetail(bearer:string,id:string){
+    return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
+  }
   createAuthor(bearer:string,input:unknown,requestId:string){
     return this.authorized(()=>
       createVerifiedAdminDraftAuthor(this.db(),bearer,input,requestId));
@@ -154,6 +163,91 @@ const authorPageApi={
   },
 };
 
+
+// A tightly projected OpenAPI schema. Never serialize entire DB rows or
+// private reader/content, provenance, source artifacts, rights or user data.
+const detailUuidApi={type:'string',format:'uuid'};
+const workDetailApi={
+  type:'object',additionalProperties:false,
+  required:['work','authors','titles','editions'],
+  properties:{
+    work:{type:'object',additionalProperties:false,
+      required:['id','originalTitle','originalLanguage','firstPublicationYear','publicationStatus'],
+      properties:{
+        id:detailUuidApi,originalTitle:{type:'string'},
+        originalLanguage:{type:'string',enum:['tr','en']},
+        firstPublicationYear:{type:'integer',nullable:true},
+        publicationStatus:{type:'string'},
+      },
+    },
+    authors:{type:'array',maxItems:250,items:{
+      type:'object',additionalProperties:false,required:['id','name','role','sortOrder'],
+      properties:{
+        id:detailUuidApi,name:{type:'string'},
+        role:{type:'string',enum:['author','co-author','editor']},
+        sortOrder:{type:'integer',minimum:0},
+      },
+    }},
+    titles:{type:'array',maxItems:250,items:{
+      type:'object',additionalProperties:false,
+      required:['id','language','title','kind'],
+      properties:{
+        id:detailUuidApi,language:{type:'string',enum:['tr','en']},
+        title:{type:'string'},
+        kind:{type:'string',enum:['original','translation','alternate']},
+      },
+    }},
+    editions:{type:'array',maxItems:250,items:{
+      type:'object',additionalProperties:false,
+      required:['id','language','label','publisher','status','identifiers','contributors'],
+      properties:{
+        id:detailUuidApi,language:{type:'string',enum:['tr','en']},
+        label:{type:'string'},publisher:{type:'string',nullable:true},
+        status:{type:'string'},
+        identifiers:{type:'array',maxItems:250,items:{
+          type:'object',additionalProperties:false,required:['kind','value'],
+          properties:{
+            kind:{type:'string',enum:['isbn-10','isbn-13','other']},
+            value:{type:'string'},
+          },
+        }},
+        contributors:{type:'array',maxItems:250,items:{
+          type:'object',additionalProperties:false,
+          required:['authorId','role','sortOrder'],
+          properties:{
+            authorId:detailUuidApi,
+            role:{type:'string',enum:['author','translator','editor','illustrator']},
+            sortOrder:{type:'integer',minimum:0},
+          },
+        }},
+      },
+    }},
+  },
+};
+const authorDetailApi={
+  type:'object',additionalProperties:false,required:['author','aliases','externalIds'],
+  properties:{
+    author:{type:'object',additionalProperties:false,
+      required:['id','canonicalName','sortName'],
+      properties:{
+        id:detailUuidApi,canonicalName:{type:'string'},sortName:{type:'string'},
+      },
+    },
+    aliases:{type:'array',maxItems:500,items:{
+      type:'object',additionalProperties:false,required:['id','name','locale'],
+      properties:{
+        id:detailUuidApi,name:{type:'string'},
+        locale:{type:'string',nullable:true},
+      },
+    }},
+    externalIds:{type:'array',maxItems:500,items:{
+      type:'object',additionalProperties:false,required:['source','externalId'],
+      properties:{
+        source:{type:'string'},externalId:{type:'string'},
+      },
+    }},
+  },
+};
 
 const authorInputApi={
   type:'object',additionalProperties:false,required:['canonicalName'],
@@ -309,6 +403,43 @@ export class AdminCatalogController {
     const input=this.parameters(raw);
     const bearer=await this.bearer(request);
     return adminCatalogAuthorPageSchema.parse(await this.store.authors(bearer,input));
+  }
+
+  /**
+   * Permission is revalidated inside the same repeatable-read transaction as
+   * all relationship SELECTs. Unknown UUIDs are distinguishable only after
+   * current catalog:read, account, device and MFA checks have passed.
+   */
+  @Get('works/:workId')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA-verified canonical work relational metadata from a single PostgreSQL repeatable-read snapshot (admin only)'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiOkResponse({schema:workDetailApi})
+  async workDetail(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,@Param('workId') rawId:string){
+    this.rejectWriteQuery(query);
+    const parsed=adminCatalogIdSchema.safeParse(rawId);
+    if(!parsed.success)throw new BadRequestException('Invalid canonical work ID');
+    const token=await this.bearer(request);
+    const details=await this.store.workDetail(token,parsed.data);
+    if(!details)throw new NotFoundException('Canonical work not found');
+    return adminCatalogWorkDetailSchema.parse(details);
+  }
+
+  @Get('authors/:authorId')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA-verified canonical author/alias/source identifiers from one PostgreSQL repeatable-read snapshot (admin only)'})
+  @ApiParam({name:'authorId',type:String,format:'uuid'})
+  @ApiOkResponse({schema:authorDetailApi})
+  async authorDetail(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,@Param('authorId') rawId:string){
+    this.rejectWriteQuery(query);
+    const parsed=adminCatalogIdSchema.safeParse(rawId);
+    if(!parsed.success)throw new BadRequestException('Invalid canonical author ID');
+    const token=await this.bearer(request);
+    const details=await this.store.authorDetail(token,parsed.data);
+    if(!details)throw new NotFoundException('Canonical author not found');
+    return adminCatalogAuthorDetailSchema.parse(details);
   }
 
   private rejectWriteQuery(query:Record<string,unknown>):void{

@@ -1164,6 +1164,374 @@
           "admin-catalog"
         ]
       }
+    },
+    "/v1/admin/catalog/works/{workId}": {
+      "get": {
+        "operationId": "AdminCatalogController_workDetail",
+        "parameters": [
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "work",
+                    "authors",
+                    "titles",
+                    "editions"
+                  ],
+                  "properties": {
+                    "work": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "originalTitle",
+                        "originalLanguage",
+                        "firstPublicationYear",
+                        "publicationStatus"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "originalTitle": {
+                          "type": "string"
+                        },
+                        "originalLanguage": {
+                          "type": "string",
+                          "enum": [
+                            "tr",
+                            "en"
+                          ]
+                        },
+                        "firstPublicationYear": {
+                          "type": "integer",
+                          "nullable": true
+                        },
+                        "publicationStatus": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "authors": {
+                      "type": "array",
+                      "maxItems": 250,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "role",
+                          "sortOrder"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "author",
+                              "co-author",
+                              "editor"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    },
+                    "titles": {
+                      "type": "array",
+                      "maxItems": 250,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "language",
+                          "title",
+                          "kind"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "language": {
+                            "type": "string",
+                            "enum": [
+                              "tr",
+                              "en"
+                            ]
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "original",
+                              "translation",
+                              "alternate"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "editions": {
+                      "type": "array",
+                      "maxItems": 250,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "language",
+                          "label",
+                          "publisher",
+                          "status",
+                          "identifiers",
+                          "contributors"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "language": {
+                            "type": "string",
+                            "enum": [
+                              "tr",
+                              "en"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "publisher": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "identifiers": {
+                            "type": "array",
+                            "maxItems": 250,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "kind",
+                                "value"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "isbn-10",
+                                    "isbn-13",
+                                    "other"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "contributors": {
+                            "type": "array",
+                            "maxItems": 250,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "authorId",
+                                "role",
+                                "sortOrder"
+                              ],
+                              "properties": {
+                                "authorId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "author",
+                                    "translator",
+                                    "editor",
+                                    "illustrator"
+                                  ]
+                                },
+                                "sortOrder": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA-verified canonical work relational metadata from a single PostgreSQL repeatable-read snapshot (admin only)",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
+    "/v1/admin/catalog/authors/{authorId}": {
+      "get": {
+        "operationId": "AdminCatalogController_authorDetail",
+        "parameters": [
+          {
+            "name": "authorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "author",
+                    "aliases",
+                    "externalIds"
+                  ],
+                  "properties": {
+                    "author": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "canonicalName",
+                        "sortName"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "canonicalName": {
+                          "type": "string"
+                        },
+                        "sortName": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "aliases": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "locale"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "locale": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "externalIds": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "source",
+                          "externalId"
+                        ],
+                        "properties": {
+                          "source": {
+                            "type": "string"
+                          },
+                          "externalId": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA-verified canonical author/alias/source identifiers from one PostgreSQL repeatable-read snapshot (admin only)",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
     }
   },
   "info": {

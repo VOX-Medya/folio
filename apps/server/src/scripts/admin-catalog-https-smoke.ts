@@ -11,8 +11,9 @@ import {NestFactory} from '@nestjs/core';
 import type {INestApplication} from '@nestjs/common';
 import {SwaggerModule} from '@nestjs/swagger';
 import {
-  adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
-  adminCatalogWorkCreatedSchema,adminCatalogWorkPageSchema,apiErrorSchema,
+  adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
+  adminCatalogAuthorPageSchema,adminCatalogWorkCreatedSchema,
+  adminCatalogWorkDetailSchema,adminCatalogWorkPageSchema,apiErrorSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
@@ -148,6 +149,11 @@ async function main():Promise<void>{
     const off=await call(true,port,search,bearer);
     check(off.status===404&&off.headers['cache-control']==='private, no-store',
       'Default-off metadata API exposed draft works');
+    const firstDetailPath=root+'/works/'+first.id;
+    const authorDetailPath=root+'/authors/'+author.id;
+    check((await call(true,port,firstDetailPath,bearer)).status===404&&
+      (await call(true,port,authorDetailPath,bearer)).status===404,
+      'Default-off admin catalog exposed relational draft details');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='true';
     check((await call(true,port,search,bearer)).status===404,
       'Non-contract flag enabled private admin catalog');
@@ -173,6 +179,10 @@ async function main():Promise<void>{
     check(spoofTls.status===503&&
       spoofTls.headers['cache-control']==='private, no-store',
       'Forged proxy TLS revealed private draft metadata');
+    check((await call(false,plainAddress.port,firstDetailPath,{
+      ...bearer,'x-forwarded-proto':'https',
+    })).status===503,
+      'Forged forwarded HTTPS allowed admin relational snapshot');
 
     const spoof=await call(true,port,search,{
       'x-admin-role':'superadmin','x-user-id':editor.userId,
@@ -194,6 +204,28 @@ async function main():Promise<void>{
     check((await call(true,port,search,{
       authorization:'Bearer '+web.sessionToken,
     })).status===403,'Editor password + role bypassed exact-device MFA');
+    for(const target of [firstDetailPath,authorDetailPath]){
+      const forged=await call(true,port,target,{
+        'x-user-id':editor.userId,'x-admin-role':'superadmin',
+      });
+      check(forged.status===401&&forged.headers['cache-control']==='private, no-store',
+        'Forged identity/role read an admin canonical detail');
+      for(const denied of [
+        {authorization:'Bearer '+guestSession.sessionToken,
+          'x-admin-role':'superadmin'},
+        {authorization:'Bearer '+moderatorSession.sessionToken,
+          'x-admin-role':'editor'},
+        {authorization:'Bearer '+web.sessionToken},
+      ]){
+        const response=await call(true,port,target,denied);
+        check(response.status===403&&
+          apiErrorSchema.parse(JSON.parse(response.body)).error.code==='FORBIDDEN',
+          'Insufficient DB role or device MFA exposed an unpublished detail');
+      }
+      check((await call(true,port,target,{
+        ...bearer,origin:'https://wrong-origin.example',
+      })).status===401,'Browser-bearing native token exposed canonical detail');
+    }
     for(const bad of [
       {origin:'https://admin.example'},
       {'sec-fetch-site':'same-origin'},
@@ -230,6 +262,74 @@ async function main():Promise<void>{
     check(names.status===200&&adminCatalogAuthorPageSchema.parse(
       JSON.parse(names.body)).items[0]?.id===author.id,
       'Author alias search could not read authorized metadata');
+    // A legitimate read-only administrator can inspect the DRAFT, without
+    // catalog:edit, in exactly the same session-scoped permission boundary.
+    const detailReadOnly={authorization:'Bearer '+viewerSession.sessionToken};
+    const safeAuthor=await call(true,port,authorDetailPath,detailReadOnly);
+    check(safeAuthor.status===200&&
+      safeAuthor.headers['cache-control']==='private, no-store'&&
+      !safeAuthor.headers['set-cookie'],
+      'Real MFA read-only role could not fetch author editorial metadata');
+    const authorDetails=adminCatalogAuthorDetailSchema.parse(
+      JSON.parse(safeAuthor.body));
+    check(authorDetails.author.id===author.id&&
+      authorDetails.author.canonicalName==='Folio Canonical Writer '+suffix&&
+      authorDetails.aliases.length===1&&
+      authorDetails.aliases[0]?.name==='Other Signature '+suffix&&
+      authorDetails.externalIds.length===0,
+      'Author aliases or canonical metadata were inconsistent across snapshot');
+    const safeWork=await call(true,port,firstDetailPath,detailReadOnly);
+    check(safeWork.status===200&&
+      safeWork.headers['cache-control']==='private, no-store'&&
+      !safeWork.headers['set-cookie'],
+      'MFA read-only role could not fetch unpublished work metadata');
+    const firstDetails=adminCatalogWorkDetailSchema.parse(
+      JSON.parse(safeWork.body));
+    check(firstDetails.work.id===first.id&&
+      firstDetails.work.originalLanguage==='tr'&&
+      firstDetails.work.publicationStatus==='draft'&&
+      firstDetails.authors.length===1&&firstDetails.authors[0]?.id===author.id&&
+      firstDetails.titles.length===1&&firstDetails.titles[0]?.kind==='original'&&
+      firstDetails.editions.length===0,
+      'Canonical work snapshot lost author/title relationships or leaked content');
+    const repeated=await call(true,port,firstDetailPath,detailReadOnly);
+    check(repeated.status===200&&repeated.body===safeWork.body,
+      'Stable canonical work metadata changed without an editorial mutation');
+    const leakProbe=JSON.stringify([firstDetails,authorDetails]);
+    check(!leakProbe.includes('rawArtifactKey')&&
+      !leakProbe.includes('sourceText')&&
+      !leakProbe.includes('userAccount')&&
+      !leakProbe.includes(editor.email)&&
+      !leakProbe.includes(viewerSession.sessionToken),
+      'Canonical snapshot returned source text, user data or session secrets');
+
+    for(const target of [
+      root+'/works/'+randomUUID(),
+      root+'/authors/'+randomUUID(),
+    ]){
+      const missing=await call(true,port,target,detailReadOnly);
+      check(missing.status===404&&
+        missing.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(missing.body)).error.code==='NOT_FOUND',
+        'Unknown canonical UUID did not safely return uncached 404');
+      check((await call(true,port,target,{
+        authorization:'Bearer '+guestSession.sessionToken,
+      })).status===403,
+        'A guest could infer whether a canonical detail UUID exists');
+    }
+    for(const target of [
+      root+'/works/not-a-uuid',
+      root+'/authors/not-a-uuid',
+      firstDetailPath+'?role=superadmin',
+      authorDetailPath+'?userId='+guest.userId,
+    ]){
+      const invalid=await call(true,port,target,detailReadOnly);
+      check(invalid.status===400&&
+        invalid.headers['cache-control']==='private, no-store'&&
+        apiErrorSchema.parse(JSON.parse(invalid.body)).error.code==='BAD_REQUEST',
+        'Malformed canonical ID or caller-controlled query was accepted');
+    }
+
     const pct=await call(true,port,
       root+'/works?q='+encodeURIComponent('% '+suffix),bearer);
     const percent=adminCatalogWorkPageSchema.parse(JSON.parse(pct.body));
@@ -316,6 +416,19 @@ async function main():Promise<void>{
       nativeAudit.rows[0]?.actor_id===editor.userId&&
       nativeAudit.rows[0]?.request_id===signedNative.headers['x-request-id'],
       'Author audit did not bind exactly one trusted editor and server request ID');
+    const createdAuthorWire=await call(true,port,root+'/authors/'+nativeDraftId,
+      bearer);
+    check(createdAuthorWire.status===200,
+      'Recently committed canonical author could not be read by verified admin');
+    const createdAuthorDetail=adminCatalogAuthorDetailSchema.parse(
+      JSON.parse(createdAuthorWire.body));
+    check(createdAuthorDetail.author.id===nativeDraftId&&
+      createdAuthorDetail.aliases.length===1&&
+      createdAuthorDetail.aliases[0]?.name==='Native Alias '+suffix&&
+      createdAuthorDetail.externalIds.length===1&&
+      createdAuthorDetail.externalIds[0]?.externalId==='native-'+suffix,
+      'Canonical author detail snapshot failed to join aliases and external IDs');
+
 
     // The external author ID is globally unique by source. A failed second
     // command MUST roll back its author row AND audit in the same transaction.
@@ -382,6 +495,73 @@ async function main():Promise<void>{
       workAudit.rows[0]?.request_id===realWork.headers['x-request-id']&&
       workAudit.rows[0]?.after_json?.status==='draft',
       'Work/edition draft and actor+request audit were not committed atomically');
+    const made=await call(true,port,root+'/works/'+createdWork.id,bearer);
+    check(made.status===200&&
+      made.headers['cache-control']==='private, no-store'&&
+      !made.headers['set-cookie'],
+      'Recently created work draft detail was unavailable or cacheable');
+    const madeDetails=adminCatalogWorkDetailSchema.parse(JSON.parse(made.body));
+    check(madeDetails.work.id===createdWork.id&&
+      madeDetails.work.publicationStatus==='draft'&&
+      madeDetails.work.firstPublicationYear===null&&
+      madeDetails.authors.length===1&&
+      madeDetails.authors[0]?.id===nativeDraftId&&
+      madeDetails.titles.map(t=>t.language).join(',')==='en,tr'&&
+      madeDetails.editions.map(e=>e.language).join(',')==='en,tr'&&
+      madeDetails.editions[0]?.contributors[0]?.authorId===author.id&&
+      madeDetails.editions[1]?.identifiers[0]?.value==='9780000000001'&&
+      madeDetails.editions.every(e=>e.status==='draft'),
+      'Work detail did not reflect ordered author/translation/edition contributor links');
+    check(!made.body.includes('createdAt')&&
+      !made.body.includes('rawArtifactKey')&&
+      !made.body.includes('sourceText')&&
+      !made.body.includes('rightsRecords'),
+      'HTTP work details leaked internal, source, or rights table fields');
+
+    // Intentionally insert out-of-order work authors, titles, editions,
+    // identifiers and contributors to prove the actual HTTP route uses the
+    // same deterministic ordering as the internal catalog snapshot.
+    const unorderedWork=await post(port,root+'/works',bearer,{
+      originalTitle:'Out of order '+suffix,originalLanguage:'tr',
+      authors:[
+        {authorId:nativeDraftId,contribution:'co-author',sortOrder:9},
+        {authorId:author.id,contribution:'author',sortOrder:1},
+      ],
+      titles:[
+        {language:'tr',title:'Zulu '+suffix,kind:'alternate'},
+        {language:'en',title:'Alpha '+suffix,kind:'translation'},
+      ],
+      editions:[
+        {language:'tr',label:'Last TR '+suffix,
+          identifiers:[{kind:'other',value:'Z'},{kind:'other',value:'A'}],
+          contributors:[
+            {authorId:nativeDraftId,role:'translator',sortOrder:9},
+            {authorId:author.id,role:'author',sortOrder:1},
+          ]},
+        {language:'en',label:'First EN '+suffix},
+      ],
+    });
+    check(unorderedWork.status===201,
+      'Synthetic out-of-order editorial draft could not be created');
+    const unorderedId=adminCatalogWorkCreatedSchema.parse(
+      JSON.parse(unorderedWork.body)).id;
+    const orderedWire=await call(true,port,root+'/works/'+unorderedId,
+      {authorization:'Bearer '+viewerSession.sessionToken});
+    check(orderedWire.status===200,
+      'Read-only MFA administrator cannot inspect a newly drafted work');
+    const ordered=adminCatalogWorkDetailSchema.parse(JSON.parse(orderedWire.body));
+    check(ordered.authors.map(a=>a.id).join(',')===[author.id,nativeDraftId].join(',')&&
+      ordered.titles.map(t=>t.language).join(',')==='en,tr,tr'&&
+      ordered.editions.map(e=>e.language).join(',')==='en,tr'&&
+      ordered.editions[1]?.identifiers.map(i=>i.value).join(',')==='A,Z'&&
+      ordered.editions[1]?.contributors.map(p=>p.authorId).join(',')===
+        [author.id,nativeDraftId].join(','),
+      'Authenticated metadata snapshot lost canonical stable sort keys');
+    const stable=await call(true,port,root+'/works/'+unorderedId,
+      {authorization:'Bearer '+viewerSession.sessionToken});
+    check(stable.body===orderedWire.body,
+      'Repeated real HTTPS canonical detail changed without an editorial update');
+
 
     // Failure AFTER work, author, title and edition insertion must unwind
     // all of them; not merely reject an invalid foreign ID before writing.
@@ -427,11 +607,22 @@ async function main():Promise<void>{
       origin:process.env.FOLIO_WEB_AUTH_ORIGIN,'sec-fetch-site':'same-origin'};
     check((await call(true,port,search,cookie)).status===403,
       'Web login alone minted admin MFA proof');
+    check((await call(true,port,firstDetailPath,cookie)).status===403&&
+      (await call(true,port,authorDetailPath,cookie)).status===403,
+      'Web editor cookie without same-device MFA exposed canonical drafts');
     await mfa(web.sessionId,editor.userId);
     const browser=await call(true,port,search,cookie);
     check(browser.status===200&&
       adminCatalogWorkPageSchema.parse(JSON.parse(browser.body)).items.length===1,
       'Real direct-TLS HttpOnly Web session could not query MFA-verified metadata');
+    const browserWork=await call(true,port,root+'/works/'+createdWork.id,cookie);
+    const browserAuthor=await call(true,port,root+'/authors/'+nativeDraftId,cookie);
+    check(browserWork.status===200&&browserAuthor.status===200&&
+      adminCatalogWorkDetailSchema.parse(JSON.parse(browserWork.body)).work.id===
+        createdWork.id&&
+      adminCatalogAuthorDetailSchema.parse(JSON.parse(browserAuthor.body)).author.id===
+        nativeDraftId,
+      'Verified exact-origin cookie + MFA could not fetch canonical detail');
 
     const cookieDraft={canonicalName:'Web Writer '+suffix};
     check((await post(port,createRoot,cookie,cookieDraft)).status===403,
@@ -483,12 +674,19 @@ async function main():Promise<void>{
     check((await call(true,port,search,{
       ...cookie,origin:'https://wrong-origin.example',
     })).status===403,'Cross-origin cookie read private admin draft');
+    check((await call(true,port,root+'/works/'+createdWork.id,{
+      ...cookie,origin:'https://wrong-origin.example',
+    })).status===403,'Cross-site cookie exposed relational catalog metadata');
     check((await call(true,port,search,{
       ...cookie,'sec-fetch-site':'cross-site',
     })).status===403,'Cross-site browser metadata read draft');
     check((await call(true,port,search,{
       ...cookie,authorization:'Bearer '+native.sessionToken,
     })).status===401,'Mixed bearer + cookie bypassed transport segregation');
+    check((await call(true,port,root+'/authors/'+nativeDraftId,{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    })).status===401,
+      'Mixed bearer+cookie authorized canonical author snapshot');
     const leaked=JSON.stringify([response.body,browser.body,names.body]);
     check(!leaked.includes(password)&&!leaked.includes(native.sessionToken)&&
       !leaked.includes(web.sessionToken)&&!leaked.includes(editor.email)&&
@@ -517,6 +715,8 @@ async function main():Promise<void>{
       'Synthetic expired MFA proof could be denied for a different timestamp reason');
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
+    check((await call(true,port,root+'/works/'+createdWork.id,cookie)).status===403,
+      'Expired exact-device MFA could still fetch unpublished work details');
     check((await post(port,createRoot,secureCookie,{
       canonicalName:'Expired web editor '+suffix,
     })).status===403,'Expired same-device MFA still authorized catalog draft POST');
@@ -526,6 +726,8 @@ async function main():Promise<void>{
     );
     check((await call(true,port,search,bearer)).status===403,
       'Revoked database role could still read private draft');
+    check((await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===403,
+      'Revoked persisted role could still fetch canonical author metadata');
     check((await post(port,createRoot,bearer,{
       canonicalName:'Revoked editor '+suffix,
     })).status===403,'Revoked persisted role still authorized draft POST');
@@ -539,18 +741,23 @@ async function main():Promise<void>{
       !!spec.paths[root+'/authors']?.get&&
       !!spec.paths[root+'/works']?.post&&
       !!spec.paths[root+'/authors']?.post&&
+      !!spec.paths[root+'/works/{workId}']?.get&&
+      !!spec.paths[root+'/authors/{authorId}']?.get&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
     check((await call(true,port,search,bearer)).status===404,
       'Flag shutoff did not immediately hide private catalog API');
+    check((await call(true,port,root+'/works/'+createdWork.id,bearer)).status===404&&
+      (await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===404,
+      'Disabling catalog read mode left unpublished detail endpoints available');
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Disabling catalog HTTP left POST author creation reachable');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Independent admin write flag failed to turn off mutation');
-    console.log('ADMIN CATALOG HTTPS PASS: independently default-off GET/POST, verified TLS and native/session cookie + same-origin HMAC-CSRF; catalog:read vs edit, exact-device MFA, author and two-edition work DRAFT creation, trusted actor/request audit in one transaction, FK/unique rollback, malicious body/user/role headers denied, 400/401/403/404/409/503 private no-store, revocation/expiry and OpenAPI. Synthetic folio_test ONLY.');
+    console.log('ADMIN CATALOG HTTPS PASS: default-off TLS catalog GET/POST; verified same-device MFA + persisted catalog:read vs edit, cookie origin HMAC-CSRF and separate native bearer; PostgreSQL REPEATABLE READ author/work detail snapshots with stable sorted links and no private content, work/edition atomic DRAFT create, trusted audit, FK/unique rollback, malformed UUID/role/owner denial, expired MFA/revoked role, no-store responses, OpenAPI. Synthetic folio_test ONLY.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
