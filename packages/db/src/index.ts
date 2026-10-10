@@ -32,3 +32,6 @@ export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin} from './cat
 
 // Internal verified email/session foundation. No public auth routes until anti-abuse, secure cookie and MFA gates.
 export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,resetAccountPassword,signInVerifiedAccount,authenticateUserSession,revokeUserSession,revokeAllUserSessions} from './auth.js';
+
+// Authenticated-only per-user onboarding preference/version synchronization.
+export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboarding.js';
