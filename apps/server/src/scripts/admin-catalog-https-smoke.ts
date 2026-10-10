@@ -607,11 +607,22 @@ async function main():Promise<void>{
       origin:process.env.FOLIO_WEB_AUTH_ORIGIN,'sec-fetch-site':'same-origin'};
     check((await call(true,port,search,cookie)).status===403,
       'Web login alone minted admin MFA proof');
+    check((await call(true,port,firstDetailPath,cookie)).status===403&&
+      (await call(true,port,authorDetailPath,cookie)).status===403,
+      'Web editor cookie without same-device MFA exposed canonical drafts');
     await mfa(web.sessionId,editor.userId);
     const browser=await call(true,port,search,cookie);
     check(browser.status===200&&
       adminCatalogWorkPageSchema.parse(JSON.parse(browser.body)).items.length===1,
       'Real direct-TLS HttpOnly Web session could not query MFA-verified metadata');
+    const browserWork=await call(true,port,root+'/works/'+createdWork.id,cookie);
+    const browserAuthor=await call(true,port,root+'/authors/'+nativeDraftId,cookie);
+    check(browserWork.status===200&&browserAuthor.status===200&&
+      adminCatalogWorkDetailSchema.parse(JSON.parse(browserWork.body)).work.id===
+        createdWork.id&&
+      adminCatalogAuthorDetailSchema.parse(JSON.parse(browserAuthor.body)).author.id===
+        nativeDraftId,
+      'Verified exact-origin cookie + MFA could not fetch canonical detail');
 
     const cookieDraft={canonicalName:'Web Writer '+suffix};
     check((await post(port,createRoot,cookie,cookieDraft)).status===403,
@@ -663,12 +674,19 @@ async function main():Promise<void>{
     check((await call(true,port,search,{
       ...cookie,origin:'https://wrong-origin.example',
     })).status===403,'Cross-origin cookie read private admin draft');
+    check((await call(true,port,root+'/works/'+createdWork.id,{
+      ...cookie,origin:'https://wrong-origin.example',
+    })).status===403,'Cross-site cookie exposed relational catalog metadata');
     check((await call(true,port,search,{
       ...cookie,'sec-fetch-site':'cross-site',
     })).status===403,'Cross-site browser metadata read draft');
     check((await call(true,port,search,{
       ...cookie,authorization:'Bearer '+native.sessionToken,
     })).status===401,'Mixed bearer + cookie bypassed transport segregation');
+    check((await call(true,port,root+'/authors/'+nativeDraftId,{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    })).status===401,
+      'Mixed bearer+cookie authorized canonical author snapshot');
     const leaked=JSON.stringify([response.body,browser.body,names.body]);
     check(!leaked.includes(password)&&!leaked.includes(native.sessionToken)&&
       !leaked.includes(web.sessionToken)&&!leaked.includes(editor.email)&&
@@ -697,6 +715,8 @@ async function main():Promise<void>{
       'Synthetic expired MFA proof could be denied for a different timestamp reason');
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
+    check((await call(true,port,root+'/works/'+createdWork.id,cookie)).status===403,
+      'Expired exact-device MFA could still fetch unpublished work details');
     check((await post(port,createRoot,secureCookie,{
       canonicalName:'Expired web editor '+suffix,
     })).status===403,'Expired same-device MFA still authorized catalog draft POST');
@@ -706,6 +726,8 @@ async function main():Promise<void>{
     );
     check((await call(true,port,search,bearer)).status===403,
       'Revoked database role could still read private draft');
+    check((await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===403,
+      'Revoked persisted role could still fetch canonical author metadata');
     check((await post(port,createRoot,bearer,{
       canonicalName:'Revoked editor '+suffix,
     })).status===403,'Revoked persisted role still authorized draft POST');
@@ -719,18 +741,23 @@ async function main():Promise<void>{
       !!spec.paths[root+'/authors']?.get&&
       !!spec.paths[root+'/works']?.post&&
       !!spec.paths[root+'/authors']?.post&&
+      !!spec.paths[root+'/works/{workId}']?.get&&
+      !!spec.paths[root+'/authors/{authorId}']?.get&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
     check((await call(true,port,search,bearer)).status===404,
       'Flag shutoff did not immediately hide private catalog API');
+    check((await call(true,port,root+'/works/'+createdWork.id,bearer)).status===404&&
+      (await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===404,
+      'Disabling catalog read mode left unpublished detail endpoints available');
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Disabling catalog HTTP left POST author creation reachable');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Independent admin write flag failed to turn off mutation');
-    console.log('ADMIN CATALOG HTTPS PASS: independently default-off GET/POST, verified TLS and native/session cookie + same-origin HMAC-CSRF; catalog:read vs edit, exact-device MFA, author and two-edition work DRAFT creation, trusted actor/request audit in one transaction, FK/unique rollback, malicious body/user/role headers denied, 400/401/403/404/409/503 private no-store, revocation/expiry and OpenAPI. Synthetic folio_test ONLY.');
+    console.log('ADMIN CATALOG HTTPS PASS: default-off TLS catalog GET/POST; verified same-device MFA + persisted catalog:read vs edit, cookie origin HMAC-CSRF and separate native bearer; PostgreSQL REPEATABLE READ author/work detail snapshots with stable sorted links and no private content, work/edition atomic DRAFT create, trusted audit, FK/unique rollback, malformed UUID/role/owner denial, expired MFA/revoked role, no-store responses, OpenAPI. Synthetic folio_test ONLY.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
