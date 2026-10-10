@@ -177,6 +177,18 @@ export async function verifyWebCookieSession(
   }
 }
 
+/** INTERNAL ONLY. Retrieve the raw session token AFTER all direct-TLS,
+ * cookie uniqueness, exact-origin, CSRF and live DB checks. The token must
+ * never appear in an HTTP response, audit event or logging output. Used
+ * solely when a sensitive domain transaction revalidates the same bearer. */
+export async function verifiedWebCookieBearer(
+  request:WebCookieRequest,lookup:BearerSessionLookup,
+  policy:WebCookiePolicy,method:string,
+):Promise<string>{
+  await verifyWebCookieSession(request,lookup,policy,method);
+  return cookieBearer(request);
+}
+
 /** CSRF bootstrap cannot become a cross-site readable token endpoint. */
 export function assertSafeWebCsrfBootstrap(request:WebCookieRequest,policy:WebCookiePolicy):void{
   requireHttps(request);

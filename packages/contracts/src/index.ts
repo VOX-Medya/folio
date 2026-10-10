@@ -4,6 +4,19 @@ import { Base64 } from 'js-base64';
 /** Contracts may be used by web, native and admin without framework imports. */
 export const healthResponseSchema = z.object({status: z.literal('ok')}).strict();
 export const readinessResponseSchema = z.object({status: z.literal('ready')}).strict();
+/** Real admin TOTP endpoints remain explicitly gated by direct TLS.
+ * Caller identity, admin role, server time and encryption key are NEVER inputs. */
+export const adminTotpCodeRequestSchema=z.object({
+  code:z.string().regex(/^\d{6}$/),
+}).strict();
+export const adminTotpEnrollResponseSchema=z.object({
+  secretBase32:z.string().regex(/^[A-Z2-7]{32}$/),
+  expiresAt:z.iso.datetime({offset:true}),
+}).strict();
+export const adminTotpVerifyResponseSchema=z.object({
+  verified:z.literal(true),
+  expiresAt:z.iso.datetime({offset:true}),
+}).strict();
 export const apiErrorSchema = z.object({
   error: z.object({
     code: z.string().min(1),

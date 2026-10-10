@@ -40,7 +40,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
     };
     if (status === HttpStatus.TOO_MANY_REQUESTS) response.setHeader('Retry-After', '900');
     const path=(request.originalUrl ?? request.url ?? '').split('?')[0] ?? '';
-    if (path.startsWith('/v1/me/') || path.startsWith('/v1/auth/web/')) {
+    if (path.startsWith('/v1/me/') || path.startsWith('/v1/auth/web/') ||
+        path.startsWith('/v1/admin/mfa/')) {
       response.setHeader('Cache-Control', 'private, no-store');
     }else if(path==='/v1/health'||path==='/v1/ready'||
              path==='/v1/system/capabilities'){

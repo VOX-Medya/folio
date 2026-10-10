@@ -445,6 +445,176 @@
           "auth"
         ]
       }
+    },
+    "/v1/admin/mfa/totp/enroll": {
+      "post": {
+        "operationId": "AdminTotpController_enroll",
+        "parameters": [],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "secretBase32",
+                    "expiresAt"
+                  ],
+                  "properties": {
+                    "secretBase32": {
+                      "type": "string",
+                      "pattern": "^[A-Z2-7]{32}$"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Opt-in direct-TLS only pending admin TOTP enrollment; no privilege minted",
+        "tags": [
+          "admin-mfa"
+        ]
+      }
+    },
+    "/v1/admin/mfa/totp/confirm": {
+      "post": {
+        "operationId": "AdminTotpController_confirm",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[0-9]{6}$",
+                    "minLength": 6,
+                    "maxLength": 6
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Opt-in verify pending factor with fresh TOTP, without admin elevation",
+        "tags": [
+          "admin-mfa"
+        ]
+      }
+    },
+    "/v1/admin/mfa/totp/verify": {
+      "post": {
+        "operationId": "AdminTotpController_verify",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[0-9]{6}$",
+                    "minLength": 6,
+                    "maxLength": 6
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "verified",
+                    "expiresAt"
+                  ],
+                  "properties": {
+                    "verified": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Opt-in step-up using unused TOTP to bind MFA to current device",
+        "tags": [
+          "admin-mfa"
+        ]
+      }
     }
   },
   "info": {

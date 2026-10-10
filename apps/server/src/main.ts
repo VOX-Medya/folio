@@ -8,12 +8,13 @@ import { ApiExceptionFilter, RequestIdMiddleware } from './common/http.js';
 import { SystemModule } from './modules/system/system.module.js';
 import { AccountOnboardingModule } from './modules/account/onboarding.module.js';
 import { WebAuthModule } from './modules/auth/web-auth.module.js';
+import { AdminTotpModule } from './modules/auth/admin-totp.module.js';
 
 export {ApiExceptionFilter, RequestIdMiddleware, UserOwnershipGuard} from './common/http.js';
 export {HealthController, CapabilitiesController, ReadinessController, DbReadinessService} from './modules/system/system.module.js';
 
 /** A single modular monolith. Product modules join only when their guarded routes exist. */
-@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule]})
+@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule,AdminTotpModule]})
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes('*');
