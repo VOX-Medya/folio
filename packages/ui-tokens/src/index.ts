@@ -49,3 +49,6 @@ export function responsiveMode(width: number): ResponsiveMode {
   if (width < breakpoints.desktop) return 'tablet';
   return 'desktop';
 }
+
+export {renderFolioCoverSvg} from './cover.js';
+export type {FolioCoverInput,FolioCoverTheme} from './cover.js';
