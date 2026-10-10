@@ -4,6 +4,8 @@ import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
 import {LocalStorageAdapter,LOCAL_STORAGE_MAX_BYTES} from './local-storage.js';
 import type {QuarantinedBlob} from './local-storage.js';
+import type {CandidateMime} from './local-storage.js';
+import type {QuarantineByteScanner} from './quarantine-scanner.js';
 
 type QuotaDb=ReturnType<typeof createFolioDb>['db'];
 const uuid=z.uuid();
@@ -186,5 +188,67 @@ export async function sweepPrivateQuarantineOrphans(
       owner,new Set(references.map(r=>r.storageKey)),options,
     );
     return {ownerScope:'private-user' as const,blockedByActiveReservation:false,...result};
+  });
+}
+
+
+/**
+ * INTERNAL owner-bound malware scan observation, never approval.
+ * This is deliberately NOT an upload, playback or public HTTP route.
+ * The trusted owner is supplied by the verified backend caller, NOT any
+ * x-user-id header/query/body. Only the persisted private-user asset row
+ * supplies owner, opaque key, digest, media type, byte count and state.
+ *
+ * Slow scanner process runs OUTSIDE a database transaction. After it exits,
+ * reacquire the same per-owner advisory lock used for private quota/retention,
+ * confirm metadata/status are identical, and atomically audit the generic
+ * observation. A forged, withdrawn or concurrently changed asset fails closed.
+ * Even a "clean" observation NEVER marks a file verified or publishes it.
+ */
+export async function observePrivateQuarantineMalware(
+  db:QuotaDb,storage:LocalStorageAdapter,
+  trustedOwnerId:string,trustedAssetId:string,scanner:QuarantineByteScanner,
+){
+  const owner=uuid.parse(trustedOwnerId),id=uuid.parse(trustedAssetId);
+  const [asset]=await db.select().from(schema.mediaAssets).where(and(
+    eq(schema.mediaAssets.id,id),
+    eq(schema.mediaAssets.ownerScope,'private-user'),
+    eq(schema.mediaAssets.ownerUserId,owner),
+    eq(schema.mediaAssets.status,'pending_verify'),
+  )).limit(1);
+  if(!asset)throw new Error('Quarantined private asset unavailable for trusted owner');
+
+  const blob:QuarantinedBlob={
+    scope:'private-user',ownerUserId:owner,key:asset.storageKey,
+    status:'pending_verify',sha256:asset.sha256,sizeBytes:asset.sizeBytes,
+    mime:asset.mime as CandidateMime,
+  };
+  const result=await storage.scanQuarantined(blob,scanner);
+  return db.transaction(async tx=>{
+    await tx.execute(lockOwner(owner));
+    const [current]=await tx.select().from(schema.mediaAssets).where(and(
+      eq(schema.mediaAssets.id,id),
+      eq(schema.mediaAssets.ownerScope,'private-user'),
+      eq(schema.mediaAssets.ownerUserId,owner),
+      eq(schema.mediaAssets.status,'pending_verify'),
+    )).limit(1);
+    if(!current||current.storageKey!==asset.storageKey||
+      current.sha256!==asset.sha256||current.sizeBytes!==asset.sizeBytes||
+      current.mime!==asset.mime||current.durationMs!==asset.durationMs||
+      current.verifiedAt!==null){
+      throw new Error('Private asset changed or was withdrawn during malware inspection');
+    }
+    await tx.insert(schema.auditEvents).values({
+      actorId:owner,action:'storage.quarantine.scan_observed',
+      entityType:'media_asset',entityId:id,
+      afterJson:{
+        ownerScope:'private-user',
+        verdict:result.verdict,
+        status:'pending_verify',
+        sha256:result.sha256,
+        sizeBytes:result.sizeBytes,
+      },
+    });
+    return {assetId:id,...result};
   });
 }
