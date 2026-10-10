@@ -9,7 +9,13 @@ async function main(): Promise<void> {
     const spec = JSON.stringify(createOpenApiDocument(app), null, 2) + '\n';
     const target = resolve(process.cwd(), '../../docs/api/openapi.v1.json');
     if (process.argv.includes('--check')) {
-      if (readFileSync(target, 'utf8') !== spec) throw new Error('OpenAPI contract changed: regenerate and review docs/api/openapi.v1.json');
+      if (readFileSync(target, 'utf8') !== spec) {
+        // Diagnostic only: public API documentation, never credentials or user data.
+        console.error('FOLIO_OPENAPI_GENERATED_START');
+        console.error(spec);
+        console.error('FOLIO_OPENAPI_GENERATED_END');
+        throw new Error('OpenAPI contract changed: regenerate and review docs/api/openapi.v1.json');
+      }
       console.log('OpenAPI snapshot unchanged.');
     } else {
       writeFileSync(target, spec);
