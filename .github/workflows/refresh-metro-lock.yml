@@ -1,0 +1,30 @@
+name: Temporary Folio Metro 0.83.8 Lockfile Refresh
+on:
+  push:
+    branches: [fix/7-metro0838-image-size]
+permissions:
+  contents: write
+jobs:
+  generate:
+    if: github.repository == 'VOX-Medya/folio' && github.ref == 'refs/heads/fix/7-metro0838-image-size'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - name: Update only feature branch pnpm lockfile, without installing scripts
+        run: |
+          pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+          git diff --check
+          git add pnpm-lock.yaml
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'chore(#7): regenerate pnpm lock for Metro 0.83.8'
+            git push origin HEAD:refs/heads/fix/7-metro0838-image-size
+          fi
