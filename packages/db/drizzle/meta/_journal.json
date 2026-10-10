@@ -85,6 +85,13 @@
       "when": 1791612000000,
       "tag": "0011_resumable_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791613000000,
+      "tag": "0012_auth_attempt_limits",
+      "breakpoints": true
     }
   ]
 }

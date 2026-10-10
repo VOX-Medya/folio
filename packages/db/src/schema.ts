@@ -315,6 +315,22 @@ export const userSessions=pgTable('user_sessions',{
   index('user_sessions_user_active_idx').on(t.userId,t.revokedAt),
 ]);
 
+/** Persistent, privacy-preserving 15-minute auth-attempt counters. No raw IP/e-mail. */
+export const authAttemptWindows=pgTable('auth_attempt_windows',{
+  bucketKey:varchar('bucket_key',{length:64}).notNull(),
+  windowStart:timestamp('window_start',{withTimezone:true}).notNull(),
+  kind:varchar('kind',{length:12}).notNull(),
+  action:varchar('action',{length:24}).notNull(),
+  attempts:integer('attempts').notNull().default(1),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  primaryKey({columns:[t.bucketKey,t.windowStart]}),
+  index('auth_attempt_windows_expiry_idx').on(t.windowStart),
+  check('auth_attempt_windows_kind_ck',sql`${t.kind} in ('ip','account')`),
+  check('auth_attempt_windows_action_ck',sql`${t.action} in ('login','register','password_reset')`),
+  check('auth_attempt_windows_attempts_ck',sql`${t.attempts}>0`),
+]);
+
 /** Language/interests/onboarding progress belongs to the backend, not a device cache. */
 export const userOnboarding=pgTable('user_onboarding',{
   userId:uuid('user_id').primaryKey().references(()=>userAccounts.id,{onDelete:'restrict'}),

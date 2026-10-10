@@ -38,6 +38,7 @@ jobs:
           bash infra/lab.sh import-smoke
           bash infra/lab.sh storage-quota-smoke
           bash infra/lab.sh auth-smoke
+          bash infra/lab.sh auth-rate-smoke
           bash infra/lab.sh auth-http-smoke
           bash infra/lab.sh onboarding-smoke
       - name: Stop isolated Folio CI laboratory
