@@ -25,7 +25,8 @@ function requireTraceAndReason(requestId:string,reason:string){
 /**
  * Future privileged admin HTTP/CLI must supply the real server-generated
  * request ID and the raw verified session token via a safe transport.
- * No live admin controller, first-superadmin grant, or MFA issuer exists.
+ * No live admin controller or first-superadmin grant exists. The separate
+ * encrypted TOTP verifier remains internal-only until HTTPS/CSRF UI QA.
  *
  * This path can ONLY be called by a DB-recognized superadmin with a current
  * device-bound MFA proof. A normal auth session or spoofed admin header fails.
