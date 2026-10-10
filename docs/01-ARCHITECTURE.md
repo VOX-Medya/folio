@@ -57,3 +57,6 @@
 
 ## CI platform sozlesmesi (#7, 10 Ekim 2026)
 Ubuntu CI `pnpm check`, paylasilan tipler, Drizzle, NestJS, Vite, unit/HTTP, OpenAPI drift, Playwright Chrome, lisans bildirim taramasi ve yerel Docker imaj derlemesini dogrular. Expo `pnpm mobile:export` komutu web JS + Android Hermes + iOS Hermes JS bundle ciktilarini birlikte uretir; `tools/ci/check-expo-exports.mjs` uc hedefi zorunlu kilar. Bu derlemeler native APK/AAB/IPA veya gercek Android/iOS cihaz testi DEGILDIR; bunlar V1-04 kabul kapisinda ayrica uygulanir. Gelistirme audit uyarilari `docs/09-DEPENDENCY-RISKS.md` icinde kayitli; yayin CI icin guvenlik denetimi ayrica zorunlu bloklayicidir. Bu karar prod dagitimi yetkilendirmez.
+
+## Runtime NestJS modularization (#9)
+Tek `AppModule` artik yalnizca `SystemModule` baglar ve `common/http.ts` request-id, hata ve ownership sinirlarini uygular. Yeni is bolumleri, auth ve hak denetimleri hazir olduktan sonra ilgili NestJS modulunde kaydedilir; ayrı API/mikroservis kurulmaz. Kabul ve HTTP negatif test kanitlari `docs/11-API-IMPLEMENTATION.md` icindedir.

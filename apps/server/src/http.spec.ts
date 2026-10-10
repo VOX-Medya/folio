@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiErrorSchema, capabilityPageSchema } from '@folio/contracts';
+import { apiErrorSchema, capabilityPageSchema, fetchCapabilities, healthResponseSchema } from '@folio/contracts';
 import { createFolioApp } from './main.js';
 
 describe('Folio API live HTTP contract', () => {
@@ -12,7 +12,7 @@ describe('Folio API live HTTP contract', () => {
       const base = `http://127.0.0.1:${addr.port}`;
       const health = await fetch(`${base}/v1/health`);
       expect(health.status).toBe(200);
-      expect(await health.json()).toEqual({status: 'ok'});
+      expect(healthResponseSchema.parse(await health.json())).toEqual({status: 'ok'});
       const requestId = health.headers.get('x-request-id');
       expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
       const firstResponse = await fetch(`${base}/v1/system/capabilities?limit=2`);
@@ -21,6 +21,7 @@ describe('Folio API live HTTP contract', () => {
       expect(first.items).toHaveLength(2);
       expect(first.items.every(item => !item.available)).toBe(true);
       expect(first.nextCursor).toBeTruthy();
+      expect(await fetchCapabilities(base, {limit: 2})).toEqual(first);
       const nextResponse = await fetch(`${base}/v1/system/capabilities?limit=2&cursor=${first.nextCursor}`);
       const next = capabilityPageSchema.parse(await nextResponse.json());
       expect(next.items).toHaveLength(2);
