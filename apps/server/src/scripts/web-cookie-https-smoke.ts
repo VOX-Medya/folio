@@ -153,8 +153,12 @@ async function main(){
     check(!!cookie,'Cookie fixture missing');
     const boot=await httpsCall(port,prefix+'/csrf','GET',{
       cookie,'x-user-id':'fake','x-admin-role':'superadmin',
+      'sec-fetch-site':'same-origin',
     });
     check(boot.status===200,'HTTPS cookie could not bootstrap CSRF');
+    const noOriginProof=await httpsCall(port,prefix+'/csrf','GET',{cookie});
+    check(noOriginProof.status===403,
+      'CSRF token bootstrap accepted a request without origin evidence');
     const csrf=boot.headers['x-folio-csrf'];
     check(typeof csrf==='string'&&/^[A-Za-z0-9_-]{43}$/.test(csrf),
       'No valid server-generated CSRF token');
