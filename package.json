@@ -11,11 +11,12 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check",
+    "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check && pnpm metro:security-check",
     "e2e": "playwright test",
     "design:check": "node tools/design/generate-screen-matrix.mjs --check",
     "mobile:export": "pnpm --filter @folio/mobile exec expo export --platform all && node tools/ci/check-expo-exports.mjs",
-    "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs"
+    "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs tools/security/*.test.mjs",
+    "metro:security-check": "node tools/security/check-metro-graph.mjs pnpm-lock.yaml"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -27,7 +28,21 @@
   },
   "pnpm": {
     "overrides": {
-      "postcss": "^8.5.29"
+      "postcss": "^8.5.29",
+      "metro": "0.83.8",
+      "metro-babel-transformer": "0.83.8",
+      "metro-cache": "0.83.8",
+      "metro-cache-key": "0.83.8",
+      "metro-config": "0.83.8",
+      "metro-core": "0.83.8",
+      "metro-file-map": "0.83.8",
+      "metro-minify-terser": "0.83.8",
+      "metro-resolver": "0.83.8",
+      "metro-runtime": "0.83.8",
+      "metro-source-map": "0.83.8",
+      "metro-symbolicate": "0.83.8",
+      "metro-transform-plugins": "0.83.8",
+      "metro-transform-worker": "0.83.8"
     }
   }
 }
