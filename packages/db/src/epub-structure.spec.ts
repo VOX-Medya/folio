@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {Readable} from 'node:stream';
 import {deflateRawSync} from 'node:zlib';
 import {describe,expect,it} from 'vitest';
-import {inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
+import {inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,inspectEpubZipCssResources,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
 import {LocalStorageAdapter} from './local-storage.js';
 
 interface Entry{
@@ -566,6 +566,97 @@ describe('inert EPUB XHTML source shape and local navigation preflight',()=>{
       await expect(storage.inspectEpubXhtmlMarkup({...blob,sha256:'f'.repeat(64)}))
         .rejects.toThrow(/source bytes changed/);
       await expect(storage.inspectEpubXhtmlMarkup({...blob,mime:'text/plain'})).rejects.toThrow();
+    }finally{await rm(root,{recursive:true,force:true});}
+  });
+});
+
+
+describe('EPUB CSS-only quarantine lexical gate (no rendering approval)',()=>{
+  const withCss=(value:string)=>archive(
+    replaceEntry(completeMarkupEntries(),'OPS/style.css',()=>value));
+
+  it('accepts a bounded inert CSS subset with aggregate counts only',()=>{
+    const bytes=withCss('body { margin: 1em; color: #123; }\np { text-align: justify; font-weight: bold; line-height: 1.4; }');
+    expect(inspectEpubZipXhtmlMarkup(bytes).status).toBe('xhtml_markup_only');
+    const result=inspectEpubZipCssResources(bytes);
+    expect(result).toMatchObject({
+      status:'css_resources_only',stylesheetCount:1,ruleCount:2,declarationCount:5,
+    });
+    expect(result.stylesheetBytes).toBeGreaterThan(30);
+    expect(JSON.stringify(result)).not.toMatch(/style\.css|chapter\.xhtml|body|margin|verified|render/i);
+  });
+
+  it('denies imports, URL functions, comments, escapes and complex or dangerous grammar',()=>{
+    const unsafe=[
+      "@import url('https://evil.invalid/exfil.css');",
+      'body { background: url(https://evil.invalid/tracker); }',
+      'body { background-image: url(data:image/png;base64,AA); }',
+      '@font-face { font-family: remote; src: url(https://evil.invalid/font.woff2); }',
+      'body { color: #fff; } /* hidden import */',
+      'body { color: #fff !important; }',
+      'body { color: red; }',
+      'body { font-family: "remote"; }',
+      'body { margin: calc(1em + 1px); }',
+      'body { margin: 1em; margin: 2em; }',
+      'body { position: fixed; }',
+      'body { color: #fff; background: transparent; }',
+      'body:hover { color: #fff; }',
+      'body[data-x] { color: #fff; }',
+      '* { color: #fff; }',
+      'body { color: #fff; } }',
+      'body { color: #fff; } @supports (display: grid) {}',
+      'body { color: \\23fff; }',
+      'body { color: #fff; }\u00a0',
+      'body { color: #fff; }\x00',
+      'body { color: #fff; } <style>',
+    ];
+    for(const css of unsafe){
+      const bytes=withCss(css);
+      expect(inspectEpubZipXhtmlMarkup(bytes).status).toBe('xhtml_markup_only');
+      expect(()=>inspectEpubZipCssResources(bytes),css.slice(0,60))
+        .toThrow(/Unsupported EPUB CSS/);
+    }
+  });
+
+  it('denies invalid UTF-8 and oversized stylesheet bytes',()=>{
+    const invalidUtf8=completeMarkupEntries().map(e=>e.name==='OPS/style.css'
+      ?{...e,content:Buffer.from([0xc3,0x28])}:e);
+    expect(()=>inspectEpubZipCssResources(archive(invalidUtf8)))
+      .toThrow(/Unsupported EPUB CSS/);
+    const oversized=completeMarkupEntries().map(e=>e.name==='OPS/style.css'
+      ?{...e,content:Buffer.alloc(64*1024+1,'x'),compress:false}:e);
+    expect(()=>inspectEpubZipCssResources(archive(oversized))).toThrow();
+  });
+
+  it('returns zero styling evidence only for genuinely CSS-free OPF manifest',()=>{
+    const entries=completeMarkupEntries().filter(e=>e.name!=='OPS/style.css');
+    const noCss=replaceEntry(entries,'OPS/book.opf',s=>
+      s.replace('<item id="style" href="style.css" media-type="text/css"/>',''));
+    expect(inspectEpubZipCssResources(archive(noCss))).toEqual({
+      status:'css_resources_only',stylesheetCount:0,stylesheetBytes:0,
+      ruleCount:0,declarationCount:0,
+    });
+  });
+
+  it('requires private owner, digest and pending metadata; no raw CSS returned',async()=>{
+    const root=await mkdtemp(join(tmpdir(),'folio-epub-css-'));
+    try{
+      const storage=await LocalStorageAdapter.create(root);
+      const owner=randomUUID(),data=withCss('p { color: #abc; }');
+      const blob=await storage.stage({
+        owner:{scope:'private-user',ownerUserId:owner},
+        source:Readable.from([data]),declaredSha256:sha(data),
+        declaredMime:'application/epub+zip',maxBytes:data.length,
+      });
+      const result=await storage.inspectEpubCssResources(blob);
+      expect(result.status).toBe('css_resources_only');
+      expect(JSON.stringify(result)).not.toContain('#abc');
+      await expect(storage.inspectEpubCssResources({...blob,ownerUserId:randomUUID()}))
+        .rejects.toThrow();
+      await expect(storage.inspectEpubCssResources({...blob,sha256:'f'.repeat(64)}))
+        .rejects.toThrow(/source bytes changed/);
+      await expect(storage.inspectEpubCssResources({...blob,status:'verified' as 'pending_verify'}))
+        .rejects.toThrow(/pending|quarantined/i);
     }finally{await rm(root,{recursive:true,force:true});}
   });
 });

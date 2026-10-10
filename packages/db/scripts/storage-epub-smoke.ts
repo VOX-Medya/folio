@@ -7,7 +7,8 @@ import {and,eq} from 'drizzle-orm';
 import {createFolioDb,LocalStorageAdapter,reservePrivateUploadQuota,
   commitPrivateQuarantinedUpload,observePrivateQuarantineEpubStructure,
   observePrivateQuarantineEpubPackageSpine,
-  observePrivateQuarantineEpubXhtmlMarkup,schema} from '../src/index.js';
+  observePrivateQuarantineEpubXhtmlMarkup,
+  observePrivateQuarantineEpubCssResources,schema} from '../src/index.js';
 function check(ok:unknown,message:string):asserts ok{if(!ok)throw new Error(message);}
 async function deny(label:string,fn:()=>Promise<unknown>){
   let rejected=false;
@@ -21,7 +22,7 @@ function crc32(b:Buffer):number{
   return (c^0xffffffff)>>>0;
 }
 /** Tiny synthetic uncompressed EPUB OCF, not a third-party or copyrighted book. */
-function fixture(withPackage=false){
+function fixture(withPackage=false,cssText?:string){
   const entries=withPackage?[
     ['mimetype','application/epub+zip'],
     ['META-INF/container.xml','<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'],
@@ -35,6 +36,14 @@ function fixture(withPackage=false){
     ['OPS/book.opf','<package version="3.0"/>'],
     ['OPS/chapter.xhtml','<html><body>Synthetic text.</body></html>'],
   ];
+  if(cssText!==undefined){
+    if(!withPackage)throw new Error('CSS fixture requires a valid OPF');
+    const opf=entries.find(row=>row[0]==='OPS/book.opf');
+    if(!opf||!opf[1])throw new Error('Synthetic OPF missing');
+    opf[1]=opf[1].replace('</manifest>',
+      '<item id="style" href="style.css" media-type="text/css"/></manifest>');
+    entries.push(['OPS/style.css',cssText]);
+  }
   const locals:Buffer[]=[],centrals:Buffer[]=[];
   let offset=0,expanded=0;
   for(const [path,body] of entries){
@@ -85,7 +94,7 @@ async function main(){
     const storage=await LocalStorageAdapter.create(root);
     const example=fixture();
     const stage=async(data:Buffer)=>{
-      const reservation=await reservePrivateUploadQuota(first.db,owner,data.length,8192);
+      const reservation=await reservePrivateUploadQuota(first.db,owner,data.length,32*1024);
       const blob=await storage.stage({
         owner:{scope:'private-user',ownerUserId:owner},
         source:Readable.from([data]),declaredSha256:sha(data),
@@ -233,6 +242,54 @@ async function main(){
       ()=>observePrivateQuarantineEpubXhtmlMarkup(first.db,storage,owner,abortedId));
     check((await xhtmlAudit(abortedId)).length===0,
       'Withdrawn XHTML media incorrectly retained success audit');
+    // Fourth independent CSS lexical-subset gate, still pending_verify.
+    const styledId=await stage(fixture(true,'body { margin: 1em; color: #123; }').bytes);
+    const cssAudit=async(assetId:string)=>first.db.select().from(schema.auditEvents).where(and(
+      eq(schema.auditEvents.entityType,'media_asset'),
+      eq(schema.auditEvents.entityId,assetId),
+      eq(schema.auditEvents.action,'storage.quarantine.epub_css_observed'),
+    ));
+    await deny('CSS inspection cross-owner',
+      ()=>observePrivateQuarantineEpubCssResources(
+        second.db,storage,anotherOwner,styledId));
+    await deny('CSS inspection unknown ID',
+      ()=>observePrivateQuarantineEpubCssResources(
+        second.db,storage,owner,randomUUID()));
+    const css=await observePrivateQuarantineEpubCssResources(
+      first.db,storage,owner,styledId);
+    check(css.status==='css_resources_only'&&css.assetStatus==='pending_verify'&&
+      css.stylesheetCount===1&&css.ruleCount===1&&css.declarationCount===2,
+      'Private stylesheet quarantine result was not bounded');
+    const [cssAsset]=await first.db.select().from(schema.mediaAssets)
+      .where(eq(schema.mediaAssets.id,styledId));
+    const cssEvents=await cssAudit(styledId);
+    const cssJson=JSON.stringify(cssEvents[0]?.afterJson);
+    check(cssAsset?.status==='pending_verify'&&cssAsset.verifiedAt===null&&
+      cssEvents.length===1&&!cssJson.includes(cssAsset.storageKey)&&
+      !cssJson.includes(root)&&!cssJson.includes('style.css')&&
+      !cssJson.includes('margin'),
+      'Private CSS inspection incorrectly verified or leaked source/path');
+    const unsafeCssId=await stage(
+      fixture(true,"@import url('https://evil.invalid/style.css');").bytes);
+    await deny('remote CSS import',
+      ()=>observePrivateQuarantineEpubCssResources(
+        first.db,storage,owner,unsafeCssId));
+    check((await cssAudit(unsafeCssId)).length===0,
+      'Unsafe CSS was incorrectly recorded as successful');
+    const withdrawnCssId=await stage(fixture(true,'p { color: #123; }').bytes);
+    const originalCss=storage.inspectEpubCssResources.bind(storage);
+    storage.inspectEpubCssResources=async record=>{
+      const result=await originalCss(record);
+      await second.db.update(schema.mediaAssets).set({status:'rejected'})
+        .where(eq(schema.mediaAssets.id,withdrawnCssId));
+      return result;
+    };
+    await deny('CSS inspected while asset withdrawn',
+      ()=>observePrivateQuarantineEpubCssResources(
+        first.db,storage,owner,withdrawnCssId));
+    check((await cssAudit(withdrawnCssId)).length===0,
+      'Withdrawn private CSS media incorrectly got success audit');
+    console.log('EPUB CSS private-owner PASS: isolated PostgreSQL, imports denied, cross-owner and withdrawal rejected, counts-only audit, pending_verify.');
     console.log('EPUB XHTML syntax owner PASS: Folio-only two-pool PostgreSQL, exact safe-local nav anchors, owner isolation, in-flight revocation, counts-only audit, pending_verify preserved.');
     console.log('EPUB package/spine owner PASS: two Folio-only PostgreSQL pools, actual OCF rootfile and OPF relationships, private-owner/RBAC boundary, no source/key in audit, rejected placeholder, revocation and pending_verify preserved.');
     console.log('EPUB structural owner PASS: real two-pool PostgreSQL owner/revocation safety, complete OCF ZIP CRC/size, truncated-header denial, audit without key/content or verified transition. Synthetic Folio folio_test only.');

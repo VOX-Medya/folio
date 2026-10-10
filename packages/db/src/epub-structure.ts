@@ -2,6 +2,8 @@ import {TextDecoder} from 'node:util';
 import {inflateRawSync} from 'node:zlib';
 import {inspectEpubPackageSpine,inspectEpubPackageSpineDetails} from './epub-package.js';
 import {inspectEpubXhtmlMarkup} from './epub-xhtml.js';
+import {inspectEpubCssResources} from './epub-css.js';
+import type {EpubCssResourceResult} from './epub-css.js';
 import type {EpubXhtmlMarkupResult} from './epub-xhtml.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 
@@ -114,6 +116,14 @@ export function inspectEpubZipXhtmlMarkup(bytes:Buffer):EpubXhtmlMarkupResult{
   const details=inspectEpubPackageSpineDetails(archive.entries);
   return inspectEpubXhtmlMarkup(
     archive.entries,details.xhtmlPaths,details.navigationPath);
+}
+/** Fourth isolated quarantine preflight, not a renderer or publication grant.
+ * Requires successful ZIP, OPF relationship, and XHTML active-markup gates. */
+export function inspectEpubZipCssResources(bytes:Buffer):EpubCssResourceResult{
+  const archive=validatedZip(bytes);
+  const details=inspectEpubPackageSpineDetails(archive.entries);
+  inspectEpubXhtmlMarkup(archive.entries,details.xhtmlPaths,details.navigationPath);
+  return inspectEpubCssResources(archive.entries,details.cssPaths);
 }
 function validatedZip(bytes:Buffer):{
   result:EpubZipStructuralResult;entries:ReadonlyMap<string,Buffer>
