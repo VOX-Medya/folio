@@ -315,6 +315,20 @@ export const userSessions=pgTable('user_sessions',{
   index('user_sessions_user_active_idx').on(t.userId,t.revokedAt),
 ]);
 
+/** Language/interests/onboarding progress belongs to the backend, not a device cache. */
+export const userOnboarding=pgTable('user_onboarding',{
+  userId:uuid('user_id').primaryKey().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  stage:varchar('stage',{length:24}).notNull().default('welcome'),
+  locale:varchar('locale',{length:2}).notNull().default('tr'),
+  interests:jsonb('interests').$type<string[]>().notNull().default([]),
+  version:integer('version').notNull().default(0),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  check('user_onboarding_stage_ck',sql`${t.stage} in ('welcome','language','interests','complete')`),
+  check('user_onboarding_locale_ck',sql`${t.locale} in ('tr','en')`),
+  check('user_onboarding_version_ck',sql`${t.version}>=0`),
+]);
+
 /** Every replacement is a distinct complete variant, so old listener cursors remain valid. */
 export const audioVariants=pgTable('audio_variants',{
   id:uuid('id').primaryKey().defaultRandom(),
