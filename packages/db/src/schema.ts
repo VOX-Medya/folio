@@ -264,6 +264,57 @@ export const storageUploadReservations=pgTable('storage_upload_reservations',{
   check('storage_upload_reservations_status_ck',sql`${t.status} in ('reserved','committed','released')`),
 ]);
 
+/** V1 self-hosted accounts. No existing catalog rows, rights, or admin roles are modified. */
+export const userAccounts=pgTable('user_accounts',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  normalizedEmail:varchar('normalized_email',{length:254}).notNull(),
+  status:varchar('status',{length:24}).notNull().default('pending_email'),
+  emailVerifiedAt:timestamp('email_verified_at',{withTimezone:true}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('user_accounts_normalized_email_unique').on(t.normalizedEmail),
+  check('user_accounts_email_lower_ck',sql`${t.normalizedEmail}=lower(${t.normalizedEmail})`),
+  check('user_accounts_status_ck',sql`${t.status} in ('pending_email','active','disabled')`),
+]);
+
+/** Password secrets are salted, slow-hashed and never stored in audit records. */
+export const passwordCredentials=pgTable('password_credentials',{
+  userId:uuid('user_id').primaryKey().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  passwordSalt:varchar('password_salt',{length:32}).notNull(),
+  passwordDigest:varchar('password_digest',{length:128}).notNull(),
+  scheme:varchar('scheme',{length:24}).notNull().default('scrypt-v1'),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});
+
+/** A verification or recovery challenge is single-use and stores SHA-256, not bearer bytes. */
+export const authChallenges=pgTable('auth_challenges',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  purpose:varchar('purpose',{length:24}).notNull(),
+  tokenDigest:varchar('token_digest',{length:64}).notNull(),
+  expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+  consumedAt:timestamp('consumed_at',{withTimezone:true}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('auth_challenges_token_unique').on(t.tokenDigest),
+  index('auth_challenges_user_purpose_idx').on(t.userId,t.purpose),
+  check('auth_challenges_purpose_ck',sql`${t.purpose} in ('verify_email','password_reset')`),
+]);
+
+/** Revocable per-device bearer tokens are persisted ONLY as irreversible hashes. */
+export const userSessions=pgTable('user_sessions',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  tokenDigest:varchar('token_digest',{length:64}).notNull(),
+  deviceLabel:varchar('device_label',{length:80}).notNull(),
+  expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+  revokedAt:timestamp('revoked_at',{withTimezone:true}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('user_sessions_token_unique').on(t.tokenDigest),
+  index('user_sessions_user_active_idx').on(t.userId,t.revokedAt),
+]);
+
 /** Every replacement is a distinct complete variant, so old listener cursors remain valid. */
 export const audioVariants=pgTable('audio_variants',{
   id:uuid('id').primaryKey().defaultRandom(),
