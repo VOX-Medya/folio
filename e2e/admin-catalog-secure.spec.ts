@@ -59,7 +59,8 @@ const createdAuthorId='2bbdef86-2af8-4666-9b27-3e9d44bfb222';
 
 test('real HTTPS Paperbound workspace retries stale work edit only AFTER explicit reload',async({page})=>{
   await page.setViewportSize({width:1440,height:900});
-  let version=1,title='Kayıtlı Taslak',year:number|null=null;
+  let version=1,title='Kayıtlı Taslak';
+  const year:number|null=null;
   const writes:Array<Record<string,unknown>>=[];
   const methods:string[]=[];
   await page.route('**/v1/**',async route=>{
