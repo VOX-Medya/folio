@@ -6,7 +6,8 @@ import {Readable} from 'node:stream';
 import {and,eq} from 'drizzle-orm';
 import {createFolioDb,LocalStorageAdapter,reservePrivateUploadQuota,
   commitPrivateQuarantinedUpload,observePrivateQuarantineEpubStructure,
-  observePrivateQuarantineEpubPackageSpine,schema} from '../src/index.js';
+  observePrivateQuarantineEpubPackageSpine,
+  observePrivateQuarantineEpubXhtmlMarkup,schema} from '../src/index.js';
 function check(ok:unknown,message:string):asserts ok{if(!ok)throw new Error(message);}
 async function deny(label:string,fn:()=>Promise<unknown>){
   let rejected=false;
@@ -25,8 +26,8 @@ function fixture(withPackage=false){
     ['mimetype','application/epub+zip'],
     ['META-INF/container.xml','<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'],
     ['OPS/book.opf','<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata/><manifest><item id="a" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="n" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="a" linear="yes"/></spine></package>'],
-    ['OPS/chapter.xhtml','<html><body>Private synthetic chapter.</body></html>'],
-    ['OPS/nav.xhtml','<html><nav>Private synthetic navigation.</nav></html>'],
+    ['OPS/chapter.xhtml','<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Private example</title></head><body><section id="chapter"><h1>Synthetic chapter</h1><p>Private synthetic words.</p></section></body></html>'],
+    ['OPS/nav.xhtml','<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Navigation</title></head><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#chapter">Chapter one</a></li></ol></nav></body></html>'],
   ]:[
 
     ['mimetype','application/epub+zip'],
@@ -193,6 +194,46 @@ async function main(){
         first.db,storage,owner,withdrawnPackage));
     check((await packageAudit(withdrawnPackage)).length===0,
       'Mid-scan rejected package incorrectly received a success audit');
+    const xhtmlAudit=async(id:string)=>first.db.select().from(schema.auditEvents).where(and(
+      eq(schema.auditEvents.entityType,'media_asset'),
+      eq(schema.auditEvents.entityId,id),
+      eq(schema.auditEvents.action,'storage.quarantine.epub_xhtml_observed'),
+    ));
+    await deny('another user XHTML markup preflight',
+      ()=>observePrivateQuarantineEpubXhtmlMarkup(second.db,storage,anotherOwner,ownedPackage));
+    await deny('unknown private EPUB XHTML media ID',
+      ()=>observePrivateQuarantineEpubXhtmlMarkup(second.db,storage,owner,randomUUID()));
+    await deny('old valid ZIP but malformed OPF rejected by XHTML',
+      ()=>observePrivateQuarantineEpubXhtmlMarkup(first.db,storage,owner,id));
+    const shape=await observePrivateQuarantineEpubXhtmlMarkup(
+      first.db,storage,owner,ownedPackage);
+    check(shape.status==='xhtml_markup_only'&&shape.assetStatus==='pending_verify'&&
+      shape.assetId===ownedPackage&&shape.documentCount===2&&
+      shape.navigationDocuments===1&&shape.fragmentLinks===1,
+    'Private XHTML document and local link checks did not pass');
+    const [afterMarkup]=await first.db.select().from(schema.mediaAssets)
+      .where(eq(schema.mediaAssets.id,ownedPackage));
+    const shapeEvents=await xhtmlAudit(ownedPackage);
+    check(afterMarkup?.status==='pending_verify'&&afterMarkup.verifiedAt===null&&
+      shapeEvents.length===1,'XHTML shape check incorrectly verified/published EPUB');
+    const shapeJson=JSON.stringify(shapeEvents[0]?.afterJson);
+    check(shapeJson.includes('xhtml_markup_only')&&
+      !shapeJson.includes(afterMarkup.storageKey)&&!shapeJson.includes(root)&&
+      !shapeJson.includes('chapter.xhtml')&&!shapeJson.includes('Private synthetic'),
+    'XHTML metadata-only audit exposed storage key, file path or source');
+    const abortedId=await stage(packageFixture.bytes);
+    const originalXhtml=storage.inspectEpubXhtmlMarkup.bind(storage);
+    storage.inspectEpubXhtmlMarkup=async record=>{
+      const result=await originalXhtml(record);
+      await second.db.update(schema.mediaAssets).set({status:'rejected'})
+        .where(eq(schema.mediaAssets.id,abortedId));
+      return result;
+    };
+    await deny('EPUB withdrawn while XHTML preflight active',
+      ()=>observePrivateQuarantineEpubXhtmlMarkup(first.db,storage,owner,abortedId));
+    check((await xhtmlAudit(abortedId)).length===0,
+      'Withdrawn XHTML media incorrectly retained success audit');
+    console.log('EPUB XHTML syntax owner PASS: Folio-only two-pool PostgreSQL, exact safe-local nav anchors, owner isolation, in-flight revocation, counts-only audit, pending_verify preserved.');
     console.log('EPUB package/spine owner PASS: two Folio-only PostgreSQL pools, actual OCF rootfile and OPF relationships, private-owner/RBAC boundary, no source/key in audit, rejected placeholder, revocation and pending_verify preserved.');
     console.log('EPUB structural owner PASS: real two-pool PostgreSQL owner/revocation safety, complete OCF ZIP CRC/size, truncated-header denial, audit without key/content or verified transition. Synthetic Folio folio_test only.');
   }finally{
