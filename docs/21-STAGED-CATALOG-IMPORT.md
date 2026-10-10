@@ -17,3 +17,7 @@ The prepared local folder or `tar.zst` must pass the existing `folioctl` manifes
 - 25–50 whole-book batch E2E with content, audio staging, interruption/replay, audit, and rollback diagnostics. Current test covers only 30 **catalog metadata** groups, not whole-book imports.
 
 The internal API must not be exposed to an HTTP client without session/RBAC/rights guards. No production builds or publishing were performed.
+
+## GH Actions regression: cross-scope validity and parallel checkpoint (#19)
+
+`preparedImportSchema` now checks edition/revision language, rights-to-work hierarchy including references through editions and revisions, duplicate in-work authors and rejectable self-approved publication claims **before any database write**. Two separate PostgreSQL pools concurrently resume the same staged 4-work fixture. The isolated `folio_test` integration requires exactly 12 distinct applied metadata items and 12 per-item audit events, no processed-item overcount, and a final `metadata_applied` status that cannot be overwritten by a stale worker. All revisions and rights remain deferred. These checks are part of GitHub Actions' `import-smoke` step; no production import/public endpoint is enabled.
