@@ -1,5 +1,5 @@
 import {
-  BadRequestException,Body,Controller,Get,Header,Inject,Injectable,
+  BadRequestException,Body,Controller,ForbiddenException,Get,Header,Inject,Injectable,
   Delete,HttpCode,Module,NotFoundException,OnModuleDestroy,Param,Patch,Query,
   Req,ServiceUnavailableException,UnauthorizedException,ConflictException,UseGuards,
 } from '@nestjs/common';
@@ -77,6 +77,9 @@ export class AccountOnboardingDb implements OnModuleDestroy {
         }
         if(error.message==='Onboarding stage cannot skip or regress'){
           throw new BadRequestException('Onboarding stage cannot skip or regress');
+        }
+        if(error.message==='Onboarding privacy consent acceptance is unavailable'){
+          throw new ForbiddenException('Onboarding privacy consent is not available');
         }
         if(error.message==='Verified user required for onboarding'){
           throw new UnauthorizedException('Verified user required');
