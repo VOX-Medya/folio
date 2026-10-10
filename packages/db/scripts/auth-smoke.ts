@@ -62,6 +62,8 @@ async function main(){
       'Incorrect password started a session');
     await denied(()=>signInVerifiedAccount(first.db,'nobody-'+randomUUID()+'@example.com',pass,'web'),
       'Nonexistent account started a session');
+    await denied(()=>signInVerifiedAccount(first.db,email,pass,'web','client-spoofed-id'),
+      'Malformed programmatic request ID was accepted for a verified session');
     const web=await signInVerifiedAccount(first.db,email,pass,'web');
     const android=await signInVerifiedAccount(second.db,email,pass,'android');
     requireState(web.sessionToken!==android.sessionToken&&web.userId===android.userId,
