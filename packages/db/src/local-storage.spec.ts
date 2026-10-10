@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {Readable} from 'node:stream';
-import {mkdtemp,rm,readdir,lstat,link,symlink,mkdir,chmod,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,readdir,lstat,link,symlink,mkdir,chmod,writeFile,utimes} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe,expect,it} from 'vitest';
@@ -176,6 +176,90 @@ describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>
       }
       const entries=await readdir(join(root,'quarantine','catalog'));
       expect(entries).toEqual([accepted.key+'.blob']);
+    });
+  });
+
+  it('never exposes incomplete bytes under .blob and finishes with a single 0600 inode',async()=>{
+    await withVault(async(root,adapter)=>{
+      const dir=join(root,'quarantine','users',alice);
+      let during:string[]=[];
+      async function* paused():AsyncGenerator<Uint8Array>{
+        yield pdf.subarray(0,5);
+        during=await readdir(dir);
+        yield pdf.subarray(5);
+      }
+      const stored=await adapter.stage({
+        owner:privateOwner,source:paused(),
+        declaredSha256:digest(pdf),declaredMime:'application/pdf',maxBytes:1024,
+      });
+      expect(during).toEqual([stored.key+'.part']);
+      expect(await readdir(dir)).toEqual([stored.key+'.blob']);
+      const state=await lstat(join(dir,stored.key+'.blob'));
+      expect(state.nlink).toBe(1);
+      expect(state.mode&0o777).toBe(0o600);
+      expect(await adapter.inspectQuarantined(stored)).toEqual({
+        sha256:digest(pdf),sizeBytes:pdf.length,
+      });
+    });
+  });
+
+  it('never deletes DB-protected/private-other-owner/young/symlink/partial/hardlinked files',async()=>{
+    await withVault(async(root,adapter)=>{
+      const stage=(owner:AssetOwner)=>adapter.stage({
+        owner,source:source(pdf),declaredSha256:digest(pdf),
+        declaredMime:'application/pdf',maxBytes:1024,
+      });
+      const protectedBlob=await stage(privateOwner);
+      const orphan=await stage(privateOwner);
+      const alteredMode=await stage(privateOwner);
+      const linked=await stage(privateOwner);
+      const future=await stage(privateOwner);
+      const bobBlob=await stage({scope:'private-user',ownerUserId:bob});
+      const catalogBlob=await stage(catalog);
+      const dir=join(root,'quarantine','users',alice);
+      const linkedCopy=join(dir,randomUUID()+'.blob');
+      const symbolic=join(dir,randomUUID()+'.blob');
+      const partial=join(dir,randomUUID()+'.part');
+      const unknown=join(dir,'some-strange-name.blob');
+      const oldClock=Date.now();
+      const futureClock=oldClock+5*24*60*60*1000;
+      await chmod(join(dir,alteredMode.key+'.blob'),0o644);
+      await link(join(dir,linked.key+'.blob'),linkedCopy);
+      await symlink(join(dir,protectedBlob.key+'.blob'),symbolic);
+      await writeFile(partial,Buffer.from('aborted upload'));
+      await writeFile(unknown,Buffer.from('not an opaque key'));
+      await utimes(join(dir,future.key+'.blob'),new Date(futureClock),new Date(futureClock));
+
+      // Default is reporting only, even if the synthetic clock is far ahead.
+      const onlyReport=await adapter.sweepPrivateUserOrphans(alice,
+        new Set([protectedBlob.key]),{testNowMs:futureClock});
+      expect(onlyReport.dryRun).toBe(true);
+      expect(onlyReport.removed).toBe(0);
+      expect(onlyReport.eligible).toBe(1);
+      expect(onlyReport.referenced).toBe(1);
+      expect(onlyReport.skipped).toBeGreaterThanOrEqual(6);
+      expect((await readdir(dir))).toContain(orphan.key+'.blob');
+
+      const removed=await adapter.sweepPrivateUserOrphans(alice,
+        new Set([protectedBlob.key]),{apply:true,testNowMs:futureClock});
+      expect(removed.eligible).toBe(1);
+      expect(removed.removed).toBe(1);
+      expect(await readdir(dir)).not.toContain(orphan.key+'.blob');
+      expect((await readdir(dir))).toContain(protectedBlob.key+'.blob');
+      expect((await readdir(dir))).toContain(alteredMode.key+'.blob');
+      expect((await readdir(dir))).toContain(linked.key+'.blob');
+      expect((await readdir(dir))).toContain(future.key+'.blob');
+      expect((await readdir(dir))).toContain(partial.split('/').pop());
+      expect(await adapter.inspectQuarantined(protectedBlob)).toEqual({
+        sha256:digest(pdf),sizeBytes:pdf.length,
+      });
+      expect(await adapter.inspectQuarantined(bobBlob)).toMatchObject({sizeBytes:pdf.length});
+      expect(await adapter.inspectQuarantined(catalogBlob)).toMatchObject({sizeBytes:pdf.length});
+      const repeat=await adapter.sweepPrivateUserOrphans(alice,
+        new Set([protectedBlob.key]),{apply:true,testNowMs:futureClock});
+      expect(repeat.removed).toBe(0);
+      await expect(adapter.sweepPrivateUserOrphans('../bad',new Set(),{apply:true}))
+        .rejects.toThrow();
     });
   });
 
