@@ -49,3 +49,50 @@ export const importBatches = pgTable('import_batches', {
   status: varchar('status', {length: 24}).notNull().default('pending'),
   createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
 }, t => [index('import_batches_package_idx').on(t.packageId)]);
+
+/** Alternate local names; the canonical author record remains unchanged. */
+export const authorAliases = pgTable('author_aliases', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  authorId: uuid('author_id').notNull().references(() => authors.id, {onDelete: 'restrict'}),
+  locale: varchar('locale', {length: 12}),
+  name: text('name').notNull(),
+}, t => [index('author_aliases_author_idx').on(t.authorId)]);
+
+export const authorExternalIds = pgTable('author_external_ids', {
+  authorId: uuid('author_id').notNull().references(() => authors.id, {onDelete: 'restrict'}),
+  source: varchar('source', {length: 80}).notNull(),
+  externalId: text('external_id').notNull(),
+}, t => [primaryKey({columns: [t.source, t.externalId]}), index('author_external_ids_author_idx').on(t.authorId)]);
+
+export const workTitles = pgTable('work_titles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workId: uuid('work_id').notNull().references(() => works.id, {onDelete: 'restrict'}),
+  language: varchar('language', {length: 12}).notNull(),
+  title: text('title').notNull(),
+  kind: varchar('kind', {length: 24}).notNull().default('alternate'),
+}, t => [index('work_titles_work_idx').on(t.workId)]);
+
+/** Editions and translations belong to the same work, but are independently identified. */
+export const editions = pgTable('editions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workId: uuid('work_id').notNull().references(() => works.id, {onDelete: 'restrict'}),
+  language: varchar('language', {length: 12}).notNull(),
+  label: text('label').notNull(),
+  publisher: text('publisher'),
+  publishedAt: timestamp('published_at', {withTimezone: true}),
+  status: varchar('status', {length: 24}).notNull().default('draft'),
+}, t => [index('editions_work_idx').on(t.workId)]);
+
+/** ISBN and other identifiers cannot be used as globally unique work IDs. */
+export const editionIdentifiers = pgTable('edition_identifiers', {
+  editionId: uuid('edition_id').notNull().references(() => editions.id, {onDelete: 'restrict'}),
+  kind: varchar('kind', {length: 24}).notNull(),
+  value: text('value').notNull(),
+}, t => [primaryKey({columns: [t.editionId, t.kind, t.value]})]);
+
+export const editionContributors = pgTable('edition_contributors', {
+  editionId: uuid('edition_id').notNull().references(() => editions.id, {onDelete: 'restrict'}),
+  authorId: uuid('author_id').notNull().references(() => authors.id, {onDelete: 'restrict'}),
+  role: varchar('role', {length: 32}).notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+}, t => [primaryKey({columns: [t.editionId, t.authorId, t.role]}), index('edition_contributors_author_idx').on(t.authorId)]);
