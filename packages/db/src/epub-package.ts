@@ -87,6 +87,7 @@ function parseXml(raw:Buffer):Node{
       const attrs=attributes(match[2]!);
       // Prevent an inner XML element from changing the default namespace of
       // the security-relevant container/package/manifest/spine names.
+      if(attrs.has('xml:base')||attrs.has('xlink:href'))invalid();
       if(stack.length>0&&attrs.has('xmlns'))invalid();
       const node:Node={name:match[1]!,attrs,children:[]};
       count++;
