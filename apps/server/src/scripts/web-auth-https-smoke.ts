@@ -188,10 +188,23 @@ async function main(){
     });
     check(logout.status===204&&logout.headers['set-cookie']?.[0]?.includes('Max-Age=0'),
       'Verified web logout did not clear the secure cookie');
-    check((await httpsCall(port,root+'/csrf','GET',{
+    const retired=await httpsCall(port,root+'/csrf','GET',{
       cookie,'sec-fetch-site':'same-origin',
-    })).status===401,
-      'Revoked browser session still authorized');
+    });
+    check(retired.status===401&&
+      retired.headers['set-cookie']?.[0]?.includes('Max-Age=0')&&
+      retired.headers['set-cookie']?.[0]?.includes('HttpOnly')&&
+      retired.headers['set-cookie']?.[0]?.includes('Secure')&&
+      !retired.headers['x-folio-csrf'],
+      'Revoked browser cookie was not securely retired on same-origin bootstrap');
+    const crossSiteRevoked=await httpsCall(port,root+'/csrf','GET',{
+      cookie,origin:'https://evil.example','sec-fetch-site':'cross-site',
+    });
+    check(crossSiteRevoked.status===403&&!crossSiteRevoked.headers['set-cookie'],
+      'Cross-site request retired a cookie without same-origin proof');
+    const headerlessRevoked=await httpsCall(port,root+'/csrf','GET',{cookie});
+    check(headerlessRevoked.status===403&&!headerlessRevoked.headers['set-cookie'],
+      'Headerless CSRF bootstrap retired a cookie');
 
     // Two accepted account attempts above (bad password + successful sign-in).
     // Three further invalid password attempts fill its 5-per-15m account quota.

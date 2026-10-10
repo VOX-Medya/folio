@@ -165,6 +165,11 @@ async function main(){
     check(deleted.status===204,'CSRF verified web cookie could not revoke own device');
     check((await call(port,onboarding,'GET',webHeaders)).status===401,
       'Self-revoked web cookie still accessed private account data');
+    const retired=await call(port,auth+'/csrf','GET',webHeaders);
+    check(retired.status===401&&
+      retired.headers['set-cookie']?.[0]?.includes('Max-Age=0')&&
+      !retired.headers['x-folio-csrf'],
+      'Remotely revoked session did not retire its HttpOnly cookie on bootstrap');
     check((await call(port,onboarding,'GET',nativeHeaders)).status===200,
       'Web self-revocation damaged unrelated native bearer');
 
