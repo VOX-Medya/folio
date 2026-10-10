@@ -1,5 +1,5 @@
 import {createHash,randomBytes,scrypt as scryptCallback,timingSafeEqual} from 'node:crypto';
-import {and,eq,isNull} from 'drizzle-orm';
+import {and,eq,gt,isNull,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
@@ -10,6 +10,8 @@ const passwordSchema=z.string().min(12).max(128).refine(value=>!value.includes('
 const deviceSchema=z.string().trim().min(1).max(80);
 type Purpose='verify_email'|'password_reset';
 const SESSION_DAYS=30;
+/** Fail closed instead of silently creating unbounded sessions for one account. */
+export const MAX_ACTIVE_DEVICE_SESSIONS=8;
 const challengeTtlMs=15*60*1000;
 
 const token=()=>randomBytes(32).toString('base64url');
@@ -186,6 +188,18 @@ export async function signInVerifiedAccount(
     if(!current||current.status!=='active'||!current.emailVerifiedAt||!nowCredential||
       nowCredential.passwordDigest!==credential.passwordDigest||
       nowCredential.passwordSalt!==credential.passwordSalt)throw genericLoginFailure();
+    // Account FOR UPDATE above serializes concurrent logins across PostgreSQL
+    // workers. Only unrevoked, unexpired sessions consume a device slot.
+    const [active]=await tx.select({
+      count:sql<number>`count(*)::integer`,
+    }).from(schema.userSessions).where(and(
+      eq(schema.userSessions.userId,account.id),
+      isNull(schema.userSessions.revokedAt),
+      gt(schema.userSessions.expiresAt,new Date()),
+    ));
+    if((active?.count??0)>=MAX_ACTIVE_DEVICE_SESSIONS){
+      throw new Error('Active device session limit reached');
+    }
     const bearer=token();
     const [session]=await tx.insert(schema.userSessions).values({
       userId:account.id,tokenDigest:tokenHash(bearer),deviceLabel,

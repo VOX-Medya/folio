@@ -28,6 +28,8 @@ case "${1:-help}" in
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/server auth:http-smoke ;;
   auth-rate-smoke)
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:auth-rate-smoke ;;
+  session-cap-smoke)
+    DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:session-cap-smoke ;;
   auth-smoke)
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:auth-smoke ;;
   storage-quota-smoke)
@@ -53,5 +55,5 @@ case "${1:-help}" in
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:migrate
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:smoke
     ;;
-  *) echo 'Usage: bash infra/lab.sh {up|db-up|down|health|migrate|smoke|test-db|api-smoke|catalog-smoke|content-smoke|rights-smoke|translation-smoke|audio-smoke|job-smoke|import-smoke|storage-quota-smoke|auth-smoke|auth-rate-smoke|onboarding-smoke|auth-http-smoke}'; exit 2 ;;
+  *) echo 'Usage: bash infra/lab.sh {up|db-up|down|health|migrate|smoke|test-db|api-smoke|catalog-smoke|content-smoke|rights-smoke|translation-smoke|audio-smoke|job-smoke|import-smoke|storage-quota-smoke|auth-smoke|auth-rate-smoke|session-cap-smoke|onboarding-smoke|auth-http-smoke}'; exit 2 ;;
 esac

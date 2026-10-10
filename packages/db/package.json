@@ -27,7 +27,8 @@
     "db:storage-quota-smoke": "tsx scripts/storage-quota-smoke.ts",
     "db:auth-smoke": "tsx scripts/auth-smoke.ts",
     "db:onboarding-smoke": "tsx scripts/onboarding-smoke.ts",
-    "db:auth-rate-smoke": "tsx scripts/auth-rate-smoke.ts"
+    "db:auth-rate-smoke": "tsx scripts/auth-rate-smoke.ts",
+    "db:session-cap-smoke": "tsx scripts/session-cap-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",
