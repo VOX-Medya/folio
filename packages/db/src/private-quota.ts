@@ -305,6 +305,6 @@ export async function observePrivateQuarantineEpubStructure(
         structuralStatus:structure.status,entryCount:structure.entryCount,
         expandedBytes:structure.expandedBytes,sha256:asset.sha256},
     });
-    return {assetId:id,status:'pending_verify' as const,...structure};
+    return {assetId:id,assetStatus:'pending_verify' as const,...structure};
   });
 }
