@@ -59,10 +59,11 @@ class WebAuthDb implements OnModuleDestroy {
       this.db(),request,{action:'login',email},process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX,
     );
   }
-  async login(email:string,password:string){
+  async login(email:string,password:string,requestId:string){
     try{
-      // Device label is chosen by the server, never an unchecked caller field.
-      return await signInVerifiedAccount(this.db(),email,password,'web');
+      // Device label and request correlation are server-owned. The raw
+      // x-request-id client header is never passed into the database.
+      return await signInVerifiedAccount(this.db(),email,password,'web',requestId);
     }catch(error){
       if(error instanceof Error&&[
         'Invalid login credentials or unavailable account',
@@ -116,8 +117,12 @@ export class WebAuthController {
     assertSafeWebLoginRequest(request,effectivePolicy);
     const input=webLoginRequestSchema.safeParse(rawBody);
     if(!input.success)throw new BadRequestException('Invalid login request');
+    // Do not mint a credential without the server-side request/audit link.
+    // RequestIdMiddleware always sets this before a production controller runs.
+    const requestId=request.requestId;
+    if(!requestId)throw new ServiceUnavailableException('Request tracing unavailable');
     await this.store.admit(request,input.data.email);
-    const session=await this.store.login(input.data.email,input.data.password);
+    const session=await this.store.login(input.data.email,input.data.password,requestId);
     // No session token in JSON, response headers except Secure/HttpOnly cookie,
     // or audit. This helper validates the same exact-origin TLS policy again.
     response.setHeader('Set-Cookie',

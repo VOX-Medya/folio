@@ -166,11 +166,15 @@ export async function resetAccountPassword(db:AuthDb,resetToken:string,newPasswo
  * secure native key storage and admin MFA are implemented.
  */
 export async function signInVerifiedAccount(
-  db:AuthDb,rawEmail:string,rawPassword:string,rawDeviceLabel:string
+  db:AuthDb,rawEmail:string,rawPassword:string,rawDeviceLabel:string,
+  requestId?:string,
 ){
   const email=emailSchema.parse(rawEmail);
   const password=passwordSchema.parse(rawPassword);
   const deviceLabel=deviceSchema.parse(rawDeviceLabel);
+  // Only the trusted server-generated HTTP request ID may be attached to
+  // audit events. Internal CLI/jobs can omit it; never use HTTP headers here.
+  const trustedRequestId=requestId===undefined?undefined:z.uuid().parse(requestId);
   const [account]=await db.select().from(schema.userAccounts)
     .where(eq(schema.userAccounts.normalizedEmail,email)).limit(1);
   const [credential]=account?await db.select().from(schema.passwordCredentials)
@@ -208,6 +212,7 @@ export async function signInVerifiedAccount(
     if(!session)throw new Error('Session creation failed');
     await tx.insert(schema.auditEvents).values({
       actorId:account.id,action:'auth.session.created',entityType:'user_session',entityId:session.id,
+      ...(trustedRequestId?{requestId:trustedRequestId}:{}),
       afterJson:{deviceLabel,expiresAt:session.expiresAt.toISOString()},
     });
     return {userId:account.id,sessionId:session.id,sessionToken:bearer,expiresAt:session.expiresAt};
