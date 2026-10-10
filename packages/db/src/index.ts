@@ -36,6 +36,10 @@ export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,re
 // Authenticated-only per-user onboarding preference/version synchronization.
 export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboarding.js';
 
+// DB-backed role + session-bound MFA gate. NO production role/MFA issuer or HTTP admin route.
+export {withVerifiedAdminPermission} from './admin-authorization.js';
+export type {VerifiedAdminIdentity} from './admin-authorization.js';
+
 // INTERNAL ONLY; caller must provide trusted client IP and server-managed HMAC key.
 export {AuthRateLimitExceeded,prepareAuthAttemptBuckets,consumeAuthAttemptRateLimit,pruneExpiredAuthAttemptWindows} from './auth-rate-limit.js';
 

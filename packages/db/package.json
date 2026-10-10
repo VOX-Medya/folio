@@ -25,6 +25,7 @@
     "db:job-smoke": "tsx scripts/job-policy-smoke.ts",
     "db:import-smoke": "tsx scripts/import-smoke.ts",
     "db:storage-quota-smoke": "tsx scripts/storage-quota-smoke.ts",
+    "db:admin-rbac-smoke": "tsx scripts/admin-rbac-smoke.ts",
     "db:auth-smoke": "tsx scripts/auth-smoke.ts",
     "db:onboarding-smoke": "tsx scripts/onboarding-smoke.ts",
     "db:auth-rate-smoke": "tsx scripts/auth-rate-smoke.ts",
