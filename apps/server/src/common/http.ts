@@ -39,9 +39,14 @@ export class ApiExceptionFilter implements ExceptionFilter {
       400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 429: 'RATE_LIMITED', 503: 'SERVICE_UNAVAILABLE',
     };
     if (status === HttpStatus.TOO_MANY_REQUESTS) response.setHeader('Retry-After', '900');
-    if ((request.originalUrl ?? request.url ?? '').startsWith('/v1/me/') ||
-        (request.originalUrl ?? request.url ?? '').startsWith('/v1/auth/web/')) {
+    const path=(request.originalUrl ?? request.url ?? '').split('?')[0] ?? '';
+    if (path.startsWith('/v1/me/') || path.startsWith('/v1/auth/web/')) {
       response.setHeader('Cache-Control', 'private, no-store');
+    }else if(path==='/v1/health'||path==='/v1/ready'||
+             path==='/v1/system/capabilities'){
+      // A 400/503 from these public probes must not be cached either.
+      // Private account/auth errors retain their stricter private policy.
+      response.setHeader('Cache-Control', 'no-store');
     }
     response.status(status).json({error: {
       code: codes[status] ?? (status >= 500 ? 'INTERNAL_ERROR' : `HTTP_${status}`),
