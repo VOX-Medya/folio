@@ -93,20 +93,18 @@ async function main(){
     check(remembered?.userId===pending.userId&&
       remembered.sessionId===primary.sessionId,
       'Could not create a verified pre-revocation principal');
-    const foreign=await registerPendingAccount(first.db,
-      'synthetic-onboard-foreign-'+randomUUID()+'@example.com',password);
+    const foreignEmail='synthetic-onboard-foreign-'+randomUUID()+'@example.com';
+    const foreign=await registerPendingAccount(first.db,foreignEmail,password);
     await verifyAccountEmail(first.db,foreign.verificationToken);
-    const foreignSession=await signInVerifiedAccount(
-      first.db,'synthetic-onboard-foreign-'+randomUUID()+'@example.com',password,'foreign',
-    ).catch(()=>null);
+    const foreignSession=await signInVerifiedAccount(first.db,foreignEmail,password,'foreign');
     // The typed trusted-session ID is validated independently of the bearer.
     // A random foreign owner/session combination must never authenticate.
     await denied(()=>getVerifiedUserOnboarding(
-      second.db,pending.userId,foreignSession?.sessionId??randomUUID(),
+      second.db,pending.userId,foreignSession.sessionId,
     ),'Cross-owner session ID read another account onboarding');
     await denied(()=>updateVerifiedUserOnboarding(first.db,pending.userId,{
       expectedVersion:2,stage:'interests',locale:'en',interests:['history'],
-    },undefined,foreignSession?.sessionId??randomUUID()),
+    },undefined,foreignSession.sessionId),
     'Cross-owner session ID wrote another account onboarding');
     check((await revokeUserSession(first.db,primary.sessionToken)).revoked,
       'Failed to revoke remembered verified bearer before onboarding transaction');
