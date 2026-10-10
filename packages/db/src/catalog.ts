@@ -1,4 +1,4 @@
-import {asc,eq} from 'drizzle-orm';
+import {asc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import {authorCreateSchema, workCreateSchema} from '@folio/contracts';
 import type {AuthorCreate, WorkCreate} from '@folio/contracts';
@@ -91,6 +91,9 @@ export async function createCanonicalWork(
 export async function getCanonicalWorkDetails(db: CatalogDb, workId: string) {
   const id = z.uuid().parse(workId);
   return db.transaction(async tx => {
+    // The pinned Drizzle PgTransactionConfig supports isolation level but
+    // not the readOnly flag. Make Postgres enforce it before any SELECT.
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
     const [work] = await tx.select().from(schema.works)
       .where(eq(schema.works.id, id)).limit(1);
     if (!work) return null;
@@ -125,5 +128,5 @@ export async function getCanonicalWorkDetails(db: CatalogDb, workId: string) {
       editionDetails.push({...edition, identifiers, contributors});
     }
     return {work, authors, titles, editions: editionDetails};
-  },{isolationLevel:'repeatable read',readOnly:true});
+  },{isolationLevel:'repeatable read'});
 }
