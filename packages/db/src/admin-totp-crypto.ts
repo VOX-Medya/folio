@@ -2,6 +2,43 @@ import {
   createCipheriv,createDecipheriv,createHmac,randomBytes,timingSafeEqual,
 } from 'node:crypto';
 
+/** Version labels identify the exact deployment key and AAD namespace.
+ * A v2 key MUST differ from v1. Legacy string arguments are v1 only. */
+export type TotpKeyVersion='v1'|'v2';
+export type TotpKeyring={
+  activeVersion:TotpKeyVersion;
+  v1?:string;
+  v2?:string;
+};
+export type TotpKeyMaterial=string|TotpKeyring;
+export type TotpEnvelopeRecord={
+  nonce:string;ciphertext:string;tag:string;keyVersion:string;
+};
+
+export function requireTotpKeyring(raw:TotpKeyMaterial):TotpKeyring {
+  const ring:TotpKeyring=typeof raw==='string'?{activeVersion:'v1',v1:raw}:raw;
+  if(!ring||!['v1','v2'].includes(ring.activeVersion)||
+    (ring.v1!==undefined&&!/^[a-fA-F0-9]{64}$/.test(ring.v1))||
+    (ring.v2!==undefined&&!/^[a-fA-F0-9]{64}$/.test(ring.v2))||
+    (ring.v1&&ring.v2&&ring.v1.toLowerCase()===ring.v2.toLowerCase())||
+    !ring[ring.activeVersion]){
+    throw new Error('TOTP encryption keyring unavailable');
+  }
+  return ring;
+}
+
+export function requireVersionedTotpKey(
+  material:TotpKeyMaterial,version:string,
+):string {
+  const ring=requireTotpKeyring(material);
+  if(version!=='v1'&&version!=='v2'){
+    throw new Error('Unsupported TOTP encryption version');
+  }
+  const key=ring[version];
+  if(!key)throw new Error('TOTP encryption key version unavailable');
+  return key;
+}
+
 const ALPHABET='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 export const TOTP_STEP_MS=30_000;
 export const TOTP_MAX_FAILURES=5;
@@ -86,41 +123,54 @@ export function acceptedTotpStep(
   return accepted;
 }
 
-/** Secret text is returned exactly once for enrollment; never audited/logged.
- * Associated data pins ciphertext to the account UUID, preventing cross-user
- * ciphertext transplant even when a database write is compromised. */
-export function newEncryptedTotpSeed(userId:string,keyHex:string){
+/** Encrypts an unchanged 160-bit TOTP seed with a fresh IV, a specific
+ * server-side key version and account-specific authenticated data.
+ * Used by controlled key rewrapping, NOT to reset a user's MFA factor. */
+export function encryptTotpSeedForVersion(
+  userId:string,seed:Buffer,keyHex:string,version:TotpKeyVersion,
+):TotpEnvelopeRecord {
+  if(seed.length!==20||!['v1','v2'].includes(version)){
+    throw new Error('Invalid TOTP factor encryption parameters');
+  }
   const key=serverKey(keyHex);
-  const seed=randomBytes(20);
-  const nonce=randomBytes(12);
-  const cipher=createCipheriv('aes-256-gcm',key,nonce);
-  cipher.setAAD(Buffer.from('folio:admin-totp:v1:'+userId,'utf8'));
-  const ciphertext=Buffer.concat([cipher.update(seed),cipher.final()]);
-  const tag=cipher.getAuthTag();
-  const secretBase32=base32(seed);
-  seed.fill(0);
-  key.fill(0);
-  return {
-    secretBase32,
-    record:{
+  try{
+    const nonce=randomBytes(12);
+    const cipher=createCipheriv('aes-256-gcm',key,nonce);
+    cipher.setAAD(Buffer.from('folio:admin-totp:'+version+':'+userId,'utf8'));
+    const ciphertext=Buffer.concat([cipher.update(seed),cipher.final()]);
+    return {
       nonce:nonce.toString('base64url'),
       ciphertext:ciphertext.toString('base64url'),
-      tag:tag.toString('base64url'),
-      keyVersion:'v1',
-    },
-  };
+      tag:cipher.getAuthTag().toString('base64url'),
+      keyVersion:version,
+    };
+  }finally{key.fill(0);}
+}
+
+/** Random enrollment seed is returned once over verified TLS and NEVER
+ * persisted as plaintext or logged. The database stores only its GCM record. */
+export function newEncryptedTotpSeed(
+  userId:string,keyHex:string,version:TotpKeyVersion='v1',
+){
+  const seed=randomBytes(20);
+  try{
+    return {secretBase32:base32(seed),
+      record:encryptTotpSeedForVersion(userId,seed,keyHex,version)};
+  }finally{seed.fill(0);}
 }
 
 export function decryptTotpSeed(
-  userId:string,record:{nonce:string;ciphertext:string;tag:string;keyVersion:string},
-  keyHex:string,
+  userId:string,record:TotpEnvelopeRecord,keyHex:string,
 ):Buffer{
-  if(record.keyVersion!=='v1')throw new Error('Unsupported TOTP encryption version');
+  if(record.keyVersion!=='v1'&&record.keyVersion!=='v2'){
+    throw new Error('Unsupported TOTP encryption version');
+  }
   const key=serverKey(keyHex);
   try{
     const decipher=createDecipheriv('aes-256-gcm',key,
       Buffer.from(record.nonce,'base64url'));
-    decipher.setAAD(Buffer.from('folio:admin-totp:v1:'+userId,'utf8'));
+    decipher.setAAD(Buffer.from(
+      'folio:admin-totp:'+record.keyVersion+':'+userId,'utf8'));
     decipher.setAuthTag(Buffer.from(record.tag,'base64url'));
     const seed=Buffer.concat([
       decipher.update(Buffer.from(record.ciphertext,'base64url')),
@@ -128,7 +178,5 @@ export function decryptTotpSeed(
     ]);
     if(seed.length!==20)throw new Error('Invalid TOTP ciphertext');
     return seed;
-  }finally{
-    key.fill(0);
-  }
+  }finally{key.fill(0);}
 }
