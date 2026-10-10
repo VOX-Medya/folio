@@ -1202,7 +1202,8 @@
                         "originalTitle",
                         "originalLanguage",
                         "firstPublicationYear",
-                        "publicationStatus"
+                        "publicationStatus",
+                        "metadataVersion"
                       ],
                       "properties": {
                         "id": {
@@ -1225,6 +1226,10 @@
                         },
                         "publicationStatus": {
                           "type": "string"
+                        },
+                        "metadataVersion": {
+                          "type": "integer",
+                          "minimum": 0
                         }
                       }
                     },
@@ -1416,6 +1421,110 @@
         "tags": [
           "admin-catalog"
         ]
+      },
+      "patch": {
+        "operationId": "AdminCatalogController_patchWork",
+        "parameters": [
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "originalTitle"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "firstPublicationYear"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "originalTitle": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "firstPublicationYear": {
+                    "type": "integer",
+                    "minimum": -4000,
+                    "maximum": 2500,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "metadataVersion",
+                    "publicationStatus"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metadataVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "publicationStatus": {
+                      "type": "string",
+                      "enum": [
+                        "draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA-verified catalog:edit; optimistic-lock DRAFT original title/year with original-title synchronization and audit",
+        "tags": [
+          "admin-catalog"
+        ]
       }
     },
     "/v1/admin/catalog/authors/{authorId}": {
@@ -1452,7 +1561,8 @@
                       "required": [
                         "id",
                         "canonicalName",
-                        "sortName"
+                        "sortName",
+                        "metadataVersion"
                       ],
                       "properties": {
                         "id": {
@@ -1464,6 +1574,10 @@
                         },
                         "sortName": {
                           "type": "string"
+                        },
+                        "metadataVersion": {
+                          "type": "integer",
+                          "minimum": 0
                         }
                       }
                     },
@@ -1528,6 +1642,159 @@
           }
         ],
         "summary": "MFA-verified canonical author/alias/source identifiers from one PostgreSQL repeatable-read snapshot (admin only)",
+        "tags": [
+          "admin-catalog"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminCatalogController_patchAuthor",
+        "parameters": [
+          {
+            "name": "authorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "canonicalName"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "sortName"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "aliases"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "externalIds"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "canonicalName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "sortName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "maxItems": 30,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 240
+                        },
+                        "locale": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 12
+                        }
+                      }
+                    }
+                  },
+                  "externalIds": {
+                    "type": "array",
+                    "maxItems": 30,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "source",
+                        "externalId"
+                      ],
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "externalId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 400
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "metadataVersion"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metadataVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA-verified catalog:edit; optimistic-lock canonical author name/aliases/source IDs and audited before/after",
         "tags": [
           "admin-catalog"
         ]
