@@ -223,3 +223,19 @@ html,body,#root{min-width:0;min-height:100%;margin:0}
 @media(max-width:799px){
   .folio-revision-sides{grid-template-columns:minmax(0,1fr)}
 }
+
+
+/* #13/#22: bounded revision identity selector, no book text or attachments. */
+.folio-revision-picker{min-width:0;display:grid;gap:11px}
+.folio-revision-selectors{
+  display:grid;gap:8px;list-style:none;margin:0;padding:0;min-width:0}
+.folio-revision-selectors>li{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;
+  align-items:center;border:1px solid var(--folio-line);
+  border-radius:10px;padding:12px;min-width:0}
+.folio-revision-selectors code{overflow-wrap:anywhere;word-break:break-word}
+@media(max-width:799px){
+  .folio-revision-selectors>li{grid-template-columns:minmax(0,1fr)}
+  .folio-revision-selectors .folio-catalog-actions{align-items:stretch;flex-direction:column}
+  .folio-revision-selectors .folio-catalog-actions button{width:100%}
+}
