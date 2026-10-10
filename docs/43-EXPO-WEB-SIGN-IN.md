@@ -1,0 +1,7 @@
+# #30 - Expo Web profile sign-in gate (partial)
+
+The Folio responsive Expo Router profile now uses the shared browser-only session client. It authenticates only on the **current exact same-origin HTTPS** with the backend's explicit `FOLIO_WEB_AUTH_MODE=direct-tls-only` gate. It checks an HttpOnly session using `GET /v1/auth/web/csrf` on mount, displays an accessible email/password form only after the server returns 401, and confirms login only after POST 204 **and a second verified CSRF bootstrap**. Logout makes an actual CSRF-authenticated request. Password input is cleared in a `finally` block and no bearer, CSRF, password or session state is stored in local/session storage.
+
+States include verifying/loading, signed out, signed in, unavailable/not-configured and generic network/security errors in TR/EN. Narrow 320px phone, tablet and desktop reuse the existing Paperbound responsive shell. On HTTP Expo Web, SSR or native JavaScript it **does not render a working login form** or silently use cleartext. This prevents a fake working feature while direct TLS hosting and native Keychain/Keystore remain unavailable.
+
+Validation: CI's Expo Web/Android/iOS JS exports and 28+ browser E2E; a new Playwright negative test ensures HTTP dev cannot activate credential submission. The actual HTTPS configured sign-in UI + native device E2E and browser accessibility/QA remain to be accepted. Register, email challenge dispatch, reset, admin MFA, native secure storage and release blockers in #7 remain. #30 stays OPEN. No live deployment or real credentials.

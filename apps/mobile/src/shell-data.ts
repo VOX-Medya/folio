@@ -36,9 +36,9 @@ export const screenCopy={
       detail:'Real reading information will appear here later. No sample counters are displayed.'},
   },
   profile:{
-    tr:{heading:'Hesap ve ayarlar',message:'Kayıt, giriş ve oturum yönetimi hazırlanıyor.',
+    tr:{heading:'Hesap ve ayarlar',message:'Güvenli web girişi yapılandırılmış HTTPS ortamında etkinleşir.',
       detail:'Hesap erişimi doğrulanmadan profil bilgileri gösterilmez.'},
-    en:{heading:'Account and settings',message:'Registration, sign-in and sessions are being prepared.',
+    en:{heading:'Account and settings',message:'Secure web sign-in requires configured HTTPS.',
       detail:'No account information is displayed before authentication.'},
   },
 } as const;

@@ -33,3 +33,16 @@ for(const width of [320,390,768,1024,1440,1920]){
     await expect(page.getByTestId('folio-tab-profile').filter({visible:true}).first()).toBeVisible();
   });
 }
+
+
+test('Expo Web profile does not activate HTTP or native-unverified login',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('http://127.0.0.1:4174/profile');
+  await expect(page.getByTestId('folio-web-auth-unavailable')).toBeVisible();
+  await expect(page.getByText('Web girişi yalnız yapılandırılmış HTTPS ortamında',{
+    exact:false,
+  })).toBeVisible();
+  await expect(page.getByTestId('folio-login-submit')).toHaveCount(0);
+  const keys=await page.evaluate(()=>Object.keys(window.sessionStorage));
+  expect(keys.filter(key=>/token|bearer|session|password|csrf/i.test(key))).toEqual([]);
+});

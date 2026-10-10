@@ -74,6 +74,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@folio/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@folio/ui-tokens':
         specifier: workspace:*
         version: link:../../packages/ui-tokens
