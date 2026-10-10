@@ -1,0 +1,31 @@
+name: Temporary Folio Catalog UI Lockfile Generator
+on:
+  push:
+    branches: [feat/12-admin-catalog-web-workspaces]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    if: github.repository == 'VOX-Medya/folio' && github.ref == 'refs/heads/feat/12-admin-catalog-web-workspaces'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @folio/contracts build
+      - run: pnpm --filter @folio/admin typecheck
+      - run: pnpm --filter @folio/admin test
+      - run: pnpm --filter @folio/admin build
+      - run: pnpm metro:security-check && pnpm dependency:hardening-check
+      - name: Commit frozen lockfile and erase this one-time workflow
+        run: |
+          rm .github/workflows/_folio-admin-catalog-ui-lock-temp.yml
+          git add pnpm-lock.yaml .github/workflows/_folio-admin-catalog-ui-lock-temp.yml
+          git -c user.name='folio-ci' -c user.email='folio-ci@users.noreply.github.com' commit -m 'chore(#12): lock shared admin catalog contracts for browser'
+          git push origin HEAD:refs/heads/feat/12-admin-catalog-web-workspaces
