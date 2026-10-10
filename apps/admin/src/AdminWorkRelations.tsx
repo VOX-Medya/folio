@@ -335,6 +335,8 @@ export function AdminWorkRelations({workId,version,authors,titles,language,onlin
         <button type="button" className="folio-catalog-secondary"
           disabled={busy} onClick={()=>setRemoveTarget(null)}>{w.cancelUnlink}</button>
       </div>}
+      {stale&&<button type="button" className="folio-catalog-secondary"
+        disabled={busy||!online} onClick={onReload}>{w.reload}</button>}
     </section>}
     {busy&&<p role="status">{removeTarget?w.unlinkPending:w.loading}</p>}
     {notice&&<p className="folio-catalog-notice" role="status">{notice}</p>}
