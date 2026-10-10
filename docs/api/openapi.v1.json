@@ -56,6 +56,39 @@
           "system"
         ]
       }
+    },
+    "/v1/ready": {
+      "get": {
+        "operationId": "ReadinessController_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Database readiness (503 when unavailable)",
+        "tags": [
+          "system"
+        ]
+      }
     }
   },
   "info": {

@@ -2,13 +2,14 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import {
   ArgumentsHost, BadRequestException, CanActivate, Catch, Controller, ExceptionFilter, ExecutionContext,
-  ForbiddenException, Get, HttpException, HttpStatus, Injectable, MiddlewareConsumer, Module,
-  NestModule, NestMiddleware, Query, UnauthorizedException,
+  ForbiddenException, Get, HttpException, HttpStatus, Inject, Injectable, MiddlewareConsumer, Module,
+  NestModule, NestMiddleware, OnModuleDestroy, Query, ServiceUnavailableException, UnauthorizedException,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiProperty, ApiQuery, ApiTags, DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { OpenAPIObject } from '@nestjs/swagger';
+import { createFolioDb } from '@folio/db';
 import {
   capabilityPageSchema, cursorQuerySchema, healthResponseSchema,
   paginateCapabilities,
@@ -44,7 +45,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const message = exception instanceof HttpException ? exception.message : 'Unexpected server error';
     const codes: Record<number, string> = {
-      400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT',
+      400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 503: 'SERVICE_UNAVAILABLE',
     };
     response.status(status).json({error: {
       code: codes[status] ?? (status >= 500 ? 'INTERNAL_ERROR' : `HTTP_${status}`),
@@ -109,7 +110,29 @@ export class CapabilitiesController {
   }
 }
 
-@Module({ controllers: [HealthController, CapabilitiesController] })
+@Injectable()
+export class DbReadinessService implements OnModuleDestroy {
+  private connection = process.env.DATABASE_URL ? createFolioDb(process.env.DATABASE_URL) : undefined;
+  async readiness(): Promise<{status: 'ready'}> {
+    if (!this.connection) throw new ServiceUnavailableException('Database not configured');
+    try { await this.connection.pool.query('SELECT 1'); }
+    catch { throw new ServiceUnavailableException('Database not ready'); }
+    return {status: 'ready'};
+  }
+  async onModuleDestroy(): Promise<void> { await this.connection?.pool.end(); }
+}
+
+@ApiTags('system')
+@Controller('v1')
+export class ReadinessController {
+  constructor(@Inject(DbReadinessService) private readonly db: DbReadinessService) {}
+  @Get('ready')
+  @ApiOperation({ summary: 'Database readiness (503 when unavailable)' })
+  @ApiOkResponse({schema: {type: 'object', required: ['status'], properties: {status: {type: 'string', enum: ['ready']}}}})
+  async ready(): Promise<{status: 'ready'}> { return this.db.readiness(); }
+}
+
+@Module({ controllers: [HealthController, CapabilitiesController, ReadinessController], providers: [DbReadinessService] })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes('*');

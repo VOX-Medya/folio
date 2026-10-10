@@ -1,0 +1,26 @@
+name: folio_lab
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: folio_lab
+      POSTGRES_USER: folio_lab
+      POSTGRES_PASSWORD: ${FOLIO_DB_PASSWORD:?Required lab-only password}
+    ports:
+      - "127.0.0.1:${FOLIO_DB_PORT:-55432}:5432"
+    volumes:
+      - folio_postgres_data:/var/lib/postgresql/data
+    networks:
+      - folio_private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U folio_lab -d folio_lab"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+networks:
+  folio_private:
+    name: folio_lab_private
+volumes:
+  folio_postgres_data:
+    name: folio_lab_postgres_data

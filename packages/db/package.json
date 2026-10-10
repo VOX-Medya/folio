@@ -1,1 +1,12 @@
-{"name":"@folio/db","version":"0.1.0","private":true,"type":"module"}
+{
+  "name": "@folio/db", "version": "0.1.0", "private": true,
+  "main": "./dist/index.js", "types": "./dist/index.d.ts",
+  "exports": {".": {"types":"./dist/index.d.ts", "default":"./dist/index.js"}},
+  "scripts": {
+    "build":"tsc", "typecheck":"tsc --noEmit", "test":"vitest run src",
+    "db:generate":"drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate":"tsx scripts/migrate.ts", "db:smoke":"tsx scripts/smoke.ts"
+  },
+  "dependencies": {"drizzle-orm":"^0.45.4", "pg":"^8.23.1", "pg-boss":"^12.37.1"},
+  "devDependencies": {"drizzle-kit":"^0.31.11", "@types/node":"^22.0.0", "@types/pg":"^8.23.1", "tsx":"^4.20.0", "typescript":"~5.9.3", "vitest":"^5.0.3"}
+}
