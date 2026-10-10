@@ -143,6 +143,14 @@ async function main(){
       'First device token not revoked');
     check((await fetch(endpoint,{headers:headers(device1.sessionToken)})).status===401,
       'Revoked bearer could still read own onboarding');
+    const rejectedMutation=await patch(device1.sessionToken,{
+      expectedVersion:2,stage:'interests',locale:'tr',interests:['history'],
+    });
+    check(rejectedMutation.status===401,'Revoked bearer updated onboarding after logout');
+    const rejectedError=apiErrorSchema.parse(await rejectedMutation.json());
+    check(rejectedError.error.code==='UNAUTHORIZED'&&
+      rejectedError.error.requestId===rejectedMutation.headers.get('x-request-id'),
+      'Revoked bearer mutation leaked details or lost trusted request ID');
     const stillValid=await fetch(endpoint,{headers:headers(device2.sessionToken)});
     check(stillValid.status===200,'Revoking one device broke another');
     await pool.query('UPDATE user_accounts SET status=$1 WHERE id=$2::uuid',
