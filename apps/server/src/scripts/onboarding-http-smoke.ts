@@ -1,9 +1,8 @@
 import 'reflect-metadata';
 import {randomUUID} from 'node:crypto';
-import {eq} from 'drizzle-orm';
 import {
   createFolioDb,registerPendingAccount,verifyAccountEmail,
-  signInVerifiedAccount,revokeUserSession,schema,
+  signInVerifiedAccount,revokeUserSession,
 } from '@folio/db';
 import {apiErrorSchema,onboardingSnapshotSchema} from '@folio/contracts';
 import {createFolioApp} from '../main.js';
@@ -104,12 +103,14 @@ async function main(){
     check(interestsSaved.version===2&&interestsSaved.interests.length===2,
       'Interest choice lost on update');
 
-    const audits=await db.select().from(schema.auditEvents)
-      .where(eq(schema.auditEvents.actorId,first.userId));
-    const updates=audits.filter(a=>a.action==='user.onboarding.update');
+    const audits=await pool.query<{
+      action:string;request_id:string|null;before_json:unknown;after_json:unknown;
+    }>('SELECT action, request_id, before_json, after_json FROM audit_events WHERE actor_id=$1::uuid',
+      [first.userId]);
+    const updates=audits.rows.filter(a=>a.action==='user.onboarding.update');
     check(updates.length===2,'Denied/duplicate update changed persisted audit count');
     const requestId=save.headers.get('x-request-id');
-    check(updates.some(row=>row.requestId===requestId),
+    check(updates.some(row=>row.request_id===requestId),
       'Audit event lacks server-issued HTTP request-id correlation');
     check(!JSON.stringify(updates).includes('science-fiction'),
       'Private selected interest list leaked into audit trail');
@@ -120,8 +121,8 @@ async function main(){
       'Revoked bearer could still read own onboarding');
     const stillValid=await fetch(endpoint,{headers:headers(device2.sessionToken)});
     check(stillValid.status===200,'Revoking one device broke another');
-    await db.update(schema.userAccounts).set({status:'disabled'})
-      .where(eq(schema.userAccounts.id,first.userId));
+    await pool.query('UPDATE user_accounts SET status=$1 WHERE id=$2::uuid',
+      ['disabled',first.userId]);
     check((await fetch(endpoint,{headers:headers(device2.sessionToken)})).status===401,
       'Disabled account retained authenticated onboarding access');
 
