@@ -366,7 +366,7 @@ describe('EPUB package and spine relationship preflight (not text validation)',(
       (s:string)=>s.replace('linear="yes"','linear="sometimes"'),
       (s:string)=>s.replace('<itemref idref="chapter" linear="yes"/>',''),
       (s:string)=>s.replace('<itemref idref="chapter"','<itemref script="enabled" idref="chapter"'),
-      (s:string)=>s.replace('<item id="nav"','<item id="nav2"'),
+      (s:string)=>s.replace('properties="nav"','properties="cover-image"'),
     ];
     for(const change of cases)denyPackage(changedPackage(change));
   });
