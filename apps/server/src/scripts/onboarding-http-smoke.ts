@@ -103,6 +103,30 @@ async function main(){
     check(interestsSaved.version===2&&interestsSaved.interests.length===2,
       'Interest choice lost on update');
 
+    // A crafted direct HTTP PATCH must not bypass the unavailable privacy
+    // consent flow. No version increment, audit row or user status change.
+    const completion=await patch(device2.sessionToken,{
+      expectedVersion:2,stage:'complete',locale:'en',
+      interests:['science-fiction','history'],
+    });
+    check(completion.status===403,'Missing privacy consent allowed HTTP completion');
+    const completionError=apiErrorSchema.parse(await completion.json());
+    check(completionError.error.code==='FORBIDDEN'&&
+      completionError.error.requestId===completion.headers.get('x-request-id')&&
+      completionError.error.requestId!=='attacker-id',
+      'Denied consent completion lost safe error/request-id contract');
+    const fakeConsent=await patch(device2.sessionToken,{
+      expectedVersion:2,stage:'complete',locale:'en',
+      interests:['science-fiction','history'],privacyConsent:true,
+    });
+    check(fakeConsent.status===400,'Caller-invented privacy consent field accepted');
+    const afterDenied=onboardingSnapshotSchema.parse(await (await fetch(endpoint,{
+      headers:headers(device1.sessionToken),
+    })).json());
+    check(afterDenied.stage==='interests'&&afterDenied.version===2&&
+      JSON.stringify(afterDenied.interests)===JSON.stringify(interestsSaved.interests),
+      'Rejected completion damaged persisted onboarding progress');
+
     const audits=await pool.query<{
       action:string;request_id:string|null;before_json:unknown;after_json:unknown;
     }>('SELECT action, request_id, before_json, after_json FROM audit_events WHERE actor_id=$1::uuid',
@@ -133,7 +157,7 @@ async function main(){
       !!document.paths['/v1/me/onboarding']?.patch,
       'Private onboarding GET/PATCH missing from versioned OpenAPI');
 
-    console.log('ONBOARDING HTTP PASS: verified-only self GET/PATCH, spoofed principals 401, client userId/query 400, optimistic conflict 409, cross-device resumption, no-store, request-id audit, revoke/disabled 401, OpenAPI. Folio synthetic test DB only.');
+    console.log('ONBOARDING HTTP PASS: verified-only self GET/PATCH, spoofed principals 401, client userId/query 400, optimistic conflict 409, unapproved completion 403, forged consent field 400, cross-device resumption, no-store, request-id audit, revoke/disabled 401, OpenAPI. Folio synthetic test DB only.');
   }finally{
     if(app)await app.close();
     await pool.end();
