@@ -21,8 +21,8 @@ describe('Folio deterministic typographic cover',()=>{
     expect(first).toContain('İstanbul');
     expect(first).toContain('Çağrı Yılmaz');
     expect(first).not.toContain('<image');
-    expect(first).not.toContain('http://');
-    expect(first).not.toContain('https://');
+    expect(first).not.toMatch(/(?:href|src)=/);
+    expect(first).not.toContain('<foreignObject');
   });
 
   it('retains canonical metadata in accessible SVG title even for long text',()=>{
