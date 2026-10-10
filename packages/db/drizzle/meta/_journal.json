@@ -127,6 +127,13 @@
       "when": 1791618000000,
       "tag": "0017_canonical_metadata_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791619000000,
+      "tag": "0018_private_asset_owner_integrity",
+      "breakpoints": true
     }
   ]
 }
