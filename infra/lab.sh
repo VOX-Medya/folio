@@ -22,6 +22,8 @@ case "${1:-help}" in
   migrate) pnpm --filter @folio/db db:migrate ;;
   smoke) pnpm --filter @folio/db db:smoke ;;
   api-smoke) pnpm --filter @folio/server exec tsx scripts/check-readiness.ts ;;
+  catalog-smoke)
+    DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:catalog-smoke ;;
   test-db)
     if ! "${COMPOSE[@]}" exec -T postgres psql -U folio_lab -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='folio_test'" | grep -qx 1; then
       "${COMPOSE[@]}" exec -T postgres psql -U folio_lab -d postgres -c 'CREATE DATABASE folio_test'
@@ -29,5 +31,5 @@ case "${1:-help}" in
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:migrate
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/db db:smoke
     ;;
-  *) echo 'Usage: bash infra/lab.sh {up|db-up|down|health|migrate|smoke|test-db|api-smoke}'; exit 2 ;;
+  *) echo 'Usage: bash infra/lab.sh {up|db-up|down|health|migrate|smoke|test-db|api-smoke|catalog-smoke}'; exit 2 ;;
 esac

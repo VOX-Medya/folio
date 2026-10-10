@@ -42,3 +42,6 @@
 - Hard delete yerine archive/withdrawal, GDPR/KVKK kapsamındaki silmelerin kapsamı ayrıca yönetilir.
 - Metin blok türleri: paragraph, heading, footnote, page_number, running_header, publisher_note, preface, endnote, poetry, quote, list, image_ref; normal/RSVP/audio seçimleri bağımsız.
 - DB migration testleri: up, fresh init, audit history, rollback strategy (destructive migration yok), seed fixture; yeterli index (work_id, revision_id, user_id, last_active_at) ve arama (Postgres full-text / pg_trgm).
+
+## Kodlanan ilk kanonik ilişkiler
+`packages/db/src/schema.ts` ve `docs/13-CANONICAL-CATALOG.md`, yazar takma adı/harici kimlik, eserin çoklu başlığı, work_author N:M, baskı/çeviri kimliği, baskıya bağlı ISBN ve editör/çevirmen ilişkilerinin ilk şemasını içerir. Bu aşamada kayıtlar yalnız draft; telif onaysız yayın ve public API yoktur.

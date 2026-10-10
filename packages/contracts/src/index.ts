@@ -86,3 +86,33 @@ export async function fetchCapabilities(
   }
   return capabilityPageSchema.parse(data);
 }
+
+/** Internal draft-only canonical catalog commands. No public CRUD is exposed until RBAC. */
+export const authorCreateSchema = z.object({
+  canonicalName: z.string().trim().min(1).max(240),
+  sortName: z.string().trim().min(1).max(240).optional(),
+  aliases: z.array(z.object({name: z.string().trim().min(1).max(240), locale: z.string().min(2).max(12).optional()}).strict()).max(30).default([]),
+  externalIds: z.array(z.object({source: z.string().min(1).max(80), externalId: z.string().min(1).max(400)}).strict()).max(30).default([]),
+}).strict();
+export const workCreateSchema = z.object({
+  originalTitle: z.string().trim().min(1).max(600),
+  originalLanguage: z.enum(['tr', 'en']),
+  firstPublicationYear: z.number().int().min(-4000).max(2500).nullable().optional(),
+  authors: z.array(z.object({
+    authorId: z.uuid(), contribution: z.enum(['author', 'co-author', 'editor']).default('author'),
+    sortOrder: z.number().int().min(0).max(10000).default(0),
+  }).strict()).min(1).max(50),
+  titles: z.array(z.object({language: z.enum(['tr', 'en']), title: z.string().trim().min(1).max(600), kind: z.enum(['original','translation','alternate'])}).strict()).max(40).default([]),
+  editions: z.array(z.object({
+    language: z.enum(['tr', 'en']), label: z.string().trim().min(1).max(400),
+    publisher: z.string().trim().max(240).optional(),
+    identifiers: z.array(z.object({kind: z.enum(['isbn-10','isbn-13','other']), value: z.string().trim().min(1).max(150)}).strict()).max(30).default([]),
+    contributors: z.array(z.object({authorId: z.uuid(), role: z.enum(['author','translator','editor','illustrator']), sortOrder: z.number().int().min(0).default(0)}).strict()).max(50).default([]),
+  }).strict()).max(50).default([]),
+}).strict().superRefine((data, ctx) => {
+  const ids = data.authors.map(a => a.authorId);
+  if (new Set(ids).size !== ids.length) ctx.addIssue({code: 'custom', message: 'Duplicate work-author links'});
+  if (!data.authors.some(a => a.contribution === 'author' || a.contribution === 'co-author')) ctx.addIssue({code:'custom',message:'Every work needs an author'});
+});
+export type AuthorCreate = z.infer<typeof authorCreateSchema>;
+export type WorkCreate = z.infer<typeof workCreateSchema>;
