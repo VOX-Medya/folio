@@ -19,3 +19,7 @@ export {createPreparedTranslationLink,verifyPreparedTranslationEdges,resolveTran
 export {registerPreparedAudioAsset,registerPreparedAudioVariant,replacePreparedAudioSegment,getPreparedAudioVariant} from './audio.js';
 export {preparedImportSchema,canonicalJson,payloadHash,previewPreparedCatalogImport,stagePreparedCatalogImport,resumeStagedCatalogMetadata,getStagedCatalogImportStatus} from './import-staging.js';
 export type {PreparedImport,ImportPlanItem} from './import-staging.js';
+
+// Quarantine-only private byte staging. No public stream or publish API.
+export {LocalStorageAdapter, LOCAL_STORAGE_MAX_BYTES} from './local-storage.js';
+export type {AssetOwner, CandidateMime, QuarantinedBlob, StagePrivateBlob} from './local-storage.js';
