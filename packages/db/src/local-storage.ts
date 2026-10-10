@@ -35,6 +35,14 @@ export interface StagePrivateBlob {
   maxBytes:number;
 }
 
+/** V1 byte quarantine port, deliberately WITHOUT reads, promotion or URLs.
+ * A later S3 provider must satisfy the same owner/hash/status invariants,
+ * but no remote provider implementation or network access exists in V1. */
+export interface StorageAdapter {
+  stage(input:StagePrivateBlob):Promise<QuarantinedBlob>;
+  inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>;
+}
+
 function requireSha256(value:string):void {
   if(!/^[a-f0-9]{64}$/.test(value))throw new Error('Invalid SHA-256 declaration');
 }
@@ -83,7 +91,7 @@ function detectMime(mime:CandidateMime,first:Buffer):void {
 }
 
 /** Only server-generated, lowercase UUIDs become filenames. */
-export class LocalStorageAdapter {
+export class LocalStorageAdapter implements StorageAdapter {
   private constructor(private readonly root:string){}
 
   static async create(root:string):Promise<LocalStorageAdapter>{
