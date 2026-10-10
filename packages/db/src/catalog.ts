@@ -8,8 +8,13 @@ import * as schema from './schema.js';
 type CatalogDb = ReturnType<typeof createFolioDb>['db'];
 
 /** Internal, transactional draft commands. Not accessible as unguarded HTTP endpoints. */
-export async function createCanonicalAuthor(db: CatalogDb, actorId: string, raw: unknown) {
+export async function createCanonicalAuthor(
+  db: CatalogDb, actorId: string, raw: unknown, requestId?: string,
+) {
   const actor = z.uuid().parse(actorId);
+  // HTTP callers must supply only RequestIdMiddleware's request.requestId.
+  // This syntax check is NOT actor authentication or admin role evidence.
+  const traceId = requestId === undefined ? undefined : z.uuid().parse(requestId);
   const input: AuthorCreate = authorCreateSchema.parse(raw);
   return db.transaction(async tx => {
     const [author] = await tx.insert(schema.authors).values({
@@ -25,14 +30,18 @@ export async function createCanonicalAuthor(db: CatalogDb, actorId: string, raw:
     })));
     await tx.insert(schema.auditEvents).values({
       actorId: actor, action: 'author.create', entityType: 'author', entityId: author.id,
+      ...(traceId ? {requestId: traceId} : {}),
       afterJson: {name: author.canonicalName, aliasCount: input.aliases.length, externalIdCount: input.externalIds.length},
     });
     return author;
   });
 }
 
-export async function createCanonicalWork(db: CatalogDb, actorId: string, raw: unknown) {
+export async function createCanonicalWork(
+  db: CatalogDb, actorId: string, raw: unknown, requestId?: string,
+) {
   const actor = z.uuid().parse(actorId);
+  const traceId = requestId === undefined ? undefined : z.uuid().parse(requestId);
   const input: WorkCreate = workCreateSchema.parse(raw);
   return db.transaction(async tx => {
     const [work] = await tx.insert(schema.works).values({
@@ -65,6 +74,7 @@ export async function createCanonicalWork(db: CatalogDb, actorId: string, raw: u
     }
     await tx.insert(schema.auditEvents).values({
       actorId: actor, action: 'work.create', entityType: 'work', entityId: work.id,
+      ...(traceId ? {requestId: traceId} : {}),
       afterJson: {status: 'draft', authorCount: input.authors.length, editionCount: input.editions.length},
     });
     return work;

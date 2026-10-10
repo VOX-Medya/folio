@@ -29,17 +29,45 @@ async function main():Promise<void>{
     if (state.allowed || state.reason!=='missing') throw new Error('Unapproved rights incorrectly allowed');
     const evidence={evidence:'Synthetic reviewed evidence. No publishing rights claimed.',licenseKind:'restricted',
       territories:['TR','GB'],displayAllowed:true,translationAllowed:false,audioAllowed:false,sharingAllowed:false};
-    const workRights=await submitRightsEvidence(db,actor,{...evidence,workId:work.id});
+    const evidenceRequestId=randomUUID(),approvalRequestId=randomUUID(),
+      withdrawalRequestId=randomUUID();
+    const workRights=await submitRightsEvidence(
+      db,actor,{...evidence,workId:work.id},evidenceRequestId,
+    );
     const editionRights=await submitRightsEvidence(db,actor,{...evidence,workId:work.id,editionId});
     const revisionRights=await submitRightsEvidence(db,actor,{...evidence,workId:work.id,editionId,revisionId:rev.revision.id});
     state=await check(base);
     if(state.allowed || state.reason!=='unreviewed') throw new Error('Pending evidence leaked rights');
+    const beforeInvalidTrace=await db.select().from(schema.rightsRecords)
+      .where(eq(schema.rightsRecords.workId,work.id));
+    let invalidSubmissionDenied=false;
+    try{
+      await submitRightsEvidence(db,actor,
+        {...evidence,workId:work.id},'spoofed-request-id');
+    }catch{invalidSubmissionDenied=true;}
+    if(!invalidSubmissionDenied)throw new Error('Spoofed rights trace ID was accepted');
+    const afterInvalidTrace=await db.select().from(schema.rightsRecords)
+      .where(eq(schema.rightsRecords.workId,work.id));
+    if(beforeInvalidTrace.length!==afterInvalidTrace.length){
+      throw new Error('Malformed rights trace changed evidence rows');
+    }
     let wrongScopeRejected=false;
     try {await submitRightsEvidence(db,actor,{...evidence,workId:randomUUID(),editionId});}
     catch {wrongScopeRejected=true;}
     if (!wrongScopeRejected) throw new Error('Mismatched work/edition rights accepted');
     const rationale='Local test reviewer approval, not a real license.';
-    await reviewRightsEvidence(db,actor,workRights.id,'approved',rationale);
+    let malformedReviewDenied=false;
+    try{
+      await reviewRightsEvidence(db,actor,workRights.id,'approved',
+        rationale,'client-supplied-trace');
+    }catch{malformedReviewDenied=true;}
+    if(!malformedReviewDenied)throw new Error('Malformed rights review request ID was accepted');
+    const [stillPending]=await db.select().from(schema.rightsRecords)
+      .where(eq(schema.rightsRecords.id,workRights.id)).limit(1);
+    if(stillPending?.reviewStatus!=='pending'){
+      throw new Error('Malformed review trace approved rights before validation');
+    }
+    await reviewRightsEvidence(db,actor,workRights.id,'approved',rationale,approvalRequestId);
     if ((await check(base)).allowed) throw new Error('Work-level approval bypassed edition/revision');
     await reviewRightsEvidence(db,actor,editionRights.id,'approved',rationale);
     if ((await check(base)).allowed) throw new Error('Edition-level approval bypassed revision');
@@ -55,7 +83,7 @@ async function main():Promise<void>{
       .where(eq(schema.rightsRecords.id,revisionRights.id));
     if ((await check(base)).reason!=='expired') throw new Error('Expired rights still allowed');
     await db.update(schema.rightsRecords).set({expiresAt:null}).where(eq(schema.rightsRecords.id,revisionRights.id));
-    await reviewRightsEvidence(db,actor,revisionRights.id,'withdrawn','Reviewer withdraws the test rights record.');
+    await reviewRightsEvidence(db,actor,revisionRights.id,'withdrawn','Reviewer withdraws the test rights record.',withdrawalRequestId);
     if ((await check(base)).allowed) throw new Error('Withdrawn rights still allowed');
     let restorationRejected=false;
     try {await reviewRightsEvidence(db,actor,revisionRights.id,'approved',rationale);}
@@ -99,8 +127,25 @@ async function main():Promise<void>{
     const [workRow]=await db.select().from(schema.works).where(eq(schema.works.id,work.id));
     if(workRow?.publicationStatus!=='draft') throw new Error('Rights tests published a fixture');
     const audit=await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.entityId,revisionRights.id));
-    if(!audit.some(event=>event.action==='rights.review.withdrawn')) throw new Error('Withdrawal audit missing');
-    console.log('Rights gate PASS: missing/pending deny, three-level approval, TR allowed/US denied, audio/translation/share denied, expiry+withdrawal revoke, scope FK, audit; draft never published.');
+    if(!audit.some(event=>event.action==='rights.review.withdrawn'&&
+      event.requestId===withdrawalRequestId)){
+      throw new Error('Rights withdrawal audit missed trusted request ID');
+    }
+    const workAudit=await db.select().from(schema.auditEvents)
+      .where(eq(schema.auditEvents.entityId,workRights.id));
+    if(workAudit.length!==2||
+      !workAudit.some(event=>event.action==='rights.evidence.submit'&&
+        event.requestId===evidenceRequestId)||
+      !workAudit.some(event=>event.action==='rights.review.approved'&&
+        event.requestId===approvalRequestId)){
+      throw new Error('Rights evidence/review audit correlation or denied attempt count wrong');
+    }
+    const editionAudit=await db.select().from(schema.auditEvents)
+      .where(eq(schema.auditEvents.entityId,editionRights.id));
+    if(editionAudit.some(event=>event.requestId!==null)){
+      throw new Error('Internal no-HTTP rights operation fabricated a request ID');
+    }
+    console.log('Rights gate PASS: missing/pending deny, three-level approval, TR allowed/US denied, audio/translation/share denied, expiry+withdrawal revoke, scope FK, trusted request-ID audit and forged-ID rollback; draft never published.');
   } finally {await pool.end();}
 }
 void main().catch(error=>{console.error(error);process.exitCode=1;});

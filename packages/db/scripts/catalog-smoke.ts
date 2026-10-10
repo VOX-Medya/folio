@@ -9,10 +9,12 @@ async function main(): Promise<void> {
   const actor = randomUUID();
   const suffix = randomUUID().slice(0,8);
   try {
+    const authorRequestId=randomUUID();
+    const workRequestId=randomUUID();
     const writer = await createCanonicalAuthor(db, actor, {
       canonicalName: `Lab Author ${suffix}`, aliases: [{name:`Alias ${suffix}`,locale:'en'}],
       externalIds:[{source:'folio_test',externalId:`lab-${suffix}`}],
-    });
+    },authorRequestId);
     const translator = await createCanonicalAuthor(db, actor, {canonicalName:`Lab Translator ${suffix}`});
     const commonTitle = `Synthetic Draft ${suffix}`;
     const input = {
@@ -24,7 +26,7 @@ async function main(): Promise<void> {
         {language:'en',label:'Translated',identifiers:[{kind:'isbn-13',value:'9780000000001'}],contributors:[{authorId:translator.id,role:'translator',sortOrder:0}]},
       ],
     } as const;
-    const work = await createCanonicalWork(db, actor, input);
+    const work = await createCanonicalWork(db, actor, input,workRequestId);
     const duplicateTitle = await createCanonicalWork(db, actor, {...input, editions: []});
     if (work.id === duplicateTitle.id) throw new Error('Works were falsely merged by identical title');
     const details = await getCanonicalWorkDetails(db, work.id);
@@ -41,7 +43,36 @@ async function main(): Promise<void> {
     const afterCount = (await db.select().from(schema.works).where(eq(schema.works.originalTitle,`Invalid Work ${suffix}`))).length;
     if (!rejected || beforeCount!==afterCount) throw new Error('Broken author reference was not atomically rolled back');
     const audit = await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.entityId,work.id));
-    if (!audit.some(e=>e.action==='work.create')) throw new Error('Work creation was not audited');
+    if (!audit.some(e=>e.action==='work.create'&&e.requestId===workRequestId)){
+      throw new Error('Canonical work audit missed trusted request ID correlation');
+    }
+    const authorAudit=await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.entityId,writer.id));
+    if(!authorAudit.some(e=>e.action==='author.create'&&e.requestId===authorRequestId)){
+      throw new Error('Canonical author audit missed trusted request ID correlation');
+    }
+    const translatorAudit=await db.select().from(schema.auditEvents)
+      .where(eq(schema.auditEvents.entityId,translator.id));
+    if(translatorAudit.length!==1||translatorAudit[0]?.requestId!==null){
+      throw new Error('Non-HTTP draft command fabricated a request ID');
+    }
+    const malformedAuthor=`Bad Audit Author ${suffix}`;
+    let malformedAuthorRejected=false;
+    try{
+      await createCanonicalAuthor(db,actor,{canonicalName:malformedAuthor},'attacker-request-id');
+    }catch{malformedAuthorRejected=true;}
+    if(!malformedAuthorRejected)throw new Error('Malformed catalog author trace was accepted');
+    const fakeAuthorRows=await db.select().from(schema.authors)
+      .where(eq(schema.authors.canonicalName,malformedAuthor));
+    if(fakeAuthorRows.length!==0)throw new Error('Bad trace wrote draft author before validation');
+    const malformedTitle=`Bad Audit Work ${suffix}`;
+    let malformedWorkRejected=false;
+    try{
+      await createCanonicalWork(db,actor,{...input,originalTitle:malformedTitle},'attacker-request-id');
+    }catch{malformedWorkRejected=true;}
+    if(!malformedWorkRejected)throw new Error('Malformed catalog work trace was accepted');
+    const fakeWorkRows=await db.select().from(schema.works)
+      .where(eq(schema.works.originalTitle,malformedTitle));
+    if(fakeWorkRows.length!==0)throw new Error('Bad trace wrote draft work before validation');
     // Internal searches MUST never expose drafts through an unguarded HTTP route.
     // Test canonical title, alternate title, alias author and edition contributor.
     const pageOne=await searchCanonicalWorksForAdmin(db,{query:commonTitle,limit:1});
@@ -71,7 +102,7 @@ async function main(): Promise<void> {
     if(!invalidSearch)throw new Error('Unbounded/empty admin catalog search was accepted');
     if(pageOne.items[0]?.publicationStatus!=='draft')throw new Error('Catalog preview misrepresented a draft work');
     console.log('Internal work/author search PASS: UUID cursor, aliases, translators, alternate title, literal LIKE escape, bounded paging; draft never made public.');
-    console.log('Canonical catalog PASS: aliases/IDs, N:M authors, 2 language editions/contributors, repeated ISBN/title, FK rollback and audit; all unpublished draft.');
+    console.log('Canonical catalog PASS: aliases/IDs, N:M authors, 2 language editions/contributors, repeated ISBN/title, FK rollback, trusted request-ID audit and malformed trace rollback; all unpublished draft.');
   } finally {await pool.end();}
 }
 void main().catch(error=>{console.error(error);process.exitCode=1;});

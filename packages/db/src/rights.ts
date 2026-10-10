@@ -10,8 +10,13 @@ type RightsRecord=typeof schema.rightsRecords.$inferSelect;
 type Scope='work'|'edition'|'revision';
 
 /** Evidence submission NEVER approves a record. Call only from trusted admin modules. */
-export async function submitRightsEvidence(db:RightsDb,actorId:string,inputValue:unknown) {
+export async function submitRightsEvidence(
+  db:RightsDb,actorId:string,inputValue:unknown,requestId?:string,
+) {
   const actor=z.uuid().parse(actorId);
+  // Validate the caller's trusted HTTP trace before any draft/evidence write.
+  // It never proves MFA, reviewer approval or licensing rights.
+  const traceId=requestId===undefined?undefined:z.uuid().parse(requestId);
   const input:RightsRecordCreate=rightsRecordCreateSchema.parse(inputValue);
   return db.transaction(async tx=>{
     const [work]=await tx.select().from(schema.works).where(eq(schema.works.id,input.workId)).limit(1);
@@ -35,6 +40,7 @@ export async function submitRightsEvidence(db:RightsDb,actorId:string,inputValue
     if (!record) throw new Error('Rights insertion failed');
     await tx.insert(schema.auditEvents).values({
       actorId:actor,action:'rights.evidence.submit',entityType:'rights_record',entityId:record.id,
+      ...(traceId?{requestId:traceId}:{}),
       afterJson:{workId:record.workId,editionId:record.editionId,revisionId:record.revisionId,status:record.reviewStatus},
     });
     return record;
@@ -43,9 +49,10 @@ export async function submitRightsEvidence(db:RightsDb,actorId:string,inputValue
 
 /** The caller must supply a trusted, RBAC-authorized reviewer. No public HTTP route. */
 export async function reviewRightsEvidence(db:RightsDb,reviewerId:string,recordId:string,
-  decision:'approved'|'rejected'|'withdrawn',reason:string) {
+  decision:'approved'|'rejected'|'withdrawn',reason:string,requestId?:string) {
   const reviewer=z.uuid().parse(reviewerId);
   const id=z.uuid().parse(recordId);
+  const traceId=requestId===undefined?undefined:z.uuid().parse(requestId);
   const rationale=z.string().trim().min(12).max(4000).parse(reason);
   if (!['approved','rejected','withdrawn'].includes(decision)) throw new Error('Invalid rights review decision');
   return db.transaction(async tx=>{
@@ -60,6 +67,7 @@ export async function reviewRightsEvidence(db:RightsDb,reviewerId:string,recordI
     }).where(eq(schema.rightsRecords.id,id)).returning();
     await tx.insert(schema.auditEvents).values({
       actorId:reviewer,action:`rights.review.${decision}`,entityType:'rights_record',entityId:id,
+      ...(traceId?{requestId:traceId}:{}),
       beforeJson:{reviewStatus:old.reviewStatus,reviewedBy:old.reviewedBy},
       afterJson:{reviewStatus:decision,reviewedBy:reviewer},reason:rationale,
     });
