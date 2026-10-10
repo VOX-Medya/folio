@@ -1,1 +1,17 @@
-{"name":"@folio/worker","version":"0.1.0","private":true,"scripts":{"typecheck":"tsc --noEmit"},"devDependencies":{}}
+{
+  "name": "@folio/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/main.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@folio/db": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "@types/node": "^22.0.0"
+  }
+}

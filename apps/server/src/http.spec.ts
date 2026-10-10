@@ -35,11 +35,17 @@ describe('Folio API live HTTP contract', () => {
       const notFound = await fetch(`${base}/v1/not-existing`);
       expect(notFound.status).toBe(404);
       expect(apiErrorSchema.parse(await notFound.json()).error.code).toBe('NOT_FOUND');
+      const ready = await fetch(`${base}/v1/ready`);
+      if (!process.env.DATABASE_URL) {
+        expect(ready.status).toBe(503);
+        expect(apiErrorSchema.parse(await ready.json()).error.code).toBe('SERVICE_UNAVAILABLE');
+      }
       const documentResponse = await fetch(`${base}/openapi-json`);
       expect(documentResponse.status).toBe(200);
       const document = await documentResponse.json();
       expect(document.openapi).toMatch(/^3\./);
       expect(document.paths['/v1/health'].get).toBeDefined();
+      expect(document.paths['/v1/ready'].get).toBeDefined();
       expect(document.paths['/v1/system/capabilities'].get).toBeDefined();
     } finally {
       await app.close();
