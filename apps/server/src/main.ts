@@ -9,6 +9,7 @@ import { SystemModule } from './modules/system/system.module.js';
 import { AccountOnboardingModule } from './modules/account/onboarding.module.js';
 import { WebAuthModule } from './modules/auth/web-auth.module.js';
 import { AdminTotpModule } from './modules/auth/admin-totp.module.js';
+import { AdminCatalogModule } from './modules/admin/catalog.module.js';
 
 export {ApiExceptionFilter, RequestIdMiddleware, UserOwnershipGuard} from './common/http.js';
 export {HealthController, CapabilitiesController, ReadinessController, DbReadinessService} from './modules/system/system.module.js';
