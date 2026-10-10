@@ -25,8 +25,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml config --quiet
-          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml config --format json | python3 -c '
+          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml --profile jobs config --quiet
+          docker compose -p folio_lab --env-file infra/.env.lab -f infra/compose.lab.yml --profile jobs config --format json | python3 -c '
           import json,sys
           config=json.load(sys.stdin)
           services=config["services"]
