@@ -173,8 +173,10 @@ export class LocalStorageAdapter {
     const handle=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW);
     try{
       const state=await handle.stat();
-      if(!state.isFile()||state.nlink!==1||state.size!==record.sizeBytes){
-        throw new Error('Unsafe private asset inode or size');
+      if(!state.isFile()||state.nlink!==1||state.size!==record.sizeBytes||
+        (state.mode&0o777)!==0o600||
+        (typeof process.getuid==='function'&&state.uid!==process.getuid())){
+        throw new Error('Unsafe private asset inode, ownership, permissions or size');
       }
       const sha=createHash('sha256');
       let count=0;
