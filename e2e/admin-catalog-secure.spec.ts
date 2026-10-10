@@ -391,3 +391,107 @@ test('HTTPS author, edition, ISBN, translator and alternate-title work relations
   await expect(page.getByTestId('admin-work-relations'))
     .toContainText('Draft work relationships');
 });
+
+
+test('HTTPS existing DRAFT edition metadata edit rejects stale revision, FK/title changes and reloads correctly',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  let version=1,conflicted=false,label='First Edition',publisher:string|null='Folio Press';
+  let identifiers=[{kind:'isbn-13',value:'9780123456789'},
+    {kind:'other',value:'folio:first-print'}];
+  let contributors=[{authorId,role:'translator',sortOrder:0}];
+  const writes:Array<{body:Record<string,unknown>;csrf:string|undefined}>=[];
+  await page.route('**/v1/**',async route=>{
+    const request=route.request(),path=new URL(request.url()).pathname;
+    if(path==='/v1/auth/web/csrf'){
+      await route.fulfill({status:204,headers:{'x-folio-csrf':'F'.repeat(43)}});
+    }else if(path==='/v1/admin/catalog/works'&&request.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:'Canonical Work',originalLanguage:'tr',
+        publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(path==='/v1/admin/catalog/works/'+workId&&request.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Canonical Work',originalLanguage:'tr',
+          firstPublicationYear:1912,publicationStatus:'draft',metadataVersion:version},
+        authors:[{id:authorId,name:'Şule İpek',role:'author',sortOrder:0}],
+        titles:[{id:authorId,language:'tr',title:'Canonical Work',kind:'original'}],
+        editions:[{
+          id:createdAuthorId,language:'en',label,publisher,
+          status:'draft',identifiers,contributors,
+        }],
+      }));
+    }else if(path==='/v1/admin/catalog/works/'+workId+'/editions/'+createdAuthorId&&
+      request.method()==='PATCH'){
+      const body=request.postDataJSON() as Record<string,unknown>;
+      writes.push({body,csrf:request.headers()['x-folio-csrf']});
+      expect(request.headers()['authorization']).toBeUndefined();
+      expect(request.headers()['x-user-id']).toBeUndefined();
+      expect(body).not.toHaveProperty('status');
+      expect(body).not.toHaveProperty('language');
+      expect(body).not.toHaveProperty('rightsApproved');
+      if(!conflicted){
+        conflicted=true;
+        version=2;label='Another Editor Revised Label';
+        await route.fulfill(respond({error:{code:'CONFLICT'}},409));
+      }else{
+        expect(body.expectedVersion).toBe(2);
+        version=3;label=body.label as string;
+        publisher=body.publisher as string|null;
+        identifiers=body.identifiers as typeof identifiers;
+        contributors=body.contributors as typeof contributors;
+        await route.fulfill(respond({
+          id:createdAuthorId,workId,metadataVersion:3,status:'draft',
+        }));
+      }
+    }else{
+      await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+    }
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Canonical');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Canonical Work/}).click();
+  const detail=page.getByTestId('admin-catalog-detail');
+  await expect(detail).toContainText('First Edition');
+  await page.getByRole('button',{name:'Taslak baskıyı düzenle'}).click();
+  let editor=page.getByTestId('admin-edition-editor');
+  await expect(editor).toContainText('Beklenen eser sürümü: 1');
+  await page.getByRole('textbox',{name:'Baskı etiketi'}).fill('Outdated proposal');
+  await editor.getByRole('button',{name:'Sürüm kontrollü kaydet'}).click();
+  await expect(editor.getByRole('alert')).toContainText('Başka bir yönetici');
+  await expect(editor.getByRole('button',{name:'Sürüm kontrollü kaydet'})).toBeDisabled();
+  expect(writes).toHaveLength(1);
+  await editor.getByRole('button',{name:'Güncel baskıyı sunucudan yükle'}).click();
+  await expect(detail).toContainText('Another Editor Revised Label');
+  await expect(detail).toContainText('Metadata sürümü: 2');
+  expect(writes).toHaveLength(1);
+  await page.getByRole('button',{name:'Taslak baskıyı düzenle'}).click();
+  editor=page.getByTestId('admin-edition-editor');
+  await page.getByRole('textbox',{name:'Baskı etiketi'}).fill('Revised Editorial Edition');
+  await page.getByRole('textbox',{name:'Yayınevi (boş bırakılırsa temizlenir)'}).fill('');
+  await page.getByRole('textbox',{name:'Tanımlayıcı değeri 1'}).fill('9781111111112');
+  await page.getByRole('button',{name:'Kaldır Tanımlayıcılar 2'}).click();
+  await page.getByRole('combobox',{name:'Görev 1'}).selectOption('editor');
+  await editor.getByRole('button',{name:'Sürüm kontrollü kaydet'}).click();
+  await expect(detail).toContainText('Metadata sürümü: 3');
+  await expect(detail).toContainText('Revised Editorial Edition');
+  await expect(detail).toContainText('9781111111112');
+  await expect(detail).toContainText('editor '+authorId);
+  expect(writes).toHaveLength(2);
+  expect(writes[0]?.body.expectedVersion).toBe(1);
+  expect(writes[1]?.body).toMatchObject({
+    expectedVersion:2,label:'Revised Editorial Edition',publisher:null,
+    identifiers:[{kind:'isbn-13',value:'9781111111112'}],
+    contributors:[{authorId,role:'editor',sortOrder:0}],
+  });
+  expect(writes.map(row=>row.csrf)).toEqual(['F'.repeat(43),'F'.repeat(43)]);
+  const width=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
+  expect(width).toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'Taslak baskıyı düzenle'}).click();
+  editor=page.getByTestId('admin-edition-editor');
+  await editor.getByRole('button',{name:'Sürüm kontrollü kaydet'}).click();
+  await expect(editor.getByRole('alert')).toContainText('Değiştirilen alan yok');
+  expect(writes).toHaveLength(2);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(editor).toContainText('Edit draft edition');
+});

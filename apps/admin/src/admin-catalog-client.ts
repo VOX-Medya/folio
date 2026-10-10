@@ -9,6 +9,7 @@ import {
   adminCatalogEditionAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogTitleAppendSchema,adminCatalogTitleAppendedSchema,
   adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
+  adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
 } from '@folio/contracts';
 import type {
   AdminCatalogAuthorDetail,AdminCatalogAuthorPage,
@@ -16,6 +17,7 @@ import type {
   AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,
   CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
+  AdminCatalogEditionMetadataPatch,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
 
@@ -219,4 +221,18 @@ export async function appendAdminWorkAuthor(id:string,input:AdminCatalogWorkAuth
   const raw=await request('/v1/admin/catalog/works/'+checkedId(id)+'/authors',
     'POST',201,parsed.data);
   return parse(raw,value=>adminCatalogWorkAuthorAppendedSchema.parse(value));
+}
+
+/** Only versioned bibliographic metadata of a DRAFT edition is editable.
+ * No client can supply publish/rights/language/source revisions. */
+export async function patchAdminEdition(
+  workId:string,editionId:string,input:AdminCatalogEditionMetadataPatch,
+){
+  const parsed=adminCatalogEditionMetadataPatchSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const raw=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/editions/'+checkedId(editionId),
+    'PATCH',200,parsed.data,
+  );
+  return parse(raw,value=>adminCatalogEditionMetadataUpdatedSchema.parse(value));
 }

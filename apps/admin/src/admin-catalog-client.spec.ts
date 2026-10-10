@@ -3,6 +3,7 @@ import {
   CatalogClientError,catalogErrorText,createAdminAuthor,createAdminWork,
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
+  patchAdminEdition,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
 } from './admin-catalog-client.js';
 
@@ -245,6 +246,56 @@ describe('admin catalog browser privacy/transport contract',()=>{
       kind:'network',
     });
     expect(f).toHaveBeenCalledTimes(4);
+  });
+  it('edits only DRAFT edition metadata over a fresh verified Web CSRF PATCH and never sends actor/publish',async()=>{
+    const f=vi.fn(async(url:string,init:RequestInit)=>{
+      if(url==='/v1/auth/web/csrf')return bootstrap();
+      if(url==='/v1/admin/catalog/works/'+workId+'/editions/'+authorId){
+        expect(init).toMatchObject({
+          method:'PATCH',mode:'same-origin',credentials:'same-origin',
+          redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',
+        });
+        const headers=init.headers as Record<string,string>;
+        expect(headers['x-folio-csrf']).toBe('B'.repeat(43));
+        expect(headers).not.toHaveProperty('Authorization');
+        expect(headers).not.toHaveProperty('x-user-id');
+        const body=JSON.parse(String(init.body)) as Record<string,unknown>;
+        expect(body).toEqual({
+          expectedVersion:5,label:'Corrected edition',
+          publisher:null,
+          identifiers:[{kind:'other',value:'folio-local'}],
+          contributors:[{authorId,role:'translator',sortOrder:1}],
+        });
+        return json({id:authorId,workId,metadataVersion:6,status:'draft'});
+      }
+      throw Error('Unexpected path');
+    });
+    vi.stubGlobal('fetch',f);
+    expect(await patchAdminEdition(workId,authorId,{
+      expectedVersion:5,label:'Corrected edition',publisher:null,
+      identifiers:[{kind:'other',value:'folio-local'}],
+      contributors:[{authorId,role:'translator',sortOrder:1}],
+    })).toEqual({id:authorId,workId,metadataVersion:6,status:'draft'});
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+  it('rejects stale edition edit and illicit publication/language before transport; no silent retry',async()=>{
+    const f=vi.fn().mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'CONFLICT'}},409));
+    vi.stubGlobal('fetch',f);
+    await expect(patchAdminEdition(workId,authorId,{
+      expectedVersion:5,label:'Stale edited edition',
+    })).rejects.toMatchObject({kind:'conflict'});
+    expect(f).toHaveBeenCalledTimes(2);
+    await expect(patchAdminEdition(workId,authorId,{
+      expectedVersion:5,label:'Illicit',status:'published',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(patchAdminEdition(workId,authorId,{
+      expectedVersion:5,label:'Other language',language:'fr',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(patchAdminEdition(workId,'../bad',{
+      expectedVersion:5,label:'Untrusted ID',
+    })).rejects.toMatchObject({kind:'invalid'});
+    expect(f).toHaveBeenCalledTimes(2);
   });
 
 });
