@@ -152,3 +152,28 @@ export const contentBlocks = pgTable('content_blocks', {
   uniqueIndex('content_block_order_unique').on(t.revisionId,t.chapterId,t.ordinal),
   foreignKey({columns:[t.revisionId,t.chapterId],foreignColumns:[contentChapters.revisionId,contentChapters.chapterId],name:'content_blocks_chapter_fk'}).onDelete('restrict'),
 ]);
+
+/** Scope-specific rights are reviewed independently and default to deny. */
+export const rightsRecords = pgTable('rights_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workId: uuid('work_id').notNull().references(() => works.id,{onDelete:'restrict'}),
+  editionId: uuid('edition_id').references(() => editions.id,{onDelete:'restrict'}),
+  revisionId: uuid('revision_id').references(() => contentRevisions.id,{onDelete:'restrict'}),
+  sourceUrl: text('source_url'),
+  evidence: text('evidence').notNull(),
+  licenseKind: varchar('license_kind',{length:60}).notNull(),
+  territories: varchar('territories',{length:2}).array().notNull(),
+  displayAllowed: boolean('display_allowed').notNull().default(false),
+  translationAllowed: boolean('translation_allowed').notNull().default(false),
+  audioAllowed: boolean('audio_allowed').notNull().default(false),
+  sharingAllowed: boolean('sharing_allowed').notNull().default(false),
+  reviewStatus: varchar('review_status',{length:24}).notNull().default('pending'),
+  reviewedBy: uuid('reviewed_by'),
+  reviewedAt: timestamp('reviewed_at',{withTimezone:true}),
+  expiresAt: timestamp('expires_at',{withTimezone:true}),
+  createdAt: timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  index('rights_records_work_idx').on(t.workId),
+  index('rights_records_edition_idx').on(t.editionId),
+  index('rights_records_revision_idx').on(t.revisionId),
+]);

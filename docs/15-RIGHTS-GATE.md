@@ -1,0 +1,11 @@
+# Country and usage rights gate (#14)
+
+## Implemented foundation
+`rights_records` holds work/edition/content-revision scope IDs, human evidence/source URL, license kind, explicit territory codes, separate `display`, `translation`, `audio` and `sharing` flags, reviewer UUID/time, expiration, and pending/approved/rejected/withdrawn status. New submissions are always `pending`; approval is never inferred from public source availability, provenance or source language. The `verifyRightsForAction` service is **default deny**: exactly matching work, edition and revision scopes must each have a current approved reviewed record that permits the requested action and uppercase country, with no expiration. An unreviewed/withdrawn record, mismatched scope or missing permission prevents access. Records are audited when evidence is submitted, approved, rejected or withdrawn. Rights are recorded independently for specific translated editions and audio rights; approval for US alone never grants TR access or global distribution.
+
+The implementation currently has **internal DB functions only**: no public content/media endpoint or unguarded review endpoint. `reviewRightsEvidence` requires its caller to already establish a trusted RBAC reviewer; actual admin MFA/role guard is under #30/#43. Country discovery from a verified request origin, short-lived asset access, cache invalidation/withdrawal, mobile/offline rights expirations and negative HTTP/media route tests remain downstream tasks under #14/#26/#45. This is not a complete global publishing licensing workflow.
+
+## Ubuntu test evidence
+The 0003 migration applied to `folio_lab` and isolated `folio_test`. `pnpm check` passed lint/typecheck/build/unit/API contract, and `bash infra/lab.sh rights-smoke` passed with synthetic unpublished fixtures. Negative checks cover missing/pending rights, only one/two of three approvals, malformed territories/mismatched edition, US denied while TR granted, prohibited translation/audio/sharing, expired license, withdrawal irreversibility, and audit. All test content remains draft and not publicly accessible. See `packages/db/scripts/rights-smoke.ts`.
+
+No production data or real literary rights were assigned. Approval in the test uses only synthetic records and a synthetic actor; it is not editorial/legal approval of any book.

@@ -167,3 +167,30 @@ export const contentRevisionCreateSchema = z.object({
   if (chapterOrder.some((n,i)=>n!==i)) ctx.addIssue({code:'custom',message:'Chapter order must be complete and reliable'});
 });
 export type ContentRevisionCreate = z.infer<typeof contentRevisionCreateSchema>;
+
+export const rightsActionSchema = z.enum(['display','translation','audio','sharing']);
+export type RightsAction = z.infer<typeof rightsActionSchema>;
+export const rightsRecordCreateSchema = z.object({
+  workId: z.uuid(),
+  editionId: z.uuid().optional(),
+  revisionId: z.uuid().optional(),
+  sourceUrl: z.url().optional(),
+  evidence: z.string().trim().min(12).max(4000),
+  licenseKind: z.string().trim().min(2).max(60),
+  territories: z.array(z.string().regex(/^[A-Z]{2}$/)).min(1).max(250),
+  displayAllowed: z.boolean().default(false),
+  translationAllowed: z.boolean().default(false),
+  audioAllowed: z.boolean().default(false),
+  sharingAllowed: z.boolean().default(false),
+  expiresAt: z.iso.datetime({offset:true}).optional(),
+}).strict().superRefine((data, ctx) => {
+  if (data.revisionId && !data.editionId) ctx.addIssue({code:'custom',message:'Revision rights require the edition scope'});
+  if (new Set(data.territories).size!==data.territories.length) ctx.addIssue({code:'custom',message:'Territories must not repeat'});
+});
+export type RightsRecordCreate = z.infer<typeof rightsRecordCreateSchema>;
+export const rightsDecisionQuerySchema = z.object({
+  workId: z.uuid(), editionId: z.uuid(), revisionId: z.uuid(),
+  territory: z.string().regex(/^[A-Z]{2}$/),action: rightsActionSchema,
+}).strict();
+export type RightsDecisionQuery = z.infer<typeof rightsDecisionQuerySchema>;
+export type RightsDecision = {allowed: boolean; reason: 'approved'|'missing'|'unreviewed'|'territory'|'expired'|'prohibited'|'wrong_scope'};
