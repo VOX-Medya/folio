@@ -36,6 +36,13 @@
       "when": 1791594191361,
       "tag": "0004_conscious_nehzno",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791594375571,
+      "tag": "0005_simple_sumo",
+      "breakpoints": true
     }
   ]
 }

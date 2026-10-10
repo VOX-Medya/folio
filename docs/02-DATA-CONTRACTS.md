@@ -48,3 +48,6 @@
 
 ## Implemented rights gate baseline
 The work/edition/revision level permission records, country checks and fail-closed actions of #14 are documented in `docs/15-RIGHTS-GATE.md`. Legal review is not inferred or auto-approved, and all test records remain draft.
+
+## First versioned prepared-audio storage
+The metadata-only media assets, versioned audio variants and chapter/text-hash segment contracts are documented in `docs/17-PREPARED-AUDIO.md`. Assets remain pending verification and variants draft until actual file verification, rights and playback workflows are implemented.

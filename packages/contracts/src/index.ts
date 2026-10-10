@@ -211,3 +211,30 @@ export type TranslationLinkCreate=z.infer<typeof translationLinkCreateSchema>;
 export const translationSwitchRequestSchema=z.object({
   linkId:z.uuid(),sourceBlockId:z.uuid(),
 }).strict();
+
+/** Metadata for a *prepared* audio file, not proof that storage checksum has been verified. */
+export const preparedAudioAssetSchema=z.object({
+  storageKey:z.string().min(1).max(512),
+  sha256:z.string().regex(/^[a-f0-9]{64}$/),
+  sizeBytes:z.number().int().positive().max(1_000_000_000),
+  mime:z.enum(['audio/mp4','audio/ogg']),
+  durationMs:z.number().int().positive().max(86_400_000),
+}).strict();
+export type PreparedAudioAsset=z.infer<typeof preparedAudioAssetSchema>;
+export const audioSegmentInputSchema=z.object({
+  chapterId:z.uuid(),ordinal:z.number().int().min(0),assetId:z.uuid(),textBlockId:z.uuid(),
+  textSha256:z.string().regex(/^[a-f0-9]{64}$/),startMs:z.number().int().min(0),endMs:z.number().int().positive(),
+}).strict().refine(data=>data.endMs>data.startMs,{message:'Segment end must exceed start'});
+export const audioVariantInputSchema=z.object({
+  contentRevisionId:z.uuid(),language:z.enum(['tr','en']),voiceId:z.string().min(1).max(120),
+  sourceLabel:z.string().min(1).max(240),codec:z.enum(['m4a','opus']),
+  segments:z.array(audioSegmentInputSchema).min(1).max(5000),
+}).strict().superRefine((data,ctx)=>{
+  const orders=new Set<string>();
+  for(const segment of data.segments){
+    const key=`${segment.chapterId}:${segment.ordinal}`;
+    if(orders.has(key))ctx.addIssue({code:'custom',message:'Duplicate chapter segment ordinal'});
+    orders.add(key);
+  }
+});
+export type AudioVariantInput=z.infer<typeof audioVariantInputSchema>;
