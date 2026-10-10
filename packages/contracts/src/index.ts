@@ -248,3 +248,18 @@ export const authAttemptRequestSchema=z.object({
   action:z.enum(['login','register','password_reset']),
   email:z.string().trim().max(254).pipe(z.email()),
 }).strict();
+
+/** Verified self-only onboarding. The bearer principal is NEVER a request field. */
+const onboardingStageSchema=z.enum(['welcome','language','interests','complete']);
+const onboardingInterestIds=z.array(z.string().regex(/^[a-z][a-z0-9-]{1,39}$/))
+  .max(20).refine(values=>new Set(values).size===values.length,{message:'Duplicate interest IDs'});
+export const onboardingUpdateRequestSchema=z.object({
+  expectedVersion:z.number().int().nonnegative().max(2147483646),
+  stage:onboardingStageSchema,locale:z.enum(['tr','en']),
+  interests:onboardingInterestIds,
+}).strict();
+export const onboardingSnapshotSchema=z.object({
+  userId:z.uuid(),stage:onboardingStageSchema,locale:z.enum(['tr','en']),
+  interests:onboardingInterestIds,version:z.number().int().nonnegative(),
+}).strict();
+export type OnboardingSnapshot=z.infer<typeof onboardingSnapshotSchema>;

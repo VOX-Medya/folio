@@ -6,12 +6,13 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { OpenAPIObject } from '@nestjs/swagger';
 import { ApiExceptionFilter, RequestIdMiddleware } from './common/http.js';
 import { SystemModule } from './modules/system/system.module.js';
+import { AccountOnboardingModule } from './modules/account/onboarding.module.js';
 
 export {ApiExceptionFilter, RequestIdMiddleware, UserOwnershipGuard} from './common/http.js';
 export {HealthController, CapabilitiesController, ReadinessController, DbReadinessService} from './modules/system/system.module.js';
 
 /** A single modular monolith. Product modules join only when their guarded routes exist. */
-@Module({imports: [SystemModule]})
+@Module({imports: [SystemModule,AccountOnboardingModule]})
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes('*');
@@ -21,7 +22,7 @@ export class AppModule implements NestModule {
 export function createOpenApiDocument(app: INestApplication): OpenAPIObject {
   return SwaggerModule.createDocument(app, new DocumentBuilder()
     .setTitle('Folio API').setDescription('Folio versioned REST API. Capabilities reflect the actual lab status.')
-    .setVersion('1').build());
+    .setVersion('1').addBearerAuth({type:'http',scheme:'bearer',bearerFormat:'opaque'},'folioSession').build());
 }
 export async function createFolioApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { logger: false });
