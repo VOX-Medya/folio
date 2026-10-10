@@ -24,15 +24,15 @@ export function dependencyHardeningProblems(lock,root) {
   // Match PACKAGE entries, not an override selector:
   //   "  js-yaml@5.3.0: 5.4.1" is the intended override, not an installed node.
   const legacy={
-    'abandoned @esbuild-kit/esm-loader':/^  '@esbuild-kit\/esm-loader@[^']+':\s*$/m,
-    'abandoned @esbuild-kit/core-utils':/^  '@esbuild-kit\/core-utils@[^']+':\s*$/m,
-    'affected esbuild 0.18.20':/^  esbuild@0\.18\.20:\s*$/m,
-    'affected js-yaml 5.3.0':/^  js-yaml@5\.3\.0:\s*$/m,
+    'abandoned @esbuild-kit/esm-loader':/^ {2}'@esbuild-kit\/esm-loader@[^']+':\s*$/m,
+    'abandoned @esbuild-kit/core-utils':/^ {2}'@esbuild-kit\/core-utils@[^']+':\s*$/m,
+    'affected esbuild 0.18.20':/^ {2}esbuild@0\.18\.20:\s*$/m,
+    'affected js-yaml 5.3.0':/^ {2}js-yaml@5\.3\.0:\s*$/m,
   };
   for(const [name,pattern] of Object.entries(legacy)){
     if(pattern.test(lock))errors.push('Vulnerable dependency regression: '+name);
   }
-  if(!/^  js-yaml@5\.4\.1:\s*$/m.test(lock)){
+  if(!/^ {2}js-yaml@5\.4\.1:\s*$/m.test(lock)){
     errors.push('Patched js-yaml 5.4.1 package not present');
   }
   return errors;
