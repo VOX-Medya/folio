@@ -54,22 +54,26 @@ export class AccountOnboardingDb implements OnModuleDestroy {
     // VerifiedSessionGuard turns any verifier outage into 503, never access.
     return authenticateUserSession(this.connection.db,bearer);
   }
-  async read(userId:string){
+  async read(userId:string,sessionId:string){
     if(!this.connection)throw new ServiceUnavailableException('Database not configured');
-    try{return await getVerifiedUserOnboarding(this.connection.db,userId);}
+    try{return await getVerifiedUserOnboarding(this.connection.db,userId,sessionId);}
     catch(error){
-      if(error instanceof Error&&error.message==='Verified user required for onboarding'){
-        throw new UnauthorizedException('Verified user required');
+      if(error instanceof Error&&[
+        'Verified user required for onboarding','Verified session required',
+      ].includes(error.message)){
+        throw new UnauthorizedException('Verified session required');
       }
       throw new ServiceUnavailableException('Onboarding unavailable');
     }
   }
-  async update(userId:string,input:unknown,requestId:string|undefined){
+  async update(userId:string,sessionId:string,input:unknown,requestId:string|undefined){
     const parsed=onboardingUpdateRequestSchema.safeParse(input);
     if(!parsed.success)throw new BadRequestException('Invalid onboarding update');
     if(!this.connection)throw new ServiceUnavailableException('Database not configured');
     try{
-      return await updateVerifiedUserOnboarding(this.connection.db,userId,parsed.data,requestId);
+      return await updateVerifiedUserOnboarding(
+        this.connection.db,userId,parsed.data,requestId,sessionId,
+      );
     }catch(error){
       if(error instanceof Error){
         if(error.message.startsWith('Onboarding version conflict')){
@@ -81,8 +85,9 @@ export class AccountOnboardingDb implements OnModuleDestroy {
         if(error.message==='Onboarding privacy consent acceptance is unavailable'){
           throw new ForbiddenException('Onboarding privacy consent is not available');
         }
-        if(error.message==='Verified user required for onboarding'){
-          throw new UnauthorizedException('Verified user required');
+        if(error.message==='Verified user required for onboarding'||
+           error.message==='Verified session required'){
+          throw new UnauthorizedException('Verified session required');
         }
       }
       throw new ServiceUnavailableException('Onboarding unavailable');
@@ -123,9 +128,11 @@ export class AccountOnboardingDb implements OnModuleDestroy {
 @UseGuards(VerifiedSelfSessionGuard)
 export class OnboardingController {
   constructor(@Inject(AccountOnboardingDb) private readonly store:AccountOnboardingDb){}
-  private userId(request:AuthenticatedRequest):string{
-    if(!request.auth?.userId)throw new UnauthorizedException('Verified session required');
-    return request.auth.userId;
+  private principal(request:AuthenticatedRequest):{userId:string;sessionId:string}{
+    if(!request.auth?.userId||!request.auth.sessionId){
+      throw new UnauthorizedException('Verified session required');
+    }
+    return request.auth;
   }
   private rejectQuery(query:Record<string,unknown>):void{
     if(Object.keys(query).length)throw new BadRequestException('Unexpected query parameters');
@@ -136,7 +143,8 @@ export class OnboardingController {
   @ApiOkResponse({schema:onboardingOutputApiSchema})
   async read(@Req() request:AuthenticatedRequest,@Query() query:Record<string,unknown>){
     this.rejectQuery(query);
-    return this.store.read(this.userId(request));
+    const principal=this.principal(request);
+    return this.store.read(principal.userId,principal.sessionId);
   }
 
   @Patch('onboarding')
@@ -147,7 +155,8 @@ export class OnboardingController {
   async update(@Req() request:AuthenticatedRequest,@Query() query:Record<string,unknown>,
     @Body() body:unknown){
     this.rejectQuery(query);
-    return this.store.update(this.userId(request),body,request.requestId);
+    const principal=this.principal(request);
+    return this.store.update(principal.userId,principal.sessionId,body,request.requestId);
   }
 }
 
