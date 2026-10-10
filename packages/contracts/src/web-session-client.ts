@@ -67,6 +67,22 @@ function expectNoContent(response:Response):void {
 }
 
 /**
+ * A remote device may revoke this browser cookie between requests. The
+ * server's same-origin HTTPS CSRF bootstrap retires revoked/disabled cookies
+ * with Set-Cookie Max-Age=0 on 401. Probe exactly once, without retrying any
+ * protected operation or hiding the original 401 response.
+ */
+async function failDeviceSession(
+  response:Response,options:WebSessionClientRequest,
+):Promise<never>{
+  if(response.status===401){
+    try{await fetchWebSessionCsrf(options);}
+    catch{/* A revoked cookie yields 401; keep the original device error. */}
+  }
+  return fail(response);
+}
+
+/**
  * POST only credentials. The server must set a __Host- HttpOnly cookie.
  * A 204 means accepted; no bearer/password may be returned in JSON.
  */
@@ -126,7 +142,7 @@ export async function fetchWebDeviceSessions(
   const response=await (options.fetcher??fetch)(
     origin+'/v1/me/sessions',requestInit(options,'GET'),
   );
-  if(!response.ok)return fail(response);
+  if(!response.ok)return failDeviceSession(response,options);
   if(response.status!==200){
     throw new WebSessionHttpError(response.status,'UNEXPECTED_HTTP_RESPONSE',null);
   }
@@ -154,6 +170,6 @@ export async function revokeWebDeviceSession(
     origin+'/v1/me/sessions/'+encodeURIComponent(id),
     requestInit(options,'DELETE',{csrf}),
   );
-  if(!response.ok)return fail(response);
+  if(!response.ok)return failDeviceSession(response,options);
   expectNoContent(response);
 }
