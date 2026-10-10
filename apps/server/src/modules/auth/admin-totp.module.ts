@@ -10,8 +10,10 @@ import {
 } from '@nestjs/swagger';
 import {
   authenticateUserSession,beginAdminTotpEnrollment,
-  confirmAdminTotpEnrollment,createFolioDb,verifyAdminTotpForSession,
+  confirmAdminTotpEnrollment,createFolioDb,requireTotpKeyring,
+  verifyAdminTotpForSession,
 } from '@folio/db';
+import type {TotpKeyring,TotpKeyVersion} from '@folio/db';
 import {adminTotpCodeRequestSchema} from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -28,6 +30,23 @@ interface AdminMfaRequest {
 }
 const denied=()=>new UnauthorizedException('Verified admin MFA session required');
 
+/** Two-key staged rollover: legacy v1 remains active by default.
+ * v2 encryption requires an explicitly configured and distinct AES key.
+ * Never derive keys or versions from HTTP request contents. */
+function configuredTotpKeys():TotpKeyring{
+  const name=process.env.FOLIO_ADMIN_TOTP_ACTIVE_KEY_VERSION??'v1';
+  if(name!=='v1'&&name!=='v2'){
+    throw new Error('Invalid TOTP active key version');
+  }
+  const activeVersion:TotpKeyVersion=name;
+  return requireTotpKeyring({
+    activeVersion,
+    v1:process.env.FOLIO_ADMIN_TOTP_KEY_HEX,
+    v2:process.env.FOLIO_ADMIN_TOTP_V2_KEY_HEX,
+  });
+}
+
+
 /**
  * The feature is opt-in AND restricted to actual application socket TLS.
  * No reverse proxy header can opt in to MFA. Never enable using 'true'.
@@ -42,9 +61,8 @@ export class AdminMfaOptInGuard implements CanActivate {
     if(request.socket?.encrypted!==true){
       throw new ServiceUnavailableException('Verified application HTTPS required');
     }
-    if(!/^[0-9a-fA-F]{64}$/.test(process.env.FOLIO_ADMIN_TOTP_KEY_HEX??'')){
-      throw new ServiceUnavailableException('Admin factor configuration unavailable');
-    }
+    try{configuredTotpKeys();}
+    catch{throw new ServiceUnavailableException('Admin factor configuration unavailable');}
     return true;
   }
 }
@@ -59,9 +77,8 @@ export class AdminTotpDb implements OnModuleDestroy {
   }
   verify(bearer:string){return authenticateUserSession(this.db(),bearer);}
   private key(){
-    const value=process.env.FOLIO_ADMIN_TOTP_KEY_HEX;
-    if(!value)throw new ServiceUnavailableException('Admin factor key unavailable');
-    return value; // Read exclusively from server config, not request body.
+    try{return configuredTotpKeys();}
+    catch{throw new ServiceUnavailableException('Admin factor key unavailable');}
   }
   private async checked<T>(work:()=>Promise<T>):Promise<T>{
     try{return await work();}
