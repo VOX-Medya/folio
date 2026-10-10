@@ -94,11 +94,11 @@ describe('internal ClamAV stdin-only quarantine scanning',()=>{
 
   it('rejects scanners that return clean without reading the whole byte stream',async()=>{
     await withBlob(async(blob,storage)=>{
-      const liar:QuarantineByteScanner={scan:async _source=>'clean'};
+      const liar:QuarantineByteScanner={scan:async()=>'clean'};
       await expect(storage.scanQuarantined(blob,liar))
         .rejects.toThrow(/digest or length mismatched/);
       const wrong:QuarantineByteScanner={scan:async source=>{
-        for await(const _ of source){/* consume bytes */ }
+        for await(const part of source){if(part.length===0)throw new Error('Empty part');}
         return 'verified' as QuarantineScanVerdict;
       }};
       await expect(storage.scanQuarantined(blob,wrong)).rejects.toThrow(/verdict/);
@@ -135,7 +135,7 @@ describe('internal ClamAV stdin-only quarantine scanning',()=>{
       const file=join(root,'quarantine','users',owner,blob.key+'.blob');
       const mutate:QuarantineByteScanner={
         async scan(source){
-          for await(const _chunk of source){await writeFile(file,Buffer.from(bytes));}
+          for await(const chunk of source){if(chunk.length)await writeFile(file,Buffer.from(bytes));}
           return 'clean';
         },
       };
