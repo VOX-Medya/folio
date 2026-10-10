@@ -116,3 +116,54 @@ export const workCreateSchema = z.object({
 });
 export type AuthorCreate = z.infer<typeof authorCreateSchema>;
 export type WorkCreate = z.infer<typeof workCreateSchema>;
+
+/** Input is parsed verbatim from a validated, text-bearing local source; no OCR/AI recovery. */
+export const contentBlockKindSchema = z.enum([
+  'paragraph','heading','footnote','page_number','running_header','publisher_note',
+  'preface','endnote','poetry','quote','list','image_ref',
+]);
+export const contentRevisionCreateSchema = z.object({
+  editionId: z.uuid(),
+  language: z.enum(['tr','en']),
+  parentRevisionId: z.uuid().optional(),
+  rawArtifactKey: z.string().min(1).max(512),
+  rawSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  parserVersion: z.string().min(1).max(100),
+  provenance: z.object({
+    sourceName: z.string().min(1).max(240),
+    sourceUrl: z.url().optional(),
+    sourceExternalId: z.string().max(400).optional(),
+    licenseClaim: z.string().max(1000).optional(),
+  }).strict(),
+  chapters: z.array(z.object({
+    chapterId: z.uuid(),ordinal: z.number().int().min(0),heading: z.string(),
+    blocks: z.array(z.object({
+      blockId: z.uuid(),ordinal: z.number().int().min(0),
+      parentBlockId: z.uuid().optional(),
+      kind: contentBlockKindSchema,
+      locator: z.object({format:z.enum(['epub','pdf','text']),path:z.string().min(1)}).strict(),
+      sourceText: z.string().min(1),
+      textSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      includeNormal: z.boolean().default(true),
+      includeRsvp: z.boolean().default(false),
+      includeAudio: z.boolean().default(false),
+    }).strict()).min(1),
+  }).strict()).min(1),
+}).strict().superRefine((input,ctx) => {
+  const allBlockIds = input.chapters.flatMap(ch=>ch.blocks.map(b=>b.blockId));
+  if (new Set(allBlockIds).size!==allBlockIds.length) ctx.addIssue({code:'custom',message:'Block IDs must remain unique per revision'});
+  const chapterIds = input.chapters.map(ch=>ch.chapterId);
+  if (new Set(chapterIds).size!==chapterIds.length) ctx.addIssue({code:'custom',message:'Duplicate chapter identity'});
+  input.chapters.forEach(ch=>{
+    const order=ch.blocks.map(b=>b.ordinal).sort((a,b)=>a-b);
+    if (order.some((n,i)=>n!==i)) ctx.addIssue({code:'custom',message:'Block order must be complete and reliable'});
+    const aux=new Set(['footnote','endnote','page_number','running_header','publisher_note','image_ref']);
+    for (const block of ch.blocks) {
+      if (aux.has(block.kind)&&(block.includeRsvp||block.includeAudio)) ctx.addIssue({code:'custom',message:`Auxiliary block ${block.kind} cannot enter RSVP/audio`});
+      if (block.parentBlockId && !allBlockIds.includes(block.parentBlockId)) ctx.addIssue({code:'custom',message:'Parent block must exist in this revision'});
+    }
+  });
+  const chapterOrder=input.chapters.map(ch=>ch.ordinal).sort((a,b)=>a-b);
+  if (chapterOrder.some((n,i)=>n!==i)) ctx.addIssue({code:'custom',message:'Chapter order must be complete and reliable'});
+});
+export type ContentRevisionCreate = z.infer<typeof contentRevisionCreateSchema>;

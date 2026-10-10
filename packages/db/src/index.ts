@@ -11,3 +11,4 @@ export function createFolioDb(url: string) {
 
 export {createFolioBoss, initializeFolioQueues, folioQueues} from './queues.js';
 export {createCanonicalAuthor, createCanonicalWork, getCanonicalWorkDetails} from './catalog.js';
+export {createContentRevision, getRevisionBlocks, sha256Text} from './content.js';
