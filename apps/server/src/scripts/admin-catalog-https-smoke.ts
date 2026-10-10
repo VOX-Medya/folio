@@ -1292,6 +1292,8 @@ async function main():Promise<void>{
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
     check((await call(true,port,search,bearer)).status===404,
       'Flag shutoff did not immediately hide private catalog API');
+    check((await call(true,port,revisionPath+revisionQuery,bearer)).status===404,
+      'Disabling read flag left the private revision diff reachable');
     check((await call(true,port,root+'/works/'+createdWork.id,bearer)).status===404&&
       (await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===404,
       'Disabling catalog read mode left unpublished detail endpoints available');
