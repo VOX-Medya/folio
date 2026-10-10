@@ -14,7 +14,7 @@ import {
   getVerifiedAdminWorkDetails,patchVerifiedAdminAuthorMetadata,
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
-  patchVerifiedAdminEditionMetadata,
+  patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
@@ -29,6 +29,7 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
+  adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -126,6 +127,9 @@ export class AdminCatalogDb implements OnModuleDestroy {
   workDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminWorkDetails(this.db(),bearer,id));
   }
+  revisionDiff(bearer:string,input:unknown){
+    return this.authorized(()=>getVerifiedAdminRevisionMetadataDiff(this.db(),bearer,input));
+  }
   authorDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
   }
@@ -208,6 +212,52 @@ const authorPageApi={
 // A tightly projected OpenAPI schema. Never serialize entire DB rows or
 // private reader/content, provenance, source artifacts, rights or user data.
 const detailUuidApi={type:'string',format:'uuid'};
+const revisionPositionApi={
+  type:'object',additionalProperties:false,
+  required:['chapterId','ordinal','kind','textSha256','includeNormal','includeRsvp','includeAudio'],
+  properties:{
+    chapterId:detailUuidApi,
+    ordinal:{type:'integer',minimum:0},
+    kind:{type:'string',enum:[
+      'paragraph','heading','footnote','page_number','running_header',
+      'publisher_note','preface','endnote','poetry','quote','list','image_ref',
+    ]},
+    textSha256:{type:'string',pattern:'^[0-9a-f]{64}$'},
+    includeNormal:{type:'boolean'},includeRsvp:{type:'boolean'},includeAudio:{type:'boolean'},
+  },
+};
+const revisionDiffResultApi={
+  type:'object',additionalProperties:false,
+  required:['editionId','fromRevisionId','toRevisionId','summary','chapterChanges',
+    'items','nextCursor','isMetadataOnly'],
+  properties:{
+    editionId:detailUuidApi,fromRevisionId:detailUuidApi,toRevisionId:detailUuidApi,
+    summary:{type:'object',additionalProperties:false,
+      required:['added','removed','text_changed','metadata_changed','moved','unchanged'],
+      properties:Object.fromEntries(
+        ['added','removed','text_changed','metadata_changed','moved','unchanged']
+          .map(key=>[key,{type:'integer',minimum:0}])),
+    },
+    chapterChanges:{type:'array',maxItems:10000,items:{
+      type:'object',additionalProperties:false,required:['chapterId','kind'],
+      properties:{
+        chapterId:detailUuidApi,kind:{type:'string',enum:['added','removed','renamed','moved']},
+      },
+    }},
+    items:{type:'array',maxItems:100,items:{
+      type:'object',additionalProperties:false,required:['blockId','kind','before','after'],
+      properties:{
+        blockId:detailUuidApi,
+        kind:{type:'string',enum:['added','removed','text_changed','metadata_changed','moved']},
+        before:{...revisionPositionApi,nullable:true},
+        after:{...revisionPositionApi,nullable:true},
+      },
+    }},
+    nextCursor:{...detailUuidApi,nullable:true},
+    isMetadataOnly:{type:'boolean',enum:[true]},
+  },
+};
+
 const workDetailApi={
   type:'object',additionalProperties:false,
   required:['work','authors','titles','editions'],
@@ -575,6 +625,40 @@ export class AdminCatalogController {
    * all relationship SELECTs. Unknown UUIDs are distinguishable only after
    * current catalog:read, account, device and MFA checks have passed.
    */
+  @Get('works/:workId/editions/:editionId/revisions/:toRevisionId/diff')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified MFA/RBAC catalog:read canonical immutable metadata diff; no raw source text'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiParam({name:'toRevisionId',type:String,format:'uuid'})
+  @ApiQuery({name:'fromRevisionId',type:String,format:'uuid',required:true})
+  @ApiQuery({name:'cursor',type:String,format:'uuid',required:false})
+  @ApiQuery({name:'limit',type:Number,required:false,minimum:1,maximum:100})
+  @ApiOkResponse({schema:revisionDiffResultApi})
+  async revisionDiff(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Param('editionId') rawEditionId:string,
+    @Param('toRevisionId') rawToRevisionId:string,
+    @Query() query:Record<string,unknown>){
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const editionId=adminCatalogIdSchema.safeParse(rawEditionId);
+    const toRevisionId=adminCatalogIdSchema.safeParse(rawToRevisionId);
+    const parsed=adminCatalogRevisionDiffQuerySchema.safeParse(query);
+    if(!workId.success||!editionId.success||!toRevisionId.success||
+      !parsed.success){
+      throw new BadRequestException('Invalid canonical revision diff input');
+    }
+    const bearer=await this.bearer(request);
+    const result=await this.store.revisionDiff(bearer,{
+      workId:workId.data,editionId:editionId.data,
+      toRevisionId:toRevisionId.data,fromRevisionId:parsed.data.fromRevisionId,
+      limit:parsed.data.limit,
+      ...(parsed.data.cursor?{cursor:parsed.data.cursor}:{}),
+    });
+    if(!result)throw new NotFoundException('Canonical revision pair not found');
+    return adminCatalogRevisionDiffSchema.parse(result);
+  }
+
   @Get('works/:workId')
   @Header('Cache-Control','private, no-store')
   @ApiOperation({summary:'MFA-verified canonical work relational metadata from a single PostgreSQL repeatable-read snapshot (admin only)'})

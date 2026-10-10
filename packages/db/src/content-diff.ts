@@ -1,9 +1,11 @@
 import {and,asc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
+import {withVerifiedAdminPermission} from './admin-authorization.js';
 import * as schema from './schema.js';
 
 type Database=ReturnType<typeof createFolioDb>['db'];
+type DiffTx=Parameters<Parameters<Database['transaction']>[0]>[0];
 const MAX_DIFF_BLOCKS=100000;
 const MAX_DIFF_CHAPTERS=10000;
 const pageSchema=z.object({
@@ -137,12 +139,7 @@ export function compareSemanticRevisionMetadata(
  * binding. The caller MUST verify administrator identity and relevant rights
  * before surfacing any diff. Query never selects sourceText or artifact bytes.
  * Every chapter/block SELECT shares a READ ONLY repeatable-read snapshot. */
-export async function getInternalRevisionMetadataDiff(
-  db:Database,rawInput:unknown,
-){
-  const input:DiffInput=pageSchema.parse(rawInput);
-  return db.transaction(async tx=>{
-    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+async function readRevisionMetadataDiffInTx(tx:DiffTx,input:DiffInput){
     const revisions=await tx.select({
       id:schema.contentRevisions.id,
       editionId:schema.contentRevisions.editionId,
@@ -199,5 +196,33 @@ export async function getInternalRevisionMetadataDiff(
       nextCursor:remaining.length>input.limit?(page.at(-1)?.blockId??null):null,
       isMetadataOnly:true as const,
     };
+}
+
+/** Internal CLI/DB read-only use. Never callable as an anonymous endpoint. */
+export async function getInternalRevisionMetadataDiff(db:Database,rawInput:unknown){
+  const input:DiffInput=pageSchema.parse(rawInput);
+  return db.transaction(async tx=>{
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    return readRevisionMetadataDiffInTx(tx,input);
+  },{isolationLevel:'repeatable read'});
+}
+
+const verifiedDiffSchema=pageSchema.extend({workId:z.uuid()}).strict();
+/** Authenticated catalog read path: current PostgreSQL account/session, live
+ * same-device MFA and catalog:read membership stay locked in the SAME
+ * repeatable-read transaction as edition ownership and every diff SELECT.
+ * FOR SHARE authorization locks forbid marking this transaction READ ONLY,
+ * but this callback never writes; no raw text is selected or returned. */
+export async function getVerifiedAdminRevisionMetadataDiff(
+  db:Database,bearer:string,rawInput:unknown,
+){
+  const input=verifiedDiffSchema.parse(rawInput);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',async tx=>{
+    const [edition]=await tx.select({id:schema.editions.id})
+      .from(schema.editions)
+      .where(and(eq(schema.editions.id,input.editionId),
+        eq(schema.editions.workId,input.workId))).limit(1);
+    if(!edition)return null;
+    return readRevisionMetadataDiffInTx(tx,input);
   },{isolationLevel:'repeatable read'});
 }

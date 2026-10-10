@@ -1165,6 +1165,331 @@
         ]
       }
     },
+    "/v1/admin/catalog/works/{workId}/editions/{editionId}/revisions/{toRevisionId}/diff": {
+      "get": {
+        "operationId": "AdminCatalogController_revisionDiff",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "fromRevisionId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "toRevisionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "editionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "editionId",
+                    "fromRevisionId",
+                    "toRevisionId",
+                    "summary",
+                    "chapterChanges",
+                    "items",
+                    "nextCursor",
+                    "isMetadataOnly"
+                  ],
+                  "properties": {
+                    "editionId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "fromRevisionId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "toRevisionId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "summary": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "added",
+                        "removed",
+                        "text_changed",
+                        "metadata_changed",
+                        "moved",
+                        "unchanged"
+                      ],
+                      "properties": {
+                        "added": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "removed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "text_changed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "metadata_changed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "moved": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "unchanged": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    },
+                    "chapterChanges": {
+                      "type": "array",
+                      "maxItems": 10000,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "chapterId",
+                          "kind"
+                        ],
+                        "properties": {
+                          "chapterId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "added",
+                              "removed",
+                              "renamed",
+                              "moved"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "blockId",
+                          "kind",
+                          "before",
+                          "after"
+                        ],
+                        "properties": {
+                          "blockId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "added",
+                              "removed",
+                              "text_changed",
+                              "metadata_changed",
+                              "moved"
+                            ]
+                          },
+                          "before": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "chapterId",
+                              "ordinal",
+                              "kind",
+                              "textSha256",
+                              "includeNormal",
+                              "includeRsvp",
+                              "includeAudio"
+                            ],
+                            "properties": {
+                              "chapterId": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "ordinal": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "paragraph",
+                                  "heading",
+                                  "footnote",
+                                  "page_number",
+                                  "running_header",
+                                  "publisher_note",
+                                  "preface",
+                                  "endnote",
+                                  "poetry",
+                                  "quote",
+                                  "list",
+                                  "image_ref"
+                                ]
+                              },
+                              "textSha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "includeNormal": {
+                                "type": "boolean"
+                              },
+                              "includeRsvp": {
+                                "type": "boolean"
+                              },
+                              "includeAudio": {
+                                "type": "boolean"
+                              }
+                            },
+                            "nullable": true
+                          },
+                          "after": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "chapterId",
+                              "ordinal",
+                              "kind",
+                              "textSha256",
+                              "includeNormal",
+                              "includeRsvp",
+                              "includeAudio"
+                            ],
+                            "properties": {
+                              "chapterId": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "ordinal": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "paragraph",
+                                  "heading",
+                                  "footnote",
+                                  "page_number",
+                                  "running_header",
+                                  "publisher_note",
+                                  "preface",
+                                  "endnote",
+                                  "poetry",
+                                  "quote",
+                                  "list",
+                                  "image_ref"
+                                ]
+                              },
+                              "textSha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "includeNormal": {
+                                "type": "boolean"
+                              },
+                              "includeRsvp": {
+                                "type": "boolean"
+                              },
+                              "includeAudio": {
+                                "type": "boolean"
+                              }
+                            },
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "isMetadataOnly": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Verified MFA/RBAC catalog:read canonical immutable metadata diff; no raw source text",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
     "/v1/admin/catalog/works/{workId}": {
       "get": {
         "operationId": "AdminCatalogController_workDetail",
