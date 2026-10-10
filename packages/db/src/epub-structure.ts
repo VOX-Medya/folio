@@ -4,6 +4,8 @@ import {inspectEpubPackageSpine,inspectEpubPackageSpineDetails} from './epub-pac
 import {inspectEpubXhtmlMarkup} from './epub-xhtml.js';
 import {inspectEpubCssResources} from './epub-css.js';
 import type {EpubCssResourceResult} from './epub-css.js';
+import {inspectEpubPngResources} from './epub-png.js';
+import type {EpubPngResourcesResult} from './epub-png.js';
 import type {EpubXhtmlMarkupResult} from './epub-xhtml.js';
 import type {EpubPackageSpineResult} from './epub-package.js';
 
@@ -124,6 +126,16 @@ export function inspectEpubZipCssResources(bytes:Buffer):EpubCssResourceResult{
   const details=inspectEpubPackageSpineDetails(archive.entries);
   inspectEpubXhtmlMarkup(archive.entries,details.xhtmlPaths,details.navigationPath);
   return inspectEpubCssResources(archive.entries,details.cssPaths);
+}
+/** Fifth independent quarantine-only gate for OPF-declared binary resources.
+ * Intentionally supports a small PNG-only subset; all embedded fonts and
+ * other raster formats fail closed pending hardened decoder review. */
+export function inspectEpubZipPngResources(bytes:Buffer):EpubPngResourcesResult{
+  const archive=validatedZip(bytes);
+  const details=inspectEpubPackageSpineDetails(archive.entries);
+  inspectEpubXhtmlMarkup(archive.entries,details.xhtmlPaths,details.navigationPath);
+  inspectEpubCssResources(archive.entries,details.cssPaths);
+  return inspectEpubPngResources(archive.entries,details.binaryAssets);
 }
 function validatedZip(bytes:Buffer):{
   result:EpubZipStructuralResult;entries:ReadonlyMap<string,Buffer>

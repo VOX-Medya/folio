@@ -3,9 +3,9 @@ import {mkdtemp,rm,chmod,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable} from 'node:stream';
-import {deflateRawSync} from 'node:zlib';
+import {deflateSync,deflateRawSync} from 'node:zlib';
 import {describe,expect,it} from 'vitest';
-import {inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,inspectEpubZipCssResources,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
+import {inspectEpubZipStructure,inspectEpubZipPackageSpine,inspectEpubZipXhtmlMarkup,inspectEpubZipCssResources,inspectEpubZipPngResources,EPUB_ZIP_PREFLIGHT_MAX_BYTES} from './epub-structure.js';
 import {LocalStorageAdapter} from './local-storage.js';
 
 interface Entry{
@@ -657,6 +657,170 @@ describe('EPUB CSS-only quarantine lexical gate (no rendering approval)',()=>{
         .rejects.toThrow(/source bytes changed/);
       await expect(storage.inspectEpubCssResources({...blob,status:'verified' as 'pending_verify'}))
         .rejects.toThrow(/pending|quarantined/i);
+    }finally{await rm(root,{recursive:true,force:true});}
+  });
+});
+
+
+/** Independent PNG/ZIP synthetic negative corpus, no third-party book assets. */
+function makePngChunk(type:string,payload:Buffer):Buffer{
+  const tag=Buffer.from(type,'ascii');
+  const size=Buffer.alloc(4);size.writeUInt32BE(payload.length);
+  const sum=Buffer.alloc(4);sum.writeUInt32BE(crc32(Buffer.concat([tag,payload])));
+  return Buffer.concat([size,tag,payload,sum]);
+}
+function testPng(options:{filter?:number;colorType?:number;
+  width?:number;height?:number;compressed?:Buffer}={}):Buffer{
+  const width=options.width??1,height=options.height??1;
+  const hdr=Buffer.alloc(13);
+  hdr.writeUInt32BE(width,0);hdr.writeUInt32BE(height,4);
+  hdr[8]=8;hdr[9]=options.colorType??6;
+  const pixel=Buffer.from([options.filter??0,120,140,160,255]);
+  const compressed=options.compressed??deflateSync(pixel);
+  return Buffer.concat([
+    Buffer.from([137,80,78,71,13,10,26,10]),
+    makePngChunk('IHDR',hdr),
+    makePngChunk('IDAT',compressed),
+    makePngChunk('IEND',Buffer.alloc(0)),
+  ]);
+}
+function embeddedMedia(
+  payload:Buffer,filename='cover.png',mime='image/png',
+):Buffer{
+  const path='OPS/'+filename;
+  const entries=replaceEntry(completeMarkupEntries(),'OPS/book.opf',
+    original=>original.replace('</manifest>',
+      '<item id="binary" href="'+filename+'" media-type="'+mime+'"/></manifest>'));
+  return archive([...entries,{name:path,content:payload}]);
+}
+function denyPngResource(bytes:Buffer):void{
+  expect(inspectEpubZipStructure(bytes).status).toBe('structure_only');
+  expect(inspectEpubZipPackageSpine(bytes).status).toBe('package_spine_only');
+  expect(inspectEpubZipXhtmlMarkup(bytes).status).toBe('xhtml_markup_only');
+  expect(inspectEpubZipCssResources(bytes).status).toBe('css_resources_only');
+  expect(()=>inspectEpubZipPngResources(bytes)).toThrow(/Unsupported EPUB embedded binary/);
+}
+
+describe('EPUB bounded PNG structure + explicit font/other-binary quarantine denial',()=>{
+  it('accepts only inert small PNG structural evidence, with no source/path/verification',()=>{
+    const bytes=embeddedMedia(testPng());
+    expect(inspectEpubZipPngResources(bytes)).toEqual({
+      status:'png_structure_only',imageCount:1,
+      imageBytes:testPng().length,totalPixels:1,
+    });
+    expect(JSON.stringify(inspectEpubZipPngResources(bytes)))
+      .not.toMatch(/cover\.png|OPS|verified|safeToRender|font|raw/i);
+  });
+
+  it('permits an EPUB with no OPF binary assets, but does not approve a renderer',()=>{
+    const result=inspectEpubZipPngResources(archive(completeMarkupEntries()));
+    expect(result).toEqual({
+      status:'png_structure_only',imageCount:0,imageBytes:0,totalPixels:0,
+    });
+    expect('safeToRender' in result).toBe(false);
+  });
+
+  it('rejects CRC failures, bad magic, truncation, appended bytes and extra chunks',()=>{
+    const good=testPng();
+    const badCrc=Buffer.from(good);badCrc[badCrc.length-1]!^=1;
+    const badMagic=Buffer.from(good);badMagic[0]=0;
+    const cases=[
+      badCrc,badMagic,good.subarray(0,-1),
+      Buffer.concat([good,Buffer.from('extra')]),
+      Buffer.concat([good.subarray(0,33),
+        makePngChunk('tEXt',Buffer.from('title=private')),
+        good.subarray(33)]),
+      Buffer.concat([good.subarray(0,33),
+        makePngChunk('acTL',Buffer.from([0,0,0,1,0,0,0,0])),
+        good.subarray(33)]),
+      Buffer.concat([good.subarray(0,33),
+        makePngChunk('iCCP',Buffer.from('untrusted')),
+        good.subarray(33)]),
+    ];
+    for(const data of cases)denyPngResource(embeddedMedia(data));
+  });
+
+  it('rejects oversized or impossible dimensions, palette/color, interlace and row filters',()=>{
+    const original=testPng();
+    const wrongSize=Buffer.from(original);
+    wrongSize.writeUInt32BE(70000,16);
+    wrongSize.writeUInt32BE(crc32(wrongSize.subarray(12,29)),29);
+    for(const raw of [
+      testPng({width:0}),testPng({width:2049}),
+      testPng({colorType:3}),testPng({filter:5}),wrongSize,
+    ])denyPngResource(embeddedMedia(raw));
+    const interlaced=Buffer.from(original);
+    interlaced[28]=1;
+    interlaced.writeUInt32BE(crc32(interlaced.subarray(12,29)),29);
+    denyPngResource(embeddedMedia(interlaced));
+  });
+
+  it('rejects malformed, appended or double zlib streams in PNG IDAT',()=>{
+    const row=Buffer.from([0,120,140,160,255]);
+    const compressed=deflateSync(row);
+    const malformed=Buffer.from(compressed);
+    malformed[0]=0;
+    for(const compressedIdat of [
+      malformed,
+      Buffer.concat([compressed,Buffer.from([0,1,2])]),
+      Buffer.concat([compressed,compressed]),
+      deflateSync(Buffer.from([0,1,2])),
+    ])denyPngResource(embeddedMedia(testPng({compressed:compressedIdat})));
+  });
+
+  it('rejects uninspected GIF/JPEG/WebP/font and NCX even if OPF MIME matches',()=>{
+    for(const [name,mime,body] of [
+      ['cover.jpg','image/jpeg',testPng()],
+      ['cover.gif','image/gif',Buffer.from('GIF89a','ascii')],
+      ['cover.webp','image/webp',Buffer.from('RIFFxxxxWEBP','ascii')],
+      ['font.ttf','font/ttf',Buffer.from([0,1,0,0,0,1,0,0])],
+      ['font.otf','font/otf',Buffer.from('OTTO','ascii')],
+      ['font.woff','font/woff',Buffer.from('wOFF','ascii')],
+      ['font.woff2','font/woff2',Buffer.from('wOF2','ascii')],
+      ['nav.ncx','application/x-dtbncx+xml',Buffer.from('<ncx/>','utf8')],
+    ] as const)denyPngResource(embeddedMedia(body,name,mime));
+  });
+
+  it('fails closed on too many otherwise valid PNG assets',()=>{
+    const png=testPng();
+    const additions=Array.from({length:17},(_,i)=>({
+      name:'OPS/p'+i+'.png',content:png,
+    }));
+    let entries=completeMarkupEntries();
+    entries=replaceEntry(entries,'OPS/book.opf',s=>s.replace('</manifest>',
+      additions.map((_,i)=>'<item id="png'+i+'" href="p'+i+'.png" media-type="image/png"/>').join('')+'</manifest>'));
+    denyPngResource(archive([...entries,...additions]));
+  });
+
+  it('requires already clean XHTML and CSS gates before checking an image',()=>{
+    const entries=replaceEntry(completeMarkupEntries(),'OPS/style.css',
+      ()=>"@import url('https://evil.invalid/styles.css');");
+    const withPng=replaceEntry(entries,'OPS/book.opf',s=>
+      s.replace('</manifest>','<item id="img" href="cover.png" media-type="image/png"/></manifest>'));
+    expect(()=>inspectEpubZipPngResources(archive([
+      ...withPng,{name:'OPS/cover.png',content:testPng()},
+    ]))).toThrow(/Unsupported EPUB CSS/);
+  });
+
+  it('allows only private owner-matched, SHA-valid pending media inspection',async()=>{
+    const root=await mkdtemp(join(tmpdir(),'folio-epub-png-'));
+    try{
+      const storage=await LocalStorageAdapter.create(root);
+      const owner=randomUUID(),data=embeddedMedia(testPng());
+      const blob=await storage.stage({
+        owner:{scope:'private-user',ownerUserId:owner},
+        source:Readable.from([data]),declaredSha256:sha(data),
+        declaredMime:'application/epub+zip',maxBytes:data.length,
+      });
+      expect((await storage.inspectEpubPngResources(blob)).imageCount).toBe(1);
+      await expect(storage.inspectEpubPngResources({...blob,ownerUserId:randomUUID()}))
+        .rejects.toThrow();
+      await expect(storage.inspectEpubPngResources({...blob,sha256:'f'.repeat(64)}))
+        .rejects.toThrow(/source bytes changed/);
+      await expect(storage.inspectEpubPngResources({...blob,mime:'text/plain'}))
+        .rejects.toThrow();
+      await expect(storage.inspectEpubPngResources({...blob,status:'verified' as 'pending_verify'}))
+        .rejects.toThrow(/quarantined|pending/i);
     }finally{await rm(root,{recursive:true,force:true});}
   });
 });
