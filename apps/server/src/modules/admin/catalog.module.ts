@@ -14,6 +14,7 @@ import {
   getVerifiedAdminWorkDetails,patchVerifiedAdminAuthorMetadata,
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
+  patchVerifiedAdminEditionMetadata,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
@@ -26,6 +27,7 @@ import {
   authorCreateSchema,workCreateSchema,
   adminCatalogEditionAppendSchema,adminCatalogTitleAppendSchema,
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
+  adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
@@ -91,6 +93,7 @@ export class AdminCatalogDb implements OnModuleDestroy {
       if(error instanceof Error&&[
         'Canonical metadata version conflict',
         'Published canonical work is immutable via draft editor',
+        'Published canonical edition is immutable via draft editor',
       ].includes(error.message)){
         throw new ConflictException('Canonical metadata changed or is no longer editable');
       }
@@ -145,6 +148,10 @@ export class AdminCatalogDb implements OnModuleDestroy {
   appendEdition(bearer:string,id:string,input:unknown,requestId:string){
     return this.authorized(()=>
       appendVerifiedAdminWorkEdition(this.db(),bearer,id,input,requestId));
+  }
+  patchEdition(bearer:string,workId:string,editionId:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      patchVerifiedAdminEditionMetadata(this.db(),bearer,workId,editionId,input,requestId));
   }
   appendTitle(bearer:string,id:string,input:unknown,requestId:string){
     return this.authorized(()=>
@@ -420,6 +427,20 @@ const appendEditionBodyApi={
     }},
   },
 };
+const patchEditionBodyApi={
+  type:'object',additionalProperties:false,required:['expectedVersion'],
+  anyOf:[
+    {required:['label']},{required:['publisher']},
+    {required:['identifiers']},{required:['contributors']},
+  ],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    label:{type:'string',minLength:1,maxLength:400},
+    publisher:{type:'string',maxLength:240,nullable:true},
+    identifiers:appendEditionBodyApi.properties.identifiers,
+    contributors:appendEditionBodyApi.properties.contributors,
+  },
+};
 const appendTitleBodyApi={
   type:'object',additionalProperties:false,
   required:['expectedVersion','language','title','kind'],
@@ -660,6 +681,32 @@ export class AdminCatalogController {
     const created=await this.store.appendEdition(token,id.data,parsed.data,this.trace(request));
     if(!created)throw new NotFoundException('Canonical work not found');
     return adminCatalogEditionAppendedSchema.parse(created);
+  }
+
+  @Patch('works/:workId/editions/:editionId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; versioned DRAFT edition metadata revision with trusted audit; rights/content immutable'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiBody({schema:patchEditionBodyApi})
+  @ApiOkResponse({schema:appendEditionResultApi})
+  async patchEdition(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawWorkId:string,@Param('editionId') rawEditionId:string,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const editionId=adminCatalogIdSchema.safeParse(rawEditionId);
+    const parsed=adminCatalogEditionMetadataPatchSchema.safeParse(raw);
+    if(!workId.success||!editionId.success||!parsed.success){
+      throw new BadRequestException('Invalid canonical edition metadata edit');
+    }
+    const token=await this.bearer(request);
+    const updated=await this.store.patchEdition(
+      token,workId.data,editionId.data,parsed.data,this.trace(request));
+    if(!updated)throw new NotFoundException('Canonical draft edition not found');
+    return adminCatalogEditionMetadataUpdatedSchema.parse(updated);
   }
 
   @Post('works/:workId/titles')

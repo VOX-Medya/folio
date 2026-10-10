@@ -8,6 +8,7 @@ import {
   canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
   adminCatalogEditionAppendSchema,adminCatalogTitleAppendSchema,
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
+  adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
@@ -251,6 +252,33 @@ describe('admin-only canonical metadata search contracts',()=>{
       {...author,contribution:'superadmin'},
       {...author,sortOrder:-1},{...author,expectedVersion:2147483647},
     ])expect(adminCatalogWorkAuthorAppendSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it('supports ONLY optimistic DRAFT edition metadata, explicit array replacement and nullable publisher',()=>{
+    const value={expectedVersion:5,label:'Corrected edition',
+      publisher:null,
+      identifiers:[{kind:'isbn-13',value:'9780123456789'}],
+      contributors:[{authorId:id,role:'translator',sortOrder:0}]};
+    expect(adminCatalogEditionMetadataPatchSchema.parse(value)).toEqual(value);
+    expect(adminCatalogEditionMetadataPatchSchema.parse({
+      expectedVersion:5,identifiers:[],contributors:[],
+    }).contributors).toEqual([]);
+    expect(adminCatalogEditionMetadataUpdatedSchema.parse({
+      id,workId:id,metadataVersion:6,status:'draft',
+    }).metadataVersion).toBe(6);
+    for(const bad of [
+      {expectedVersion:5},{...value,expectedVersion:2147483647},
+      {...value,expectedVersion:-1},{...value,editionId:id},
+      {...value,language:'en'},{...value,sourceText:'invented'},
+      {...value,status:'published'},{...value,rightsApproved:true},
+      {...value,actorId:id},{...value,ownerId:id},
+      {...value,identifiers:[value.identifiers[0],value.identifiers[0]]},
+      {...value,contributors:[value.contributors[0],value.contributors[0]]},
+      {...value,contributors:[{authorId:'bad',role:'translator',sortOrder:0}]},
+    ])expect(adminCatalogEditionMetadataPatchSchema.safeParse(bad).success).toBe(false);
+    expect(adminCatalogEditionMetadataUpdatedSchema.safeParse({
+      id,workId:id,metadataVersion:6,status:'published',
+    }).success).toBe(false);
   });
 
 });

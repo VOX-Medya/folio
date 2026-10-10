@@ -217,6 +217,46 @@ export const adminCatalogEditionAppendSchema=z.object({
     ctx.addIssue({code:'custom',message:'Duplicate edition contributor role'});
   }
 });
+/** Only metadata on an already DRAFT edition within a DRAFT work.
+ * Never mutate edition language (revision alignment), source text, rights or
+ * publication. A caller must explicitly supply the current parent work
+ * metadataVersion; provided arrays are COMPLETE replacement lists. */
+export const adminCatalogEditionMetadataPatchSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  label:z.string().trim().min(1).max(400).optional(),
+  publisher:z.string().trim().max(240).nullable().optional(),
+  identifiers:z.array(z.object({
+    kind:z.enum(['isbn-10','isbn-13','other']),
+    value:z.string().trim().min(1).max(150),
+  }).strict()).max(30).optional(),
+  contributors:z.array(z.object({
+    authorId:z.uuid(),role:z.enum(['author','translator','editor','illustrator']),
+    sortOrder:z.number().int().min(0).max(10000).default(0),
+  }).strict()).max(50).optional(),
+}).strict().superRefine((input,ctx)=>{
+  if(input.label===undefined&&input.publisher===undefined&&
+    input.identifiers===undefined&&input.contributors===undefined){
+    ctx.addIssue({code:'custom',message:'Edition metadata change required'});
+  }
+  if(input.identifiers){
+    const keys=input.identifiers.map(row=>row.kind+'\\0'+row.value);
+    if(new Set(keys).size!==keys.length){
+      ctx.addIssue({code:'custom',message:'Duplicate edition identifiers'});
+    }
+  }
+  if(input.contributors){
+    const keys=input.contributors.map(row=>row.authorId+'\\0'+row.role);
+    if(new Set(keys).size!==keys.length){
+      ctx.addIssue({code:'custom',message:'Duplicate contributor role'});
+    }
+  }
+});
+export type AdminCatalogEditionMetadataPatch=z.infer<typeof adminCatalogEditionMetadataPatchSchema>;
+export const adminCatalogEditionMetadataUpdatedSchema=z.object({
+  id:z.uuid(),workId:z.uuid(),metadataVersion:metadataVersionSchema,
+  status:z.literal('draft'),
+}).strict();
+
 export const adminCatalogTitleAppendSchema=z.object({
   expectedVersion:expectedMetadataVersionSchema,
   language:z.enum(['tr','en']),

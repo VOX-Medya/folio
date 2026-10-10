@@ -16,6 +16,7 @@ import {
   adminCatalogWorkDetailSchema,adminCatalogWorkPageSchema,apiErrorSchema,
   canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
   adminCatalogEditionAppendedSchema,adminCatalogTitleAppendedSchema,
+  adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
@@ -978,6 +979,115 @@ async function main():Promise<void>{
         e.contributors.some(person=>person.authorId===author.id&&
           person.role==='translator')),
       'Edition/author/translation metadata lost identity or original work linkage');
+    const editEditionPath=editionsPath+'/'+createdEdition.id;
+    check((await patch(port,editEditionPath,readonlyEditionBearer,{
+      expectedVersion:4,label:'Viewer cannot rewrite edition',
+    })).status===403,'Read-only MFA editor changed existing canonical edition');
+    check((await patch(port,editEditionPath,cookie,{
+      expectedVersion:4,label:'No CSRF',
+    })).status===403,'Missing Web HMAC-CSRF edited existing edition');
+    check((await patch(port,editEditionPath,{
+      ...secureCookie,origin:'https://untrusted.example',
+    },{expectedVersion:4,label:'Cross origin edition'})).status===403,
+      'Cross-origin cookie modified canonical edition');
+    check((await patch(port,editionsPath+'/'+randomUUID(),secureCookie,{
+      expectedVersion:4,label:'Unknown edition',
+    })).status===404,'Authorized unknown edition ID was not 404');
+    for(const invalid of [
+      {expectedVersion:4},
+      {expectedVersion:4,status:'published',label:'Publish illegally'},
+      {expectedVersion:4,originalLanguage:'fr',label:'Illegal language change'},
+      {expectedVersion:4,rawContent:'Invented material'},
+      {expectedVersion:4,actorId:guest.userId,publisher:null},
+      {expectedVersion:4,identifiers:[{kind:'other',value:'duplicate'},
+        {kind:'other',value:'duplicate'}]},
+      {expectedVersion:4,contributors:[{authorId:author.id,role:'translator'},
+        {authorId:author.id,role:'translator'}]},
+      {expectedVersion:-1,label:'Invalid version'},
+    ]){
+      check((await patch(port,editEditionPath,secureCookie,invalid)).status===400,
+        'Unexpected or duplicate edition metadata edit passed strict validation');
+    }
+    const revisedEdition=await patch(port,editEditionPath,{
+      ...secureCookie,'x-user-id':guest.userId,
+      'x-request-id':'forged-edition-edit-trace',
+    },{
+      expectedVersion:4,label:'Revised Translation '+suffix,publisher:'Updated imprint',
+      identifiers:[{kind:'other',value:'new-source-'+suffix}],
+      contributors:[{authorId:author.id,role:'editor',sortOrder:2}],
+    });
+    check(revisedEdition.status===200&&
+      revisedEdition.headers['cache-control']==='private, no-store'&&
+      revisedEdition.headers['x-request-id']!=='forged-edition-edit-trace'&&
+      adminCatalogEditionMetadataUpdatedSchema.parse(JSON.parse(revisedEdition.body))
+        .metadataVersion===5,
+      'Verified HMAC-CSRF same-device MFA edition PATCH did not commit version 5');
+    const editionUpdateAudit=await pool.query<{
+      actor_id:string;request_id:string;
+      before_json:{workMetadataVersion:number;label:string;identifiers:unknown[]};
+      after_json:{workMetadataVersion:number;label:string;identifiers:unknown[]};
+    }>('SELECT actor_id,request_id,before_json,after_json FROM audit_events WHERE entity_id=$1::uuid AND action=$2 ORDER BY created_at DESC',
+      [createdEdition.id,'edition.metadata.update']);
+    check(editionUpdateAudit.rows.length===1&&
+      editionUpdateAudit.rows[0]?.actor_id===editor.userId&&
+      editionUpdateAudit.rows[0]?.request_id===revisedEdition.headers['x-request-id']&&
+      editionUpdateAudit.rows[0]?.before_json.workMetadataVersion===4&&
+      editionUpdateAudit.rows[0]?.after_json.workMetadataVersion===5&&
+      editionUpdateAudit.rows[0]?.before_json.identifiers.length===2&&
+      editionUpdateAudit.rows[0]?.after_json.identifiers.length===1,
+      'Canonical edition PATCH audit did not commit trusted actor/request and before/after');
+    const badContributorLabel='Should rollback edition '+suffix;
+    check((await patch(port,editEditionPath,secureCookie,{
+      expectedVersion:5,label:badContributorLabel,
+      contributors:[{authorId:randomUUID(),role:'translator',sortOrder:1}],
+    })).status===400,'Late edition contributor FK violation did not return 400');
+    const rolledEdition=await pool.query<{
+      label:string;publisher:string|null;
+    }>('SELECT label,publisher FROM editions WHERE id=$1::uuid',
+      [createdEdition.id]);
+    check(rolledEdition.rows[0]?.label==='Revised Translation '+suffix&&
+      rolledEdition.rows[0]?.publisher==='Updated imprint',
+      'Late FK failure committed a partial edition metadata edit');
+    const competingEditionEdits=await Promise.all([
+      patch(port,editEditionPath,secureCookie,{
+        expectedVersion:5,label:'Writer A '+suffix,
+      }),
+      patch(port,editEditionPath,secureCookie,{
+        expectedVersion:5,label:'Writer B '+suffix,
+      }),
+    ]);
+    check(competingEditionEdits.map(row=>row.status).sort().join(',')==='200,409',
+      'Concurrent edition metadata updates lost optimistic lock');
+    const freshEditionDetails=adminCatalogWorkDetailSchema.parse(JSON.parse(
+      (await call(true,port,root+'/works/'+linkedWorkId,bearer)).body));
+    const freshEdited=freshEditionDetails.editions.find(item=>item.id===createdEdition.id);
+    check(freshEditionDetails.work.metadataVersion===6&&
+      freshEdited?.language==='en'&&freshEdited.status==='draft'&&
+      freshEdited.publisher==='Updated imprint'&&
+      ['Writer A '+suffix,'Writer B '+suffix].includes(freshEdited.label)&&
+      freshEdited.identifiers.length===1&&
+      freshEdited.identifiers[0]?.value==='new-source-'+suffix&&
+      freshEdited.contributors.length===1&&
+      freshEdited.contributors[0]?.role==='editor',
+      'Concurrent edition editing lost ISBN/contributor or changed immutable language');
+    check((await patch(port,editEditionPath,secureCookie,{
+      expectedVersion:4,label:'Stale edition retry',
+    })).status===409,'Stale edition metadata request was accepted');
+    const clearPublisher=await patch(port,editEditionPath,secureCookie,{
+      expectedVersion:6,publisher:null,
+    });
+    check(clearPublisher.status===200&&
+      adminCatalogEditionMetadataUpdatedSchema.parse(JSON.parse(clearPublisher.body))
+        .metadataVersion===7,
+      'Explicit nullable publisher edition metadata PATCH failed');
+    const clearedDetails=adminCatalogWorkDetailSchema.parse(JSON.parse(
+      (await call(true,port,root+'/works/'+linkedWorkId,bearer)).body));
+    const cleared=clearedDetails.editions.find(item=>item.id===createdEdition.id);
+    check(clearedDetails.work.metadataVersion===7&&
+      cleared?.publisher===null&&cleared.identifiers.length===1&&
+      cleared.contributors.length===1&&cleared.language==='en',
+      'Clearing publisher unexpectedly reset unrelated edition metadata');
+
     check((await post(port,editionsPath,secureCookie,{
       expectedVersion:1,language:'en',label:'Stale Edition',
     })).status===409,'Stale previously read edition edit was accepted');
@@ -1040,6 +1150,9 @@ async function main():Promise<void>{
     check((await post(port,titlesPath,secureCookie,{
       expectedVersion:4,language:'en',title:'Unauthorized',kind:'alternate',
     })).status===403,'Expired factor still appended alternate title');
+    check((await patch(port,editEditionPath,secureCookie,{
+      expectedVersion:7,label:'Expired editor',
+    })).status===403,'Expired MFA still PATCHed edition metadata');
     await pool.query(
       'UPDATE admin_role_memberships SET revoked_at=$1 WHERE user_id=$2::uuid',
       [new Date(),editor.userId],
@@ -1069,6 +1182,7 @@ async function main():Promise<void>{
       !!spec.paths[root+'/works/{workId}']?.patch&&
       !!spec.paths[root+'/authors/{authorId}']?.patch&&
       !!spec.paths[root+'/works/{workId}/editions']?.post&&
+      !!spec.paths[root+'/works/{workId}/editions/{editionId}']?.patch&&
       !!spec.paths[root+'/works/{workId}/titles']?.post&&
       !!spec.paths[root+'/works/{workId}/authors']?.post&&
       !spec.paths[root+'/users'],
@@ -1092,10 +1206,13 @@ async function main():Promise<void>{
       expectedVersion:4,language:'tr',label:'Unavailable',
     })).status===404,
       'Disabled independent write flag exposed edition append');
+    check((await patch(port,editEditionPath,bearer,{
+      expectedVersion:7,label:'Disabled editor',
+    })).status===404,'Independent write flag off still allowed edition PATCH');
     check((await patch(port,authorPath,bearer,{
       expectedVersion:2,sortName:'Should not update',
     })).status===404,'Independent write flag shutoff left PATCH enabled');
-    console.log('ADMIN CATALOG HTTPS PASS: canonical multi-author/edition/ISBN/translated title MFA/CSRF work relationship appends, strict versions, FK rollback and 201/409 concurrency; real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
+    console.log('ADMIN CATALOG HTTPS PASS: versioned edition metadata PATCH and FK rollback, 200/409 concurrency, before-after audit and immutable source/language;  canonical multi-author/edition/ISBN/translated title MFA/CSRF work relationship appends, strict versions, FK rollback and 201/409 concurrency; real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();

@@ -4,10 +4,12 @@ import {
   authorCreateSchema,workCreateSchema,canonicalAuthorMetadataPatchSchema,
   canonicalWorkMetadataPatchSchema,adminCatalogEditionAppendSchema,
   adminCatalogTitleAppendSchema,adminCatalogWorkAuthorAppendSchema,
+  adminCatalogEditionMetadataPatchSchema,
 } from '@folio/contracts';
 import type {
   AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,CanonicalWorkMetadataPatch,
   AdminCatalogEditionAppend,AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
+  AdminCatalogEditionMetadataPatch,
 } from '@folio/contracts';
 import type {createFolioDb} from './index.js';
 import {withVerifiedAdminPermission} from './admin-authorization.js';
@@ -322,6 +324,92 @@ export async function appendVerifiedAdminWorkEdition(
     return {id:edition.id,workId:id,metadataVersion:rev.newVersion,status:'draft' as const};
   });
 }
+
+/** DRAFT-only edition metadata replacement: UUID/language/publication, rights
+ * and immutable content revisions remain untouched. Both work+edition locks,
+ * child metadata changes, parent optimistic version and audit commit together. */
+export async function patchVerifiedAdminEditionMetadata(
+  db:CatalogDb,bearer:string,workId:string,editionId:string,raw:unknown,
+  requestId:string,
+){
+  const id=z.uuid().parse(workId),eid=z.uuid().parse(editionId);
+  const traceId=z.uuid().parse(requestId);
+  const input:AdminCatalogEditionMetadataPatch=
+    adminCatalogEditionMetadataPatchSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const revision=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!revision)return null;
+    const [edition]=await tx.select({
+      id:schema.editions.id,workId:schema.editions.workId,
+      language:schema.editions.language,label:schema.editions.label,
+      publisher:schema.editions.publisher,status:schema.editions.status,
+    }).from(schema.editions).where(and(
+      eq(schema.editions.id,eid),eq(schema.editions.workId,id),
+    )).limit(1).for('update');
+    if(!edition)return null;
+    if(edition.status!=='draft'){
+      throw new Error('Published canonical edition is immutable via draft editor');
+    }
+    const oldIdentifiers=await tx.select({
+      kind:schema.editionIdentifiers.kind,value:schema.editionIdentifiers.value,
+    }).from(schema.editionIdentifiers)
+      .where(eq(schema.editionIdentifiers.editionId,eid))
+      .orderBy(asc(schema.editionIdentifiers.kind),asc(schema.editionIdentifiers.value));
+    const oldContributors=await tx.select({
+      authorId:schema.editionContributors.authorId,
+      role:schema.editionContributors.role,
+      sortOrder:schema.editionContributors.sortOrder,
+    }).from(schema.editionContributors)
+      .where(eq(schema.editionContributors.editionId,eid))
+      .orderBy(asc(schema.editionContributors.sortOrder),
+        asc(schema.editionContributors.role),asc(schema.editionContributors.authorId));
+    const nextLabel=input.label??edition.label;
+    const nextPublisher=input.publisher===undefined?edition.publisher:input.publisher;
+    if(input.label!==undefined||input.publisher!==undefined){
+      await tx.update(schema.editions)
+        .set({label:nextLabel,publisher:nextPublisher})
+        .where(and(eq(schema.editions.id,eid),eq(schema.editions.workId,id)));
+    }
+    if(input.identifiers!==undefined){
+      await tx.delete(schema.editionIdentifiers)
+        .where(eq(schema.editionIdentifiers.editionId,eid));
+      if(input.identifiers.length){
+        await tx.insert(schema.editionIdentifiers).values(input.identifiers.map(item=>({
+          editionId:eid,kind:item.kind,value:item.value,
+        })));
+      }
+    }
+    if(input.contributors!==undefined){
+      await tx.delete(schema.editionContributors)
+        .where(eq(schema.editionContributors.editionId,eid));
+      if(input.contributors.length){
+        await tx.insert(schema.editionContributors).values(input.contributors.map(person=>({
+          editionId:eid,authorId:person.authorId,role:person.role,
+          sortOrder:person.sortOrder,
+        })));
+      }
+    }
+    await advanceDraftWorkVersion(tx,id,revision.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'edition.metadata.update',entityType:'edition',entityId:eid,
+      beforeJson:{
+        workId:id,workMetadataVersion:revision.oldVersion,
+        language:edition.language,label:edition.label,publisher:edition.publisher,
+        status:edition.status,identifiers:oldIdentifiers,contributors:oldContributors,
+      },
+      afterJson:{
+        workId:id,workMetadataVersion:revision.newVersion,
+        language:edition.language,label:nextLabel,publisher:nextPublisher,
+        status:'draft',
+        identifiers:input.identifiers??oldIdentifiers,
+        contributors:input.contributors??oldContributors,
+      },
+    });
+    return {id:eid,workId:id,metadataVersion:revision.newVersion,status:'draft' as const};
+  });
+}
+
 export async function appendVerifiedAdminWorkTitle(
   db:CatalogDb,bearer:string,workId:string,raw:unknown,requestId:string,
 ){
