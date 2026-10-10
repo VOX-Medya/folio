@@ -67,6 +67,9 @@ jobs:
           retention-days: 7
       - name: Build local Docker image (no deployment)
         run: docker build --file infra/Dockerfile --tag folio-ci:local .
-      - name: Dependency audit (pre-release informational)
+      - name: Dependency evidence and release readiness (informational; never authorizes deployment)
         continue-on-error: true
-        run: pnpm audit --audit-level high
+        run: |
+          pnpm audit --json > dependency-audit.json || true
+          pnpm security:release-check
+
