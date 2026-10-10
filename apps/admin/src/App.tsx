@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
 import type {CSSProperties,MouseEvent} from 'react';
 import {paperbound,typography} from '@folio/ui-tokens';
+import {AdminMfaPanel} from './AdminMfaPanel.js';
 
 type Language='tr'|'en';
 const pages=[
@@ -109,6 +110,7 @@ export function App(){
                 ?'Gerçek bir yönetici oturumu ve sunucu RBAC kontrolü kurulmadan içerik, üye ve dosya bilgileri görüntülenmez.'
                 :'No content, members or files are shown until the server validates an administrator session and roles.'}</p>
             </div>
+            {activePage==='settings'&&<AdminMfaPanel language={language}/>}
           </section>
           <aside className="folio-inspector" aria-label={language==='tr'?'İşlem durumu':'Action status'}>
             <h3>{language==='tr'?'İşlem Durumu':'Action Status'}</h3>

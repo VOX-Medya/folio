@@ -65,3 +65,43 @@ html,body,#root{min-width:0;min-height:100%;margin:0}
   .folio-inspector{padding:18px 16px}
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
+
+/* Live security-sensitive settings, not mock admin data. Paperbound tokens. */
+.folio-mfa{max-width:720px;display:grid;gap:13px;border:1px solid var(--folio-line);
+  background:var(--folio-surface);border-radius:17px;padding:24px;margin:24px 0 8px}
+.folio-mfa h3{font-size:20px;letter-spacing:-.02em;margin:0;color:var(--folio-ink)}
+.folio-mfa p{margin:0;line-height:1.6;font-size:14px;color:var(--folio-muted)}
+.folio-mfa-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:490px}
+.folio-mfa-fields label{font-weight:650;font-size:13px;margin-top:4px}
+.folio-mfa input{width:100%;min-width:0;min-height:44px;padding:10px 12px;
+  font:inherit;border:1px solid var(--folio-line);border-radius:9px;
+  color:var(--folio-ink);background:var(--folio-bg)}
+.folio-mfa input:focus-visible{outline:3px solid var(--folio-accent);outline-offset:2px}
+.folio-mfa button{min-height:44px;padding:10px 15px;border:1px solid var(--folio-accent);
+  border-radius:10px;font:inherit;font-weight:650;cursor:pointer;
+  background:var(--folio-accent);color:var(--folio-accent-on);
+  width:fit-content;max-width:100%}
+.folio-mfa button:hover:not(:disabled){filter:brightness(.96)}
+.folio-mfa button:disabled{opacity:.55;cursor:not-allowed}
+.folio-mfa .folio-mfa-refresh{background:var(--folio-surface2);color:var(--folio-ink);
+  border-color:var(--folio-line)}
+.folio-mfa-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.folio-mfa-secret{display:grid;gap:12px;padding:17px;border:1px solid var(--folio-line);
+  border-radius:12px;background:var(--folio-bg)}
+.folio-mfa-secret strong,.folio-mfa-evidence strong{font-size:14px}
+.folio-mfa-secret code{display:block;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:15px;letter-spacing:.06em;overflow-wrap:anywhere;user-select:text;
+  border:1px solid var(--folio-line);border-radius:8px;padding:12px;
+  background:var(--folio-surface);max-width:100%}
+.folio-mfa-evidence{display:grid;gap:8px;padding:16px;
+  border:1px solid var(--folio-accent);border-radius:11px}
+.folio-mfa-warning{padding:13px 15px;border:1px solid var(--folio-line);
+  border-left:4px solid #ac6453;border-radius:9px;background:var(--folio-surface2)}
+.folio-mfa-notice{padding:12px 14px;border-left:4px solid var(--folio-accent);
+  background:var(--folio-surface2);border-radius:8px}
+@media(max-width:599px){
+  .folio-mfa{padding:17px;margin-top:20px}
+  .folio-mfa-actions{flex-direction:column;align-items:stretch}
+  .folio-mfa button{width:100%}
+  .folio-mfa-secret code{font-size:13px}
+}
