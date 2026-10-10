@@ -329,6 +329,22 @@ export const userOnboarding=pgTable('user_onboarding',{
   check('user_onboarding_version_ck',sql`${t.version}>=0`),
 ]);
 
+/** HMAC-only auth rate buckets: no raw email, user ID or network IP stored. */
+export const authRateBuckets=pgTable('auth_rate_buckets',{
+  bucketDigest:varchar('bucket_digest',{length:64}).primaryKey(),
+  action:varchar('action',{length:24}).notNull(),
+  scope:varchar('scope',{length:12}).notNull(),
+  attempts:integer('attempts').notNull().default(0),
+  windowStartedAt:timestamp('window_started_at',{withTimezone:true}).notNull(),
+  blockedUntil:timestamp('blocked_until',{withTimezone:true}),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  index('auth_rate_buckets_updated_idx').on(t.updatedAt),
+  check('auth_rate_buckets_scope_ck',sql`${t.scope} in ('account','network')`),
+  check('auth_rate_buckets_action_ck',sql`${t.action} in ('login','signup','reset')`),
+  check('auth_rate_buckets_attempts_ck',sql`${t.attempts}>=0`),
+]);
+
 /** Every replacement is a distinct complete variant, so old listener cursors remain valid. */
 export const audioVariants=pgTable('audio_variants',{
   id:uuid('id').primaryKey().defaultRandom(),
