@@ -139,10 +139,20 @@ export async function approveAdminMfaRecoveryReview(
   const why=reasonSchema.parse(rawReason);
   const trace=idSchema.parse(rawRequestId);
   return withVerifiedAdminPermission(db,bearer,'users:support',async(tx,actor)=>{
+    // All actors lock account -> session -> proof -> role -> TARGET account
+    // before any recovery row lock. A separate unlocked hint is rechecked
+    // under FOR UPDATE so concurrent cancellation cannot slip through.
+    const [hint]=await tx.select({
+      targetUserId:schema.adminMfaRecoveryRequests.targetUserId,
+    }).from(schema.adminMfaRecoveryRequests)
+      .where(eq(schema.adminMfaRecoveryRequests.id,reviewId)).limit(1);
+    if(!hint)throw rejection();
+    await ensureTargetFactor(tx,hint.targetUserId);
     const [row]=await tx.select().from(schema.adminMfaRecoveryRequests)
       .where(eq(schema.adminMfaRecoveryRequests.id,reviewId))
       .limit(1).for('update');
-    if(!row||row.proposalReference!==ticket||
+    if(!row||row.targetUserId!==hint.targetUserId||
+      row.proposalReference!==ticket||
       actor.userId===row.proposedBy||actor.userId===row.targetUserId){
       throw rejection();
     }
@@ -151,9 +161,8 @@ export async function approveAdminMfaRecoveryReview(
     if(row.status==='cancelled'||row.status==='expired')throw rejection();
     const checked=await expireIfElapsed(tx,row,now,actor.userId,trace);
     if(checked.status==='expired')return result(checked,true);
-    // An account may be disabled or its role/factor removed in between the
-    // two operators: never approve a stale privilege/recovery subject.
-    await ensureTargetFactor(tx,row.targetUserId);
+    // The target account, its active role and its factor were held under
+    // FOR SHARE through this transaction before the request row was locked.
     const [approved]=await tx.update(schema.adminMfaRecoveryRequests)
       .set({status:'approved',approvedBy:actor.userId,approvedAt:now})
       .where(eq(schema.adminMfaRecoveryRequests.id,row.id)).returning();
