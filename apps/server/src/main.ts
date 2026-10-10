@@ -23,7 +23,8 @@ export class AppModule implements NestModule {
 export function createOpenApiDocument(app: INestApplication): OpenAPIObject {
   return SwaggerModule.createDocument(app, new DocumentBuilder()
     .setTitle('Folio API').setDescription('Folio versioned REST API. Capabilities reflect the actual lab status.')
-    .setVersion('1').addBearerAuth({type:'http',scheme:'bearer',bearerFormat:'opaque'},'folioSession').build());
+    .setVersion('1').addBearerAuth({type:'http',scheme:'bearer',bearerFormat:'opaque'},'folioSession')
+    .addSecurity('folioWebSession',{type:'apiKey',in:'cookie',name:'__Host-folio_session'}).build());
 }
 export async function createFolioApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { logger: false });

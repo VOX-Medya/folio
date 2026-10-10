@@ -3,13 +3,13 @@ import {
   Delete,HttpCode,Module,NotFoundException,OnModuleDestroy,Param,Patch,Query,
   Req,ServiceUnavailableException,UnauthorizedException,ConflictException,UseGuards,
 } from '@nestjs/common';
-import {ApiBearerAuth,ApiBody,ApiNoContentResponse,ApiOkResponse,ApiOperation,ApiParam,ApiTags} from '@nestjs/swagger';
+import {ApiBearerAuth,ApiBody,ApiNoContentResponse,ApiOkResponse,ApiOperation,ApiParam,ApiSecurity,ApiTags} from '@nestjs/swagger';
 import {
   authenticateUserSession,createFolioDb,getVerifiedUserOnboarding,
   updateVerifiedUserOnboarding,listVerifiedDeviceSessions,revokeVerifiedDeviceSession,
 } from '@folio/db';
 import {onboardingUpdateRequestSchema,deviceSessionIdSchema} from '@folio/contracts';
-import {VERIFIED_SESSION_LOOKUP,VerifiedSessionGuard} from '../../common/session-auth.js';
+import {VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard} from '../../common/session-auth.js';
 import type {BearerSessionLookup} from '../../common/session-auth.js';
 
 interface AuthenticatedRequest {
@@ -115,8 +115,9 @@ export class AccountOnboardingDb implements OnModuleDestroy {
 
 @ApiTags('account')
 @ApiBearerAuth('folioSession')
+@ApiSecurity('folioWebSession')
 @Controller('v1/me')
-@UseGuards(VerifiedSessionGuard)
+@UseGuards(VerifiedSelfSessionGuard)
 export class OnboardingController {
   constructor(@Inject(AccountOnboardingDb) private readonly store:AccountOnboardingDb){}
   private userId(request:AuthenticatedRequest):string{
@@ -128,7 +129,7 @@ export class OnboardingController {
   }
   @Get('onboarding')
   @Header('Cache-Control','private, no-store')
-  @ApiOperation({summary:'Read only the verified bearer owner onboarding snapshot'})
+  @ApiOperation({summary:'Read only the verified session owner onboarding snapshot'})
   @ApiOkResponse({schema:onboardingOutputApiSchema})
   async read(@Req() request:AuthenticatedRequest,@Query() query:Record<string,unknown>){
     this.rejectQuery(query);
@@ -137,7 +138,7 @@ export class OnboardingController {
 
   @Patch('onboarding')
   @Header('Cache-Control','private, no-store')
-  @ApiOperation({summary:'Update the verified bearer owner onboarding with optimistic version'})
+  @ApiOperation({summary:'Update the verified session owner onboarding with optimistic version'})
   @ApiBody({schema:onboardingInputApiSchema})
   @ApiOkResponse({schema:onboardingOutputApiSchema})
   async update(@Req() request:AuthenticatedRequest,@Query() query:Record<string,unknown>,
@@ -163,8 +164,9 @@ const sessionsOutputApiSchema={
 
 @ApiTags('account')
 @ApiBearerAuth('folioSession')
+@ApiSecurity('folioWebSession')
 @Controller('v1/me/sessions')
-@UseGuards(VerifiedSessionGuard)
+@UseGuards(VerifiedSelfSessionGuard)
 export class DeviceSessionsController {
   constructor(@Inject(AccountOnboardingDb) private readonly store:AccountOnboardingDb){}
   private principal(request:AuthenticatedRequest){
@@ -207,7 +209,7 @@ export class DeviceSessionsController {
 @Module({
   controllers:[OnboardingController,DeviceSessionsController],
   providers:[
-    AccountOnboardingDb,VerifiedSessionGuard,
+    AccountOnboardingDb,VerifiedSelfSessionGuard,
     {provide:VERIFIED_SESSION_LOOKUP,
       useFactory:(store:AccountOnboardingDb):BearerSessionLookup=>
         (bearer:string)=>store.verifySession(bearer),

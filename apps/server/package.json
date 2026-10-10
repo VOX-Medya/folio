@@ -14,7 +14,8 @@
     "onboarding:http-smoke": "tsx src/scripts/onboarding-http-smoke.ts",
     "device-sessions:http-smoke": "tsx src/scripts/device-sessions-http-smoke.ts",
     "web-cookie:https-smoke": "tsx src/scripts/web-cookie-https-smoke.ts",
-    "web-auth:https-smoke": "tsx src/scripts/web-auth-https-smoke.ts"
+    "web-auth:https-smoke": "tsx src/scripts/web-auth-https-smoke.ts",
+    "web-self:https-smoke": "tsx src/scripts/web-self-https-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",

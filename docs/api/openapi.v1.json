@@ -147,10 +147,13 @@
         },
         "security": [
           {
+            "folioWebSession": []
+          },
+          {
             "folioSession": []
           }
         ],
-        "summary": "Read only the verified bearer owner onboarding snapshot",
+        "summary": "Read only the verified session owner onboarding snapshot",
         "tags": [
           "account"
         ]
@@ -258,10 +261,13 @@
         },
         "security": [
           {
+            "folioWebSession": []
+          },
+          {
             "folioSession": []
           }
         ],
-        "summary": "Update the verified bearer owner onboarding with optimistic version",
+        "summary": "Update the verified session owner onboarding with optimistic version",
         "tags": [
           "account"
         ]
@@ -324,6 +330,9 @@
         },
         "security": [
           {
+            "folioWebSession": []
+          },
+          {
             "folioSession": []
           }
         ],
@@ -353,6 +362,9 @@
           }
         },
         "security": [
+          {
+            "folioWebSession": []
+          },
           {
             "folioSession": []
           }
@@ -449,6 +461,11 @@
         "scheme": "bearer",
         "bearerFormat": "opaque",
         "type": "http"
+      },
+      "folioWebSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-folio_session"
       }
     },
     "schemas": {
