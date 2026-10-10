@@ -114,7 +114,7 @@ export function layoutFolioCover(input:FolioCoverInput):FolioCoverLayout {
   const authorLines=fullAuthors.slice(0,3);
   if(fullAuthors.length>3){
     // Only the visible label is shortened. Accessible label retains ALL authors.
-    authorLines[2]=authorLines[2]!.slice(0,31).trimEnd()+'…';
+    authorLines[2]=Array.from(authorLines[2]!).slice(0,31).join('').trimEnd()+'…';
   }
   return {
     width:320,height:480,background:palette[index]!,ink:colors.ink,
