@@ -177,3 +177,36 @@ export const rightsRecords = pgTable('rights_records', {
   index('rights_records_edition_idx').on(t.editionId),
   index('rights_records_revision_idx').on(t.revisionId),
 ]);
+
+/** Ready, externally prepared translation revisions; no generation provider runs here. */
+export const translationLinks = pgTable('translation_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceRevisionId: uuid('source_revision_id').notNull().references(()=>contentRevisions.id,{onDelete:'restrict'}),
+  targetRevisionId: uuid('target_revision_id').notNull().references(()=>contentRevisions.id,{onDelete:'restrict'}),
+  translatorId: uuid('translator_id').references(()=>authors.id,{onDelete:'restrict'}),
+  provenance: jsonb('provenance').notNull(),
+  status: varchar('status',{length:24}).notNull().default('pending'),
+  createdBy: uuid('created_by').notNull(),
+  createdAt: timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('translation_link_versions_idx').on(t.sourceRevisionId,t.targetRevisionId),
+  uniqueIndex('translation_link_verified_fk_idx').on(t.id,t.sourceRevisionId,t.targetRevisionId),
+]);
+
+/** One row per source->target semantic block pairing; supports 1:N and N:1 without fabricating text. */
+export const textAlignments = pgTable('text_alignments', {
+  linkId: uuid('link_id').notNull(),
+  sourceRevisionId: uuid('source_revision_id').notNull(),
+  targetRevisionId: uuid('target_revision_id').notNull(),
+  sourceBlockId: uuid('source_block_id').notNull(),
+  targetBlockId: uuid('target_block_id').notNull(),
+  alignmentKind: varchar('alignment_kind',{length:24}).notNull().default('manual'),
+  verified: boolean('verified').notNull().default(false),
+  verifiedBy: uuid('verified_by'),
+  verifiedAt: timestamp('verified_at',{withTimezone:true}),
+},t=>[
+  primaryKey({columns:[t.linkId,t.sourceBlockId,t.targetBlockId]}),
+  foreignKey({columns:[t.linkId,t.sourceRevisionId,t.targetRevisionId],foreignColumns:[translationLinks.id,translationLinks.sourceRevisionId,translationLinks.targetRevisionId],name:'alignments_translation_scope_fk'}).onDelete('restrict'),
+  foreignKey({columns:[t.sourceRevisionId,t.sourceBlockId],foreignColumns:[contentBlocks.revisionId,contentBlocks.blockId],name:'alignments_source_block_fk'}).onDelete('restrict'),
+  foreignKey({columns:[t.targetRevisionId,t.targetBlockId],foreignColumns:[contentBlocks.revisionId,contentBlocks.blockId],name:'alignments_target_block_fk'}).onDelete('restrict'),
+]);

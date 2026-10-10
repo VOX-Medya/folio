@@ -37,3 +37,6 @@ progress key = user_id + selected content_revision_id + reading intent (work ref
 
 ## First implemented semantic revision storage
 The foundational tables and immutable-source tests for #13 are documented in `docs/14-IMMUTABLE-CONTENT.md`. Source text is persisted verbatim with SHA-256 and stable block IDs, while footnote/page number/running header/publisher note blocks can be excluded from RSVP/audio without deletion. This does **not** imply that the complete reading, language switch, audio cursor, or offline sync system is implemented.
+
+## Implemented preliminary translation anchors
+`docs/16-TRANSLATION-ALIGNMENTS.md` describes verified revision-qualified 1:N/N:1 paragraph mapping and explicit chapter-only fallback when not verified. No word offset is copied between languages. The real reader/UI/cursor persistence remain issue #36 work.
