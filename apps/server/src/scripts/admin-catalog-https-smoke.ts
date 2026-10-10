@@ -17,10 +17,12 @@ import {
   canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
   adminCatalogEditionAppendedSchema,adminCatalogTitleAppendedSchema,
   adminCatalogEditionMetadataUpdatedSchema,
+  adminCatalogRevisionDiffSchema,
   adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
-  createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
+  createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
+  createFolioDb,registerPendingAccount,
   schema,signInVerifiedAccount,verifyAccountEmail,
 } from '@folio/db';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
@@ -1087,6 +1089,103 @@ async function main():Promise<void>{
       cleared?.publisher===null&&cleared.identifiers.length===1&&
       cleared.contributors.length===1&&cleared.language==='en',
       'Clearing publisher unexpectedly reset unrelated edition metadata');
+    // #13: real PostgreSQL metadata-only diff via live admin TLS+DB MFA/RBAC.
+    // Fixtures are synthetic, immutable DRAFT revisions without a real asset.
+    const chapterId=randomUUID(),editedBlockId=randomUUID(),addedBlockId=randomUUID();
+    const sourceBefore='Synthetic earlier Folio revision for '+suffix;
+    const sourceAfter='Synthetic replacement Folio revision for '+suffix;
+    const sourceAdded='New synthetic note for '+suffix;
+    const makeDiffBlock=(value:string,id:string,ordinal:number)=>({
+      blockId:id,ordinal,kind:'paragraph' as const,
+      locator:{format:'text' as const,path:'synthetic/admin-diff/'+ordinal},
+      sourceText:value,textSha256:sha256Text(value),
+      includeNormal:true,includeRsvp:true,includeAudio:false,
+    });
+    const diffBase={
+      editionId:createdEdition.id,language:'en' as const,
+      rawArtifactKey:'test-private/'+randomUUID(),
+      rawSha256:sha256Text('synthetic source before '+suffix),
+      parserVersion:'synthetic-no-ocr-1',
+      provenance:{sourceName:'folio_test_manual_only'},
+      chapters:[{chapterId,ordinal:0,heading:'Synthetic example chapter',
+        blocks:[makeDiffBlock(sourceBefore,editedBlockId,0)]}],
+    };
+    const firstContent=await createContentRevision(db,editor.userId,diffBase);
+    const changedContent=await createContentRevision(db,editor.userId,{
+      ...diffBase,parentRevisionId:firstContent.revision.id,
+      rawArtifactKey:'test-private/'+randomUUID(),
+      rawSha256:sha256Text('synthetic source after '+suffix),
+      chapters:[{chapterId,ordinal:0,heading:'Synthetic example chapter',
+        blocks:[
+          makeDiffBlock(sourceAfter,editedBlockId,0),
+          makeDiffBlock(sourceAdded,addedBlockId,1),
+        ]}],
+    });
+    const revisionPath=root+'/works/'+linkedWorkId+
+      '/editions/'+createdEdition.id+'/revisions/'+changedContent.revision.id+'/diff';
+    const revisionQuery='?fromRevisionId='+firstContent.revision.id+'&limit=1';
+    check((await call(true,port,revisionPath+revisionQuery,{
+      authorization:'Bearer '+guestSession.sessionToken,
+    })).status===403,
+      'Non-admin signed-in guest could read private canonical source SHA diff');
+    check((await call(true,port,revisionPath+revisionQuery,{
+      ...cookie,origin:'https://evil.example',
+    })).status===403,'Cross-origin browser cookie read an unpublished SHA diff');
+    check((await call(true,port,revisionPath+revisionQuery,{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    })).status===401,'Mixed bearer and cookie bypassed source-diff transport');
+    check((await call(false,plainAddress.port,revisionPath+revisionQuery,bearer))
+      .status!==200,'Plain HTTP leaked authenticated unpublished source diff');
+    for(const invalid of [
+      revisionPath+'?fromRevisionId=not-a-uuid',
+      revisionPath+revisionQuery+'&actorId='+editor.userId,
+      revisionPath+revisionQuery+'&limit=999',
+      root+'/works/'+randomUUID()+'/editions/'+createdEdition.id+
+        '/revisions/'+changedContent.revision.id+'/diff'+revisionQuery,
+      root+'/works/'+linkedWorkId+'/editions/'+randomUUID()+
+        '/revisions/'+changedContent.revision.id+'/diff'+revisionQuery,
+    ]){
+      const response=await call(true,port,invalid,bearer);
+      check([400,404].includes(response.status),
+        'Malformed or wrong-scope canonical revision diff returned private metadata');
+    }
+    const viewerDiff=await call(true,port,revisionPath+revisionQuery,
+      readonlyEditionBearer);
+    check(viewerDiff.status===200,
+      'Real read-only viewer with current same-device MFA cannot read allowed diff');
+    const firstDiff=await call(true,port,revisionPath+revisionQuery,secureCookie);
+    check(firstDiff.status===200&&
+      firstDiff.headers['cache-control']==='private, no-store',
+      'Verified same-origin HTTPS Web cookie could not read a private revision diff');
+    const firstDiffData=adminCatalogRevisionDiffSchema.parse(JSON.parse(firstDiff.body));
+    check(firstDiffData.isMetadataOnly&&firstDiffData.summary.added===1&&
+      firstDiffData.summary.text_changed===1&&
+      firstDiffData.items.length===1&&firstDiffData.nextCursor!==null,
+      'Versioned source diff counts or stable paginated IDs are incorrect');
+    const secondDiff=await call(true,port,
+      revisionPath+revisionQuery+'&cursor='+firstDiffData.nextCursor,bearer);
+    check(secondDiff.status===200,'Cursor-based revision diff page failed');
+    const secondDiffData=adminCatalogRevisionDiffSchema.parse(JSON.parse(secondDiff.body));
+    check(secondDiffData.items.length===1&&secondDiffData.nextCursor===null&&
+      new Set([...firstDiffData.items,...secondDiffData.items].map(item=>item.blockId))
+        .size===2&&
+      [firstDiffData.items[0]?.kind,secondDiffData.items[0]?.kind]
+        .sort().join(',')==='added,text_changed',
+      'Revision diff merged changed and added blocks or lost cursor identity');
+    const diffJson=firstDiff.body+secondDiff.body+viewerDiff.body;
+    check(!diffJson.includes(sourceBefore)&&!diffJson.includes(sourceAfter)&&
+      !diffJson.includes(sourceAdded)&&
+      !diffJson.includes('rawArtifactKey')&&
+      !diffJson.includes('sourceText')&&
+      !diffJson.includes('provenance')&&
+      !diffJson.includes(editor.email)&&!diffJson.includes(native.sessionToken),
+      'Canonical source diff leaked raw text, secret credential or provenance');
+    const unauthorizedPair=await call(true,port,
+      revisionPath+'?fromRevisionId='+randomUUID(),bearer);
+    check(unauthorizedPair.status===404,
+      'A verified reader learned metadata for an absent/foreign source revision');
+    console.log('ADMIN REVISION DIFF HTTPS PASS: same-tx catalog:read MFA/RBAC, read-only role, cookie, UTF-8 SHA, 1-item cursor and no source bytes.');
+
 
     check((await post(port,editionsPath,secureCookie,{
       expectedVersion:1,language:'en',label:'Stale Edition',
@@ -1141,6 +1240,8 @@ async function main():Promise<void>{
       'Expired same-device MFA remained authorized');
     check((await call(true,port,root+'/works/'+createdWork.id,cookie)).status===403,
       'Expired exact-device MFA could still fetch unpublished work details');
+    check((await call(true,port,revisionPath+revisionQuery,cookie)).status===403,
+      'Expired same-device MFA still read private canonical revision diff');
     check((await patch(port,workPath,secureCookie,{
       expectedVersion:3,firstPublicationYear:1881,
     })).status===403,'Expired exact-device MFA modified canonical work metadata');
@@ -1183,6 +1284,7 @@ async function main():Promise<void>{
       !!spec.paths[root+'/authors/{authorId}']?.patch&&
       !!spec.paths[root+'/works/{workId}/editions']?.post&&
       !!spec.paths[root+'/works/{workId}/editions/{editionId}']?.patch&&
+      !!spec.paths[root+'/works/{workId}/editions/{editionId}/revisions/{toRevisionId}/diff']?.get&&
       !!spec.paths[root+'/works/{workId}/titles']?.post&&
       !!spec.paths[root+'/works/{workId}/authors']?.post&&
       !spec.paths[root+'/users'],
