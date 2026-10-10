@@ -233,7 +233,10 @@ export const textAlignments = pgTable('text_alignments', {
   foreignKey({columns:[t.targetRevisionId,t.targetBlockId],foreignColumns:[contentBlocks.revisionId,contentBlocks.blockId],name:'alignments_target_block_fk'}).onDelete('restrict'),
 ]);
 
-/** Private media metadata. Actual bytes and cryptographic verification belong to LocalStorageAdapter. */
+/** Internal-only media metadata. Neither verified bytes nor publication
+ * rights may be inferred from a submitted manifest or its storage key.
+ * Legacy catalog references MUST NEVER be interpreted as filesystem paths.
+ */
 export const mediaAssets=pgTable('media_assets',{
   id:uuid('id').primaryKey().defaultRandom(),
   ownerScope:varchar('owner_scope',{length:24}).notNull(),
@@ -244,9 +247,26 @@ export const mediaAssets=pgTable('media_assets',{
   mime:varchar('mime',{length:80}).notNull(),
   durationMs:integer('duration_ms'),
   status:varchar('status',{length:24}).notNull().default('pending_verify'),
+  verifiedAt:timestamp('verified_at',{withTimezone:true}),
   createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
-});
-
+},t=>[
+  index('media_assets_owner_status_idx').on(t.ownerScope,t.ownerUserId,t.status),
+  uniqueIndex('media_assets_id_owner_unique').on(t.id,t.ownerUserId),
+  check('media_assets_owner_ck',sql`(
+    (${t.ownerScope}='catalog' and ${t.ownerUserId} is null) or
+    (${t.ownerScope}='private-user' and ${t.ownerUserId} is not null)
+  )`),
+  check('media_assets_private_key_ck',sql`${t.ownerScope}<>'private-user' or
+    ${t.storageKey} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`),
+  check('media_assets_integrity_ck',sql`
+    ${t.sha256} ~ '^[0-9a-f]{64}$' and
+    ${t.sizeBytes}>0 and ${t.sizeBytes}<=1073741824 and
+    ${t.mime} in ('text/plain','application/pdf','application/epub+zip','audio/mp4','audio/ogg') and
+    (${t.durationMs} is null or ${t.durationMs}>0)`),
+  check('media_assets_status_ck',sql`
+    ${t.status} in ('pending_verify','verified','rejected','deleted') and
+    (${t.status}<>'verified' or ${t.verifiedAt} is not null)`),
+]);
 /** Reservation rows serialize quota admission across PostgreSQL connections.
  * This is PRIVATE-USER only; catalog imports have separate editorial rights.
  * A reservation is NOT proof that uploaded bytes or MIME are verified.
@@ -264,6 +284,14 @@ export const storageUploadReservations=pgTable('storage_upload_reservations',{
   uniqueIndex('storage_upload_reservations_asset_unique').on(t.committedAssetId),
   check('storage_upload_reservations_positive_ck',sql`${t.reservedBytes}>0`),
   check('storage_upload_reservations_status_ck',sql`${t.status} in ('reserved','committed','released')`),
+  check('storage_upload_reservations_commit_shape_ck',sql`(
+    (${t.status}='committed' and ${t.committedAssetId} is not null) or
+    (${t.status}<>'committed' and ${t.committedAssetId} is null)
+  )`),
+  check('storage_upload_reservations_bounded_ck',sql`${t.reservedBytes}<=1073741824`),
+  foreignKey({columns:[t.committedAssetId,t.ownerUserId],
+    foreignColumns:[mediaAssets.id,mediaAssets.ownerUserId],
+    name:'storage_upload_reservations_asset_owner_fk'}).onDelete('restrict'),
 ]);
 
 /** V1 self-hosted accounts. No existing catalog rows, rights, or admin roles are modified. */
