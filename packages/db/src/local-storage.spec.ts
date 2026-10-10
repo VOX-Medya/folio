@@ -19,6 +19,20 @@ async function withVault(test:(root:string,adapter:LocalStorageAdapter)=>Promise
 }
 const pdf=Buffer.from('%PDF-1.7\n% synthetic test bytes; no real copyrighted work\n');
 const source=(value:Uint8Array)=>Readable.from([value]);
+/** Deliberately only an OCF first local-file-header fixture, not a full EPUB.
+ * No central directory or textual book content is processed or published. */
+function ocfHeader():Buffer{
+  const header=Buffer.alloc(58);
+  header.writeUInt32LE(0x04034b50,0);
+  header.writeUInt16LE(20,4); // ZIP version needed
+  header.writeUInt32LE(20,18); // stored member size
+  header.writeUInt32LE(20,22); // uncompressed member size
+  header.writeUInt16LE(8,26); // filename length
+  header.write('mimetype',30,'ascii');
+  header.write('application/epub+zip',38,'ascii');
+  return header;
+}
+
 
 describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>{
   it('stores 0600 bytes privately and rechecks bytes after process restart',async()=>{
@@ -127,6 +141,41 @@ describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>
       modified[modified.length-1]=modified[modified.length-1]===33?46:33;
       await writeFile(file,modified);
       await expect(adapter.inspectQuarantined(staged)).rejects.toThrow(/changed after staging/);
+    });
+  });
+
+  it('requires W3C OCF first ZIP member, not merely PK magic, before quarantining EPUB',async()=>{
+    await withVault(async(root,adapter)=>{
+      const valid=ocfHeader();
+      const accepted=await adapter.stage({
+        owner:catalog,
+        source:Readable.from([valid.subarray(0,17),valid.subarray(17,41),valid.subarray(41)]),
+        declaredSha256:digest(valid),declaredMime:'application/epub+zip',maxBytes:128,
+      });
+      expect(accepted.status).toBe('pending_verify');
+      expect(await adapter.inspectQuarantined(accepted)).toEqual({
+        sha256:digest(valid),sizeBytes:valid.length,
+      });
+      const tampered:Array<[string,Buffer]>=[
+        ['arbitrary ZIP bytes',Buffer.from([0x50,0x4b,0x03,0x04,0x6e,0x6f,0x74])],
+        ['wrong first entry name',(()=>{const b=ocfHeader();b[30]=0x78;return b;})()],
+        ['compressed mimetype',(()=>{const b=ocfHeader();b.writeUInt16LE(8,8);return b;})()],
+        ['extra ZIP header',(()=>{const b=ocfHeader();b.writeUInt16LE(1,28);return b;})()],
+        ['encrypted ZIP entry',(()=>{const b=ocfHeader();b.writeUInt16LE(1,6);return b;})()],
+        ['data descriptor flag',(()=>{const b=ocfHeader();b.writeUInt16LE(8,6);return b;})()],
+        ['wrong content size',(()=>{const b=ocfHeader();b.writeUInt32LE(21,22);return b;})()],
+        ['unsupported version',(()=>{const b=ocfHeader();b.writeUInt16LE(63,4);return b;})()],
+        ['incorrect MIME string',(()=>{const b=ocfHeader();b[38]=0x58;return b;})()],
+        ['padded MIME',(()=>{const b=Buffer.concat([ocfHeader(),Buffer.from(' ')]);b.writeUInt32LE(21,18);b.writeUInt32LE(21,22);return b;})()],
+      ];
+      for(const [label,invalid] of tampered){
+        await expect(adapter.stage({
+          owner:catalog,source:source(invalid),
+          declaredSha256:digest(invalid),declaredMime:'application/epub+zip',maxBytes:128,
+        }),label).rejects.toThrow(/EPUB OCF mimetype header mismatch/);
+      }
+      const entries=await readdir(join(root,'quarantine','catalog'));
+      expect(entries).toEqual([accepted.key+'.blob']);
     });
   });
 
