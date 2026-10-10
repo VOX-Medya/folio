@@ -11,13 +11,14 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check && pnpm metro:security-check",
+    "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check && pnpm metro:security-check && pnpm dependency:hardening-check",
     "e2e": "playwright test",
     "design:check": "node tools/design/generate-screen-matrix.mjs --check",
     "mobile:export": "pnpm --filter @folio/mobile exec expo export --platform all && node tools/ci/check-expo-exports.mjs",
     "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs tools/security/*.test.mjs",
     "metro:security-check": "node tools/security/check-metro-graph.mjs pnpm-lock.yaml",
-    "security:release-check": "node tools/security/dependency-release-gate.mjs pnpm-lock.yaml dependency-audit.json"
+    "security:release-check": "node tools/security/dependency-release-gate.mjs pnpm-lock.yaml dependency-audit.json",
+    "dependency:hardening-check": "node tools/security/check-dependency-hardening.mjs pnpm-lock.yaml package.json"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
