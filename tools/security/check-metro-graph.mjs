@@ -36,7 +36,7 @@ export function metroLockProblems(lock){
       errors.push('Missing exact 0.83.8 override for '+name);
     }
   }
-  if(/^  image-size@/m.test(lock)){
+  if(/^ {2}image-size@/m.test(lock)){
     errors.push('image-size is back in dependency graph; original DoS advisories are not removed');
   }
   return errors;
