@@ -1,6 +1,6 @@
 import {createHash, randomUUID} from 'node:crypto';
 import {constants} from 'node:fs';
-import {lstat, mkdir, open, rm} from 'node:fs/promises';
+import {link, lstat, mkdir, open, opendir, rm, unlink} from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
 import {isAbsolute, join} from 'node:path';
 import {TextDecoder} from 'node:util';
@@ -19,6 +19,9 @@ const ownerSchema=z.discriminatedUnion('scope', [
 export type AssetOwner=z.infer<typeof ownerSchema>;
 
 export const LOCAL_STORAGE_MAX_BYTES=1024*1024*1024;
+/** Stale, unreferenced completed quarantine files are held for >=72 hours. */
+export const PRIVATE_ORPHAN_GRACE_MS=72*60*60*1000;
+const PRIVATE_ORPHAN_SWEEP_MAX_ENTRIES=512;
 export type CandidateMime='text/plain'|'application/pdf'|'application/epub+zip'|'audio/mp4'|'audio/ogg';
 export type QuarantinedBlob = AssetOwner & {
   key:string;
@@ -144,10 +147,13 @@ export class LocalStorageAdapter implements StorageAdapter {
     const dir=await this.ensurePrivateDirectories(this.ownerSegments(owner));
     const key=randomUUID();
     const filename=join(dir,key+'.blob');
+    // Bytes under construction NEVER have a .blob name. Only a fully
+    // hashed, fsynced candidate is atomically linked into that namespace.
+    const partial=join(dir,key+'.part');
     let handle:FileHandle|undefined;
-    let complete=false;
+    let complete=false,linked=false;
     try{
-      handle=await open(filename,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);
+      handle=await open(partial,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);
       const sha=createHash('sha256');
       const textDecoder=input.declaredMime==='text/plain'?new TextDecoder('utf-8',{fatal:true}):null;
       let size=0;
@@ -177,12 +183,21 @@ export class LocalStorageAdapter implements StorageAdapter {
       await handle.sync();
       await handle.close();
       handle=undefined;
+      // Hard-link creation is atomic and fails if an unexpected final key
+      // already exists; unlike rename(), it never overwrites that file.
+      await link(partial,filename);
+      linked=true;
+      await unlink(partial);
+      const directoryHandle=await open(dir,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
+      try{await directoryHandle.sync();}
+      finally{await directoryHandle.close();}
       complete=true;
       return {...owner,key,status:'pending_verify',sha256:input.declaredSha256,
         sizeBytes:size,mime:input.declaredMime};
     }finally{
       if(handle)await handle.close().catch(()=>{});
-      if(!complete)await rm(filename,{force:true}).catch(()=>{});
+      if(!complete&&linked)await rm(filename,{force:true}).catch(()=>{});
+      if(!complete)await rm(partial,{force:true}).catch(()=>{});
     }
   }
 
@@ -191,6 +206,94 @@ export class LocalStorageAdapter implements StorageAdapter {
    * and expected digest; never expose this method directly to an HTTP client.
    * No public media/read route exists while real auth/RBAC/rights are unfinished.
    */
+  /**
+   * INTERNAL ONLY. The caller MUST hold the same PostgreSQL owner advisory
+   * transaction lock as quota reserve/commit, and provide ALL media_assets
+   * storage keys for this private owner (including deleted/rejected rows).
+   * No HTTP, cron or operator command can invoke this as an unguarded delete.
+   *
+   * Only final .blob files with a generated UUID and an untouched safe inode
+   * older than the grace interval are eligible. Stale .part files, foreign
+   * names, hardlinks, symlinks, missing paths and active uploads remain intact.
+   * testNowMs is exclusively for synthetic clock-advance test fixtures.
+   */
+  async sweepPrivateUserOrphans(
+    trustedOwnerId:string,
+    referencedKeys:ReadonlySet<string>,
+    options:{apply?:boolean;testNowMs?:number}={},
+  ):Promise<{scanned:number;referenced:number;eligible:number;removed:number;
+    skipped:number;truncated:boolean;dryRun:boolean}>{
+    const ownerId=uuid.parse(trustedOwnerId);
+    for(const key of referencedKeys)requireBlobKey(key);
+    const now=options.testNowMs??Date.now();
+    if(!Number.isSafeInteger(now)||now<0)throw new Error('Invalid private orphan sweep clock');
+    const cutoff=now-PRIVATE_ORPHAN_GRACE_MS;
+    const dir=await this.ensurePrivateDirectories(['quarantine','users',ownerId]);
+    const results={scanned:0,referenced:0,eligible:0,removed:0,skipped:0,
+      truncated:false,dryRun:options.apply!==true};
+    for await(const entry of await opendir(dir)){
+      if(results.scanned>=PRIVATE_ORPHAN_SWEEP_MAX_ENTRIES){
+        results.truncated=true;
+        break;
+      }
+      results.scanned++;
+      if(!entry.isFile()||!entry.name.endsWith('.blob')){
+        results.skipped++;
+        continue;
+      }
+      const key=entry.name.slice(0,-5);
+      if(!uuid.safeParse(key).success||entry.name!==key+'.blob'){
+        results.skipped++;
+        continue;
+      }
+      if(referencedKeys.has(key)){
+        results.referenced++;
+        continue;
+      }
+      const path=join(dir,entry.name);
+      // Refuse special files, hard links and changed POSIX ownership/mode.
+      // O_NOFOLLOW prevents replacement by a final-component symlink.
+      let handle:FileHandle|undefined;
+      try{
+        handle=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+        const state=await handle.stat();
+        if(!state.isFile()||state.nlink!==1||state.size<1||
+          state.size>LOCAL_STORAGE_MAX_BYTES||
+          (state.mode&0o777)!==0o600||
+          (typeof process.getuid==='function'&&state.uid!==process.getuid())||
+          Math.max(state.birthtimeMs,state.ctimeMs,state.mtimeMs)>cutoff){
+          results.skipped++;
+          continue;
+        }
+        const pathState=await lstat(path);
+        if(!pathState.isFile()||pathState.isSymbolicLink()||
+          pathState.ino!==state.ino||pathState.dev!==state.dev||
+          pathState.nlink!==1||(pathState.mode&0o777)!==0o600||
+          Math.max(pathState.birthtimeMs,pathState.ctimeMs,pathState.mtimeMs)>cutoff){
+          results.skipped++;
+          continue;
+        }
+        results.eligible++;
+        if(options.apply===true){
+          await unlink(path);
+          results.removed++;
+        }
+      }catch(error){
+        if((error as NodeJS.ErrnoException).code==='ENOENT'||
+          (error as NodeJS.ErrnoException).code==='ELOOP'){
+          results.skipped++;
+          continue;
+        }
+        // Permission failures and unexpected I/O abort instead of deleting
+        // anything else. Earlier successful removals are idempotent.
+        throw error;
+      }finally{
+        if(handle)await handle.close();
+      }
+    }
+    return results;
+  }
+
   async inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>{
     const owner=ownerSchema.parse(record);
     requireBlobKey(record.key);
