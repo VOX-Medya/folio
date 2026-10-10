@@ -49,7 +49,10 @@ export async function reviewRightsEvidence(db:RightsDb,reviewerId:string,recordI
   const rationale=z.string().trim().min(12).max(4000).parse(reason);
   if (!['approved','rejected','withdrawn'].includes(decision)) throw new Error('Invalid rights review decision');
   return db.transaction(async tx=>{
-    const [old]=await tx.select().from(schema.rightsRecords).where(eq(schema.rightsRecords.id,id)).limit(1);
+    // Serialize competing reviewers. Once withdrawn, an in-flight approval
+    // cannot overwrite withdrawal after reading an obsolete pending status.
+    const [old]=await tx.select().from(schema.rightsRecords)
+      .where(eq(schema.rightsRecords.id,id)).limit(1).for('update');
     if (!old) throw new Error('Rights record not found');
     if (old.reviewStatus==='withdrawn') throw new Error('Withdrawn rights cannot be restored');
     const [record]=await tx.update(schema.rightsRecords).set({

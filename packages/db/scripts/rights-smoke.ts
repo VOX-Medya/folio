@@ -61,6 +61,41 @@ async function main():Promise<void>{
     try {await reviewRightsEvidence(db,actor,revisionRights.id,'approved',rationale);}
     catch {restorationRejected=true;}
     if(!restorationRejected) throw new Error('Withdrawn rights silently restored');
+    // Real competing PostgreSQL connections: an approval must never race
+    // a withdrawal into the last committed status for the same evidence.
+    const competing=createFolioDb(url);
+    try{
+      for(let attempt=0;attempt<4;attempt++){
+        const contested=await submitRightsEvidence(db,actor,{
+          ...evidence,workId:work.id,editionId,revisionId:rev.revision.id,
+          evidence:'Synthetic contested rights review requiring a human decision.',
+        });
+        const otherReviewer=randomUUID();
+        const outcomes=await Promise.allSettled([
+          reviewRightsEvidence(db,actor,contested.id,'withdrawn',
+            'Reviewer withdraws synthetic evidence while another review is pending.'),
+          reviewRightsEvidence(competing.db,otherReviewer,contested.id,'approved',
+            'Competing reviewer tries to approve synthetic evidence at the same time.'),
+        ]);
+        if(outcomes[0]?.status!=='fulfilled'){
+          throw new Error('Concurrent withdrawal did not finish');
+        }
+        const [final]=await db.select().from(schema.rightsRecords)
+          .where(eq(schema.rightsRecords.id,contested.id)).limit(1);
+        if(final?.reviewStatus!=='withdrawn'){
+          throw new Error('Concurrent approval restored a withdrawn rights record');
+        }
+        const events=await db.select().from(schema.auditEvents)
+          .where(eq(schema.auditEvents.entityId,contested.id));
+        if(events.filter(e=>e.action==='rights.review.withdrawn').length!==1){
+          throw new Error('Concurrent withdrawal was not audited exactly once');
+        }
+        if(outcomes[1]?.status==='rejected'&&
+          !String(outcomes[1].reason).includes('Withdrawn rights cannot be restored')){
+          throw new Error('Competing reviewer rejected for an unexpected cause');
+        }
+      }
+    }finally{await competing.pool.end();}
     const [workRow]=await db.select().from(schema.works).where(eq(schema.works.id,work.id));
     if(workRow?.publicationStatus!=='draft') throw new Error('Rights tests published a fixture');
     const audit=await db.select().from(schema.auditEvents).where(eq(schema.auditEvents.entityId,revisionRights.id));
