@@ -34,8 +34,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const message = exception instanceof HttpException ? exception.message : 'Unexpected server error';
     const codes: Record<number, string> = {
-      400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 503: 'SERVICE_UNAVAILABLE',
+      400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 429: 'RATE_LIMITED', 503: 'SERVICE_UNAVAILABLE',
     };
+    if (status === HttpStatus.TOO_MANY_REQUESTS) response.setHeader('Retry-After', '900');
     response.status(status).json({error: {
       code: codes[status] ?? (status >= 500 ? 'INTERNAL_ERROR' : `HTTP_${status}`),
       message,
