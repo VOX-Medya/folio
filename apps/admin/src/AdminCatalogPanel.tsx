@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
 import {AdminWorkRelations} from './AdminWorkRelations.js';
 import {AdminEditionMetadataEditor} from './AdminEditionMetadataEditor.js';
+import {AdminRevisionDiffPanel} from './AdminRevisionDiffPanel.js';
 import {
   authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
@@ -41,7 +42,7 @@ const copy={
     original:'Özgün başlık',year:'İlk yayın yılı',authors:'Yazarlar',
     aliases:'Takma adlar',external:'Kaynak kimlikleri',titles:'Dil başlıkları',
     editions:'Baskılar',contributors:'Katkıda bulunanlar',identifiers:'Tanımlayıcılar',
-    editEdition:'Taslak baskıyı düzenle',
+    editEdition:'Taslak baskıyı düzenle',reviewRevision:'Revizyon farkları',
     notAvailable:'Kayıtlı bilgi yok',name:'Kanonik yazar adı',sortName:'Sıralama adı',
     create:'Yeni taslak oluştur',createAction:'Taslağı kaydet',
     edit:'Metadata düzenle',save:'Sürüm kontrolüyle kaydet',cancel:'Vazgeç',
@@ -74,7 +75,7 @@ const copy={
     original:'Original title',year:'First publication year',authors:'Authors',
     aliases:'Aliases',external:'Source identifiers',titles:'Language titles',
     editions:'Editions',contributors:'Contributors',identifiers:'Identifiers',
-    editEdition:'Edit draft edition',
+    editEdition:'Edit draft edition',reviewRevision:'Revision differences',
     notAvailable:'No stored information',name:'Canonical author name',sortName:'Sort name',
     create:'Create new draft',createAction:'Save draft',
     edit:'Edit metadata',save:'Save with version check',cancel:'Cancel',
@@ -129,6 +130,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
   const [detailError,setDetailError]=useState('');
   const [editing,setEditing]=useState(false);
   const [editingEditionId,setEditingEditionId]=useState<string|null>(null);
+  const [reviewEditionId,setReviewEditionId]=useState<string|null>(null);
   const [creating,setCreating]=useState(false);
   const [busy,setBusy]=useState(false);
   const [stale,setStale]=useState(false);
@@ -185,7 +187,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
     const controller=new AbortController();
     detailAbort.current=controller;
     setDetailId(id);setDetail(null);setDetailState('loading');
-    setEditingEditionId(null);
+    setEditingEditionId(null);setReviewEditionId(null);
     setDetailError('');setEditing(false);setStale(false);setError('');
     if(!keepMessage)setMessage('');
     try{
@@ -232,7 +234,7 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
     ++detailSeq.current;
     detailAbort.current?.abort();
     setDetail(null);setDetailId(null);setDetailState('idle');
-    setEditingEditionId(null);
+    setEditingEditionId(null);setReviewEditionId(null);
     setDetailError('');setEditing(false);setStale(false);
     setError('');setMessage('');
   }
@@ -326,6 +328,8 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
   const formDisabled=!online||busy||stale;
   const editedEdition=detail?.kind==='works'&&editingEditionId
     ?detail.value.editions.find(item=>item.id===editingEditionId):undefined;
+  const reviewedEdition=detail?.kind==='works'&&reviewEditionId
+    ?detail.value.editions.find(item=>item.id===reviewEditionId):undefined;
   return <section className="folio-catalog" data-testid="admin-catalog-panel"
     aria-label={kind==='works'?(language==='tr'?'Eser kataloğu':'Works catalog'):
       (language==='tr'?'Yazar kataloğu':'Authors catalog')}>
@@ -451,9 +455,14 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
                 edition.status==='draft'&&<button type="button"
                   disabled={busy||!online||editing}
                   onClick={()=>{
-                    setEditingEditionId(edition.id);
+                    setEditingEditionId(edition.id);setReviewEditionId(null);
                     setError('');setMessage('');setStale(false);
                   }}>{w.editEdition}</button>}
+              <button type="button" className="folio-catalog-secondary"
+                aria-expanded={reviewEditionId===edition.id}
+                disabled={busy||!online||editing||!!editingEditionId}
+                onClick={()=>setReviewEditionId(current=>current===edition.id?null:edition.id)}>
+                {w.reviewRevision}</button>
             </li>)}</ul>}
         </>:<>
           <p>{w.sortName}: {detail.value.author.sortName}</p>
@@ -548,6 +557,12 @@ export function AdminCatalogPanel({kind,language}:{kind:Kind;language:Language})
           </div>
         </form>}
       </section>}
+      {reviewedEdition&&detail?.kind==='works'&&
+        <AdminRevisionDiffPanel
+          key={reviewedEdition.id} workId={detail.value.work.id}
+          editionId={reviewedEdition.id} language={language}
+          online={online&&!busy}/>
+      }
       {editedEdition&&detail?.kind==='works'&&
         <AdminEditionMetadataEditor
           key={editedEdition.id+':'+detail.value.work.metadataVersion}
