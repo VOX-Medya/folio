@@ -15,7 +15,7 @@ export {ApiExceptionFilter, RequestIdMiddleware, UserOwnershipGuard} from './com
 export {HealthController, CapabilitiesController, ReadinessController, DbReadinessService} from './modules/system/system.module.js';
 
 /** A single modular monolith. Product modules join only when their guarded routes exist. */
-@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule,AdminTotpModule]})
+@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule,AdminTotpModule,AdminCatalogModule]})
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes('*');
