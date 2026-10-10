@@ -134,9 +134,20 @@ export class WebAuthController {
     requireExplicitDirectTlsOptIn();
     const effectivePolicy=policy();
     assertSafeWebCsrfBootstrap(request,effectivePolicy);
-    const token=await webSessionCsrfToken(request,
-      (bearer:string)=>this.store.verify(bearer),effectivePolicy);
-    response.setHeader('X-Folio-CSRF',token);
+    try{
+      const token=await webSessionCsrfToken(request,
+        (bearer:string)=>this.store.verify(bearer),effectivePolicy);
+      response.setHeader('X-Folio-CSRF',token);
+    }catch(error){
+      // A remotely revoked/disabled or malformed cookie must not trap the
+      // browser in a login loop: login deliberately rejects existing cookies.
+      // This runs only after direct TLS + exact same-origin CSRF proof. Never
+      // retire a cookie for a cross-site request or an unavailable database.
+      if(error instanceof UnauthorizedException){
+        response.setHeader('Set-Cookie',clearWebSessionCookie(request));
+      }
+      throw error;
+    }
   }
 
   @Post('logout')
