@@ -247,9 +247,13 @@ async function main():Promise<void>{
       !leaked.includes(web.sessionToken)&&!leaked.includes(editor.email)&&
       !leaked.includes(guest.email),
       'Admin read-only metadata responses disclosed session or account secrets');
+    // Keep the DB proof interval internally valid while simulating an
+    // expired proof. An expiry earlier than verified_at is intentionally
+    // rejected by the real database CHECK constraint.
     await pool.query(
-      'UPDATE admin_session_mfa SET expires_at=$1 WHERE session_id=$2::uuid',
-      [new Date(Date.now()-1000),web.sessionId],
+      'UPDATE admin_session_mfa SET verified_at=$1,expires_at=$2 WHERE session_id=$3::uuid',
+      [new Date(Date.now()-10*60_000),new Date(Date.now()-5*60_000),
+        web.sessionId],
     );
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
