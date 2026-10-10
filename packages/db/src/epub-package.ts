@@ -193,7 +193,7 @@ export function inspectEpubPackageSpine(entries:ReadonlyMap<string,Buffer>):Epub
   for(const item of declared){
     if(item.name!=='item')invalid();
     noChild(item);
-    if(item.attrs.size>4)invalid();
+    if([...item.attrs.keys()].some(key=>!['id','href','media-type','properties'].includes(key)))invalid();
     const id=requireAttr(item,'id'),href=requireAttr(item,'href');
     const mime=requireAttr(item,'media-type');
     if(!ID.test(id)||itemIds.has(id))invalid();
@@ -228,7 +228,7 @@ export function inspectEpubPackageSpine(entries:ReadonlyMap<string,Buffer>):Epub
     const idref=requireAttr(ref,'idref');
     const item=itemIds.get(idref);
     if(!item||seen.has(idref)||item.mime!=='application/xhtml+xml')invalid();
-    if(ref.attrs.size>3)invalid();
+    if([...ref.attrs.keys()].some(key=>!['idref','id','linear'].includes(key)))invalid();
     const flag=ref.attrs.get('linear')??'yes';
     if(flag!=='yes'&&flag!=='no')invalid();
     if(flag==='yes')linear++;
