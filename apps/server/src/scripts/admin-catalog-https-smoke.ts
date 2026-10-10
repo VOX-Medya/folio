@@ -15,6 +15,8 @@ import {
   adminCatalogAuthorPageSchema,adminCatalogWorkCreatedSchema,
   adminCatalogWorkDetailSchema,adminCatalogWorkPageSchema,apiErrorSchema,
   canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
+  adminCatalogEditionAppendedSchema,adminCatalogTitleAppendedSchema,
+  adminCatalogWorkAuthorAppendedSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
@@ -851,6 +853,138 @@ async function main():Promise<void>{
       adminCatalogWorkCreatedSchema.parse(JSON.parse(cookieWork.body))
         .publicationStatus==='draft',
       'Valid Web POST did not create a DRAFT-only canonical work');
+    // #12: additional canonical work author/translation metadata and multiple
+    // separately identified DRAFT editions, never source/rights/published.
+    const linkedWorkId=adminCatalogWorkCreatedSchema.parse(
+      JSON.parse(cookieWork.body)).id;
+    const editionsPath=root+'/works/'+linkedWorkId+'/editions';
+    const titlesPath=root+'/works/'+linkedWorkId+'/titles';
+    const authorsPath=root+'/works/'+linkedWorkId+'/authors';
+    const linkedEdition={expectedVersion:0,language:'en',
+      label:'Folio Translation '+suffix,publisher:'Folio local QA',
+      identifiers:[
+        {kind:'isbn-13',value:'9780123456789'},
+        {kind:'other',value:'folio-local-'+suffix},
+      ],
+      contributors:[{authorId:author.id,role:'translator',sortOrder:0}],
+    };
+    const viewerBearer={authorization:'Bearer '+viewerSession.sessionToken};
+    check((await post(port,editionsPath,viewerBearer,linkedEdition)).status===403,
+      'Read-only MFA role created a new edition');
+    check((await post(port,editionsPath,cookie,linkedEdition)).status===403,
+      'Web cookie without CSRF appended edition');
+    check((await post(port,editionsPath,{
+      ...secureCookie,origin:'https://untrusted.example',
+    },linkedEdition)).status===403,'Cross-origin cookie appended edition');
+    for(const bad of [
+      {...linkedEdition,publicationStatus:'published'},
+      {...linkedEdition,rawContent:'generated text'},
+      {...linkedEdition,actorId:guest.userId},
+      {...linkedEdition,expectedVersion:-1},
+      {...linkedEdition,identifiers:[
+        linkedEdition.identifiers[0],linkedEdition.identifiers[0],
+      ]},
+    ]){
+      check((await post(port,editionsPath,secureCookie,bad)).status===400,
+        'Untrusted/duplicate canonical edition payload accepted');
+    }
+    const editionMade=await post(port,editionsPath,{
+      ...secureCookie,'x-user-id':guest.userId,'x-admin-role':'superadmin',
+      'x-request-id':'forged-edition-trace',
+    },linkedEdition);
+    check(editionMade.status===201&&
+      editionMade.headers['cache-control']==='private, no-store'&&
+      editionMade.headers['x-request-id']!=='forged-edition-trace',
+      'Verified Web editor could not create a versioned draft edition');
+    const createdEdition=adminCatalogEditionAppendedSchema.parse(
+      JSON.parse(editionMade.body));
+    check(createdEdition.workId===linkedWorkId&&
+      createdEdition.metadataVersion===1&&createdEdition.status==='draft',
+      'Edition added without incrementing the parent metadata version');
+    const editionAudit=await pool.query<{
+      actor_id:string;request_id:string;after_json:{
+        workId:string;workMetadataVersion:number;status:string;
+      };
+    }>('SELECT actor_id,request_id,after_json FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [createdEdition.id,'edition.create']);
+    check(editionAudit.rows.length===1&&
+      editionAudit.rows[0]?.actor_id===editor.userId&&
+      editionAudit.rows[0]?.request_id===editionMade.headers['x-request-id']&&
+      editionAudit.rows[0]?.after_json.workMetadataVersion===1&&
+      editionAudit.rows[0]?.after_json.status==='draft',
+      'MFA/Cookie/CSRF edition audit lost real actor, trace or DRAFT');
+    const badFkLabel='Late Foreign Contributor '+suffix;
+    check((await post(port,editionsPath,secureCookie,{
+      ...linkedEdition,expectedVersion:1,label:badFkLabel,
+      contributors:[{authorId:randomUUID(),role:'translator',sortOrder:0}],
+    })).status===400,'Foreign edition contributor did not fail atomically');
+    const failedEdition=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM editions WHERE work_id=$1::uuid AND label=$2',
+      [linkedWorkId,badFkLabel]);
+    check(failedEdition.rows[0]?.count===0,
+      'Late FK failure committed partial edition with invalid contributor');
+    check((await post(port,titlesPath,secureCookie,{
+      expectedVersion:1,language:'en',title:'Untrusted Original',kind:'original',
+    })).status===400,
+      'Alternate title endpoint accepted canonical original overwrite');
+    check((await post(port,titlesPath,secureCookie,{
+      expectedVersion:1,language:'en',title:'Invented Revision',
+      kind:'translation',content:'invented text',
+    })).status===400,'Title metadata accepted synthetic source text');
+    const titleMade=await post(port,titlesPath,secureCookie,{
+      expectedVersion:1,language:'tr',title:'Yerel Alternatif '+suffix,
+      kind:'alternate',
+    });
+    check(titleMade.status===201&&
+      adminCatalogTitleAppendedSchema.parse(JSON.parse(titleMade.body))
+        .metadataVersion===2,
+      'Verified editor could not attach translated/alternate title metadata');
+    check((await post(port,authorsPath,secureCookie,{
+      expectedVersion:2,authorId:randomUUID(),contribution:'co-author',
+    })).status===400,'Unknown canonical coauthor was silently inserted');
+    const relation=await post(port,authorsPath,secureCookie,{
+      expectedVersion:2,authorId:author.id,
+      contribution:'co-author',sortOrder:1,
+    });
+    check(relation.status===201&&
+      adminCatalogWorkAuthorAppendedSchema.parse(JSON.parse(relation.body))
+        .metadataVersion===3,
+      'Canonical work author join did not advance metadata revision');
+    check((await post(port,authorsPath,secureCookie,{
+      expectedVersion:3,authorId:author.id,contribution:'author',
+    })).status===409,'Duplicate work/author PK did not reject duplicate relation');
+    // Competing editors must serialize edition children and parent revision.
+    const competingEditions=await Promise.all([
+      post(port,editionsPath,secureCookie,{
+        expectedVersion:3,language:'tr',label:'Race Edition A '+suffix,
+      }),
+      post(port,editionsPath,secureCookie,{
+        expectedVersion:3,language:'en',label:'Race Edition B '+suffix,
+      }),
+    ]);
+    check(competingEditions.map(row=>row.status).sort().join(',')==='201,409',
+      'Concurrent edition inserts overwrote canonical work metadata revision');
+    const linkedDetailWire=await call(true,port,root+'/works/'+linkedWorkId,bearer);
+    const linkedDetail=adminCatalogWorkDetailSchema.parse(JSON.parse(linkedDetailWire.body));
+    check(linkedDetail.work.metadataVersion===4&&
+      linkedDetail.work.publicationStatus==='draft'&&
+      linkedDetail.work.originalTitle==='Web Work '+suffix&&
+      linkedDetail.authors.length===2&&
+      linkedDetail.editions.length===2&&
+      linkedDetail.titles.some(t=>t.title==='Yerel Alternatif '+suffix)&&
+      linkedDetail.editions.some(e=>
+        e.id===createdEdition.id&&e.status==='draft'&&
+        e.identifiers.length===2&&
+        e.contributors.some(person=>person.authorId===author.id&&
+          person.role==='translator')),
+      'Edition/author/translation metadata lost identity or original work linkage');
+    check((await post(port,editionsPath,secureCookie,{
+      expectedVersion:1,language:'en',label:'Stale Edition',
+    })).status===409,'Stale previously read edition edit was accepted');
+    check((await post(port,editionsPath,secureCookie,{
+      expectedVersion:4,language:'en',label:'Should not publish',status:'published',
+    })).status===400,'Edition append allowed direct publication');
+
     check((await call(true,port,search,{
       ...cookie,origin:'https://wrong-origin.example',
     })).status===403,'Cross-origin cookie read private admin draft');
@@ -903,6 +1037,9 @@ async function main():Promise<void>{
     check((await post(port,createRoot,secureCookie,{
       canonicalName:'Expired web editor '+suffix,
     })).status===403,'Expired same-device MFA still authorized catalog draft POST');
+    check((await post(port,titlesPath,secureCookie,{
+      expectedVersion:4,language:'en',title:'Unauthorized',kind:'alternate',
+    })).status===403,'Expired factor still appended alternate title');
     await pool.query(
       'UPDATE admin_role_memberships SET revoked_at=$1 WHERE user_id=$2::uuid',
       [new Date(),editor.userId],
@@ -931,6 +1068,9 @@ async function main():Promise<void>{
       !!spec.paths[root+'/authors/{authorId}']?.get&&
       !!spec.paths[root+'/works/{workId}']?.patch&&
       !!spec.paths[root+'/authors/{authorId}']?.patch&&
+      !!spec.paths[root+'/works/{workId}/editions']?.post&&
+      !!spec.paths[root+'/works/{workId}/titles']?.post&&
+      !!spec.paths[root+'/works/{workId}/authors']?.post&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
@@ -948,10 +1088,14 @@ async function main():Promise<void>{
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Independent admin write flag failed to turn off mutation');
+    check((await post(port,editionsPath,bearer,{
+      expectedVersion:4,language:'tr',label:'Unavailable',
+    })).status===404,
+      'Disabled independent write flag exposed edition append');
     check((await patch(port,authorPath,bearer,{
       expectedVersion:2,sortName:'Should not update',
     })).status===404,'Independent write flag shutoff left PATCH enabled');
-    console.log('ADMIN CATALOG HTTPS PASS: real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
+    console.log('ADMIN CATALOG HTTPS PASS: canonical multi-author/edition/ISBN/translated title MFA/CSRF work relationship appends, strict versions, FK rollback and 201/409 concurrency; real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
