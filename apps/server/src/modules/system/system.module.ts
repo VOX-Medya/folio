@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Controller, Get, Inject, Injectable, Module,
+  BadRequestException, Controller, Get, Header, Inject, Injectable, Module,
   OnModuleDestroy, Query, ServiceUnavailableException,
 } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
@@ -11,6 +11,7 @@ import type {Capability, CapabilityPage, HealthResponse, ReadinessResponse} from
 @Controller('v1')
 export class HealthController {
   @Get('health')
+  @Header('Cache-Control','no-store')
   @ApiOperation({ summary: 'Process liveness probe (not DB readiness)' })
   health(): HealthResponse { return healthResponseSchema.parse({ status: 'ok' }); }
 }
@@ -36,6 +37,7 @@ const capabilities: readonly Capability[] = [
 @Controller('v1/system')
 export class CapabilitiesController {
   @Get('capabilities')
+  @Header('Cache-Control','no-store')
   @ApiOperation({ summary: 'Truthful V1 feature availability (never implies mock APIs are active)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, minimum: 1, maximum: 50 })
   @ApiQuery({ name: 'cursor', required: false, type: String })
@@ -68,6 +70,7 @@ export class DbReadinessService implements OnModuleDestroy {
 export class ReadinessController {
   constructor(@Inject(DbReadinessService) private readonly db: DbReadinessService) {}
   @Get('ready')
+  @Header('Cache-Control','no-store')
   @ApiOperation({ summary: 'Database readiness (503 when unavailable)' })
   @ApiOkResponse({schema: {type: 'object', required: ['status'], properties: {status: {type: 'string', enum: ['ready']}}}})
   async ready(): Promise<ReadinessResponse> { return this.db.readiness(); }
