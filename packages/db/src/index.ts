@@ -38,3 +38,6 @@ export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboardi
 
 // INTERNAL ONLY; caller must provide trusted client IP and server-managed HMAC key.
 export {AuthRateLimitExceeded,prepareAuthAttemptBuckets,consumeAuthAttemptRateLimit,pruneExpiredAuthAttemptWindows} from './auth-rate-limit.js';
+
+// Verified owner-only active session metadata and targeted revocation.
+export {listVerifiedDeviceSessions,revokeVerifiedDeviceSession} from './device-sessions.js';

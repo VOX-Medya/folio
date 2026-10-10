@@ -266,3 +266,16 @@ export type OnboardingSnapshot=z.infer<typeof onboardingSnapshotSchema>;
 
 export {fetchOwnOnboarding,updateOwnOnboarding,OnboardingHttpError,OnboardingVersionConflictError} from './onboarding-client.js';
 export type {OwnOnboardingRequest} from './onboarding-client.js';
+
+
+/** Public DTO contains no bearer, digest, account email or admin claims. */
+export const deviceSessionIdSchema=z.uuid();
+export const deviceSessionInventorySchema=z.object({
+  items:z.array(z.object({
+    id:deviceSessionIdSchema,deviceLabel:z.string().min(1).max(80),
+    createdAt:z.iso.datetime({offset:true}),
+    expiresAt:z.iso.datetime({offset:true}),
+    isCurrent:z.boolean(),
+  }).strict()).max(100),
+}).strict();
+export type DeviceSessionInventory=z.infer<typeof deviceSessionInventorySchema>;
