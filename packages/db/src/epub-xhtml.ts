@@ -123,6 +123,7 @@ function inspectDocument(path:string,bytes:Buffer,isNavigation:boolean):Inspecte
   const ids=new Set<string>();
   const links:LocalLink[]=[];
   let root=false,head=0,title=0,body=0,elements=0,tocCount=0,tocLinks=0;
+  let epubNamespaceDeclared=false;
   let index=0;
   while(index<source.length){
     const start=source.indexOf('<',index);
@@ -153,6 +154,7 @@ function inspectDocument(path:string,bytes:Buffer,isNavigation:boolean):Inspecte
       root=true;
       if(attrs.get('xmlns')!==NS_XHTML)invalid();
       if(attrs.has('xmlns:epub')&&attrs.get('xmlns:epub')!==NS_EPUB)invalid();
+      epubNamespaceDeclared=attrs.get('xmlns:epub')===NS_EPUB;
     }else if(name==='head'){
       if(parent!=='html'||head||body||selfClosing)invalid();
       head++;
@@ -180,7 +182,7 @@ function inspectDocument(path:string,bytes:Buffer,isNavigation:boolean):Inspecte
       }else if(key==='xmlns:epub'){
         if(name!=='html'||value!==NS_EPUB)invalid();
       }else if(key==='epub:type'){
-        if(name!=='nav'||value!=='toc'||!attrsHasEpubNamespace())invalid();
+        if(name!=='nav'||value!=='toc'||!epubNamespaceDeclared)invalid();
       }else if(key==='href'){
         if(name!=='a')invalid();
         const link=safeLocalHref(value,path);
@@ -210,9 +212,46 @@ function inspectDocument(path:string,bytes:Buffer,isNavigation:boolean):Inspecte
   if(isNavigation?(tocCount!==1||tocLinks===0):tocCount!==0)invalid();
   return {ids,links,elements,tocCount,tocLinks};
 
-  function attrsHasEpubNamespace():boolean{
-    // Root namespace is known only when we encounter its start tag.
-    return epubNamespaceDeclared;
+}
+
+/**
+ * This result is evidence that a narrow, inert XHTML syntax/reference subset
+ * was observed. It is NOT a safe-to-render verdict: CSS, images, fonts,
+ * actual reading-order semantics, source quality, malware and rights are
+ * explicitly outside this gate.
+ */
+export function inspectEpubXhtmlMarkup(
+  entries:ReadonlyMap<string,Buffer>,
+  xhtmlPaths:readonly string[],
+  navigationPath:string,
+):EpubXhtmlMarkupResult{
+  if(xhtmlPaths.length<2||xhtmlPaths.length>MAX_DOCUMENTS||
+    new Set(xhtmlPaths).size!==xhtmlPaths.length||
+    !xhtmlPaths.includes(navigationPath))invalid();
+  const checked=new Map<string,InspectedDocument>();
+  let totalElements=0,totalLinks=0,fragmentLinks=0;
+  for(const path of xhtmlPaths){
+    if(!path.endsWith('.xhtml')||path.startsWith('/')||path.includes('..')||
+      path.includes('\\')||path.includes('%')||!entries.has(path))invalid();
+    const document=inspectDocument(path,entries.get(path)!,path===navigationPath);
+    checked.set(path,document);
+    totalElements+=document.elements;
+    totalLinks+=document.links.length;
+    if(totalElements>MAX_ELEMENTS_TOTAL||totalLinks>MAX_LINKS_TOTAL)invalid();
   }
-  // Placeholder intentionally avoided: initialized below? (see next revision)
+  for(const document of checked.values()){
+    for(const link of document.links){
+      const target=checked.get(link.target);
+      if(!target||(link.fragment!==null&&!target.ids.has(link.fragment)))invalid();
+      if(link.fragment!==null)fragmentLinks++;
+    }
+  }
+  return {
+    status:'xhtml_markup_only',
+    documentCount:checked.size,
+    totalElements,
+    navigationDocuments:1,
+    localLinks:totalLinks,
+    fragmentLinks,
+  };
 }
