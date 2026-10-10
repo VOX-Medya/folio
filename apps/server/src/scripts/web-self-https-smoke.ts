@@ -204,6 +204,14 @@ async function main(){
       'Session revoke must have a distinct trusted HTTP request ID');
     check((await call(port,onboarding,'GET',webHeaders)).status===401,
       'Self-revoked web cookie still accessed private account data');
+    const latePatch=await call(port,onboarding,'PATCH',mutating,{
+      expectedVersion:2,stage:'interests',locale:'tr',interests:['fiction'],
+    });
+    check(latePatch.status===401,'Revoked HTTPS cookie PATCH mutated private onboarding');
+    const lateError=apiErrorSchema.parse(JSON.parse(latePatch.body));
+    check(lateError.error.code==='UNAUTHORIZED'&&
+      lateError.error.requestId===latePatch.headers['x-request-id'],
+      'Revoked Web PATCH error leaked unsafe user context');
     const retired=await call(port,auth+'/csrf','GET',webHeaders);
     check(retired.status===401&&
       retired.headers['set-cookie']?.[0]?.includes('Max-Age=0')&&

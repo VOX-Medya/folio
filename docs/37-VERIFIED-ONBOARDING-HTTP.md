@@ -18,3 +18,11 @@
 ## Kalanlar / release kapısı
 
 Gerçek HTTP signup/login/reset/e-posta teslimi açılmadı; istemci şu aşamada yalnız dahili sentetik testte üretilen doğrulanmış bearer'ı kullanabilir. Trusted proxy IP politikası, secret manager, secure SameSite cookie/CSRF/Origin, native Keychain/Keystore, admin MFA ve rol üyelikleri, gerçek Expo onboarding UI/offline senkronu ve native cihaz kabulü hâlâ eksik. `#30` açık ve tamamlanmadı. `#7` security audit release engeli devam ediyor; canlıya dağıtım yapılmadı.
+
+## Oturum iptali yarışı: transaction içi yeniden doğrulama (#30)
+
+`VerifiedSelfSessionGuard` hem bearer hem doğrudan TLS HttpOnly cookie için merkezi PostgreSQL `user_sessions` kaydına göre `{userId,sessionId}` üretir; istemcinin e-posta/UUID/rol başlıkları bunu seçemez. Bununla birlikte cihazın başka yerden iptal edilmesi guard kontrolü ile onboarding DB erişimi arasında gerçekleşebilir.
+
+Onboarding GET ve PATCH artık oturumun **tam kimliğini** API denetiminden DB katmanına taşır. GET: kullanıcı hesabına `FOR SHARE`, tam kullanıcıya ait oturuma `FOR SHARE` ve mevcut onboarding snapshot okuması **tek transaction**. PATCH: hesap `FOR UPDATE`, oturum `FOR SHARE` ve onboarding `FOR UPDATE`; iptal `FOR UPDATE` kilidiyle aynı session row üzerinde yarışır. Önce iptal tamamlandıysa GET/PATCH 401; yazma kilidi önce alındıysa iptal bitmeden transaction sonlanır. Süresi dolan veya başka kullanıcıya ait sessionId 401; version/audit hiç değişmez. Kilit sırası **hesap önce oturum** olduğu için diğer device management akışıyla uyumludur. İç CLI yardımcıları varsayılan olarak trusted HTTP principal bulunmadığı zaman argümanı atlayabilir; gerçek `/v1/me` router oturum kimliği olmadan DB komutunu çağıramaz.
+
+`packages/db/scripts/onboarding-smoke.ts` testleri gerçek iki PostgreSQL havuzunda guard sonrasında iptal edilmiş oturumun kendi verisini bile okuyamadığını/yazamadığını, yanlış sahibin oturum kimliğiyle hesabın okunamadığını, başka aktif cihazın etkilemediğini, ve reddin audit/version artırmadığını doğrular. Mevcut gerçek bearer HTTP ve cookie HTTPS smoke testleri de bu yeni DB çağrı zincirini her CI'da çalıştırır. `#30` tamamlanmaz; gerçek native cihaz/browser UI testi, hukuki onay, MFA ve yayın gate hâlâ eksiktir.
