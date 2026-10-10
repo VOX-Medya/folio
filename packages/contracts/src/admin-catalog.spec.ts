@@ -2,7 +2,9 @@ import {describe,expect,it} from 'vitest';
 import {
   adminCatalogAuthorCreatedSchema,adminCatalogAuthorPageSchema,
   adminCatalogSearchQuerySchema,adminCatalogWorkCreatedSchema,
-  adminCatalogWorkPageSchema,authorCreateSchema,workCreateSchema,
+  adminCatalogWorkPageSchema,adminCatalogIdSchema,
+  adminCatalogWorkDetailSchema,adminCatalogAuthorDetailSchema,
+  authorCreateSchema,workCreateSchema,
 } from './index.js';
 
 const id='a7d09a10-d218-4e7f-8871-cb93dab6bf23';
@@ -93,5 +95,67 @@ describe('admin-only canonical metadata search contracts',()=>{
     }).success).toBe(false);
     expect(adminCatalogAuthorCreatedSchema.safeParse({id,userId:id}).success)
       .toBe(false);
+  });
+  it('accepts only an actual canonical resource UUID for a detail URL',()=>{
+    expect(adminCatalogIdSchema.safeParse(id).success).toBe(true);
+    for(const invalid of ['','0','no-uuid',id+'/',id+'?userId='+id,
+      '../users/'+id,'urn:uuid:'+id,123,null]){
+      expect(adminCatalogIdSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+
+  it('accepts a full canonical work snapshot but rejects every private/extra DB field',()=>{
+    const safe={
+      work:{
+        id,originalTitle:'Editor Draft',originalLanguage:'tr',
+        firstPublicationYear:null,publicationStatus:'draft',
+      },
+      authors:[{id,name:'Writer',role:'author',sortOrder:2}],
+      titles:[{id,language:'en',title:'Translation',kind:'translation'}],
+      editions:[{
+        id,language:'en',label:'Translated Edition',publisher:null,status:'draft',
+        identifiers:[{kind:'isbn-13',value:'9780000000001'}],
+        contributors:[{authorId:id,role:'translator',sortOrder:0}],
+      }],
+    };
+    expect(adminCatalogWorkDetailSchema.parse(safe)).toEqual(safe);
+    for(const invalid of [
+      {...safe,userId:id},
+      {...safe,rights:{displayAllowed:true}},
+      {...safe,sourceText:'unlicensed'},
+      {...safe,work:{...safe.work,createdAt:'2026-01-01'}},
+      {...safe,work:{...safe.work,ownerId:id}},
+      {...safe,work:{...safe.work,publicationStatus:''}},
+      {...safe,authors:[{...safe.authors[0],email:'writer@example.com'}]},
+      {...safe,titles:[{...safe.titles[0],sourceText:'private book body'}]},
+      {...safe,editions:[{...safe.editions[0],assetUrl:'private'}]},
+      {...safe,editions:[{...safe.editions[0],
+        identifiers:[{kind:'isbn-13',value:'9780000000001',rawArtifactKey:'private'}]}]},
+      {...safe,editions:[{...safe.editions[0],
+        contributors:[{...safe.editions[0].contributors[0],userId:id}]}]},
+      {...safe,work:{...safe.work,originalLanguage:'es'}},
+    ]){
+      expect(adminCatalogWorkDetailSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+
+  it('projects author aliases and source IDs without account or bearer fields',()=>{
+    const author={
+      author:{id,canonicalName:'Writer',sortName:'Writer'},
+      aliases:[{id,name:'Pen Name',locale:null}],
+      externalIds:[{source:'folio_test',externalId:'test-author'}],
+    };
+    expect(adminCatalogAuthorDetailSchema.parse(author)).toEqual(author);
+    for(const invalid of [
+      {...author,auth:{role:'superadmin'}},
+      {...author,author:{...author.author,userId:id}},
+      {...author,author:{...author.author,ownerId:id}},
+      {...author,aliases:[{...author.aliases[0],email:'private@example.com'}]},
+      {...author,externalIds:[{...author.externalIds[0],sessionToken:'secret'}]},
+      {...author,aliases:[{...author.aliases[0],locale:45}]},
+      {...author,externalIds:[{...author.externalIds[0],source:''}]},
+    ]){
+      expect(adminCatalogAuthorDetailSchema.safeParse(invalid).success).toBe(false);
+    }
   });
 });
