@@ -1165,6 +1165,168 @@
         ]
       }
     },
+    "/v1/admin/catalog/works/{workId}/rights": {
+      "get": {
+        "operationId": "AdminCatalogController_rightsLedger",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "workId",
+                    "items",
+                    "nextCursor",
+                    "isMetadataOnly"
+                  ],
+                  "properties": {
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "items": {
+                      "type": "array",
+                      "maxItems": 50,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "editionId",
+                          "revisionId",
+                          "reviewStatus",
+                          "territories",
+                          "claims",
+                          "expiresAt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "editionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "revisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "reviewStatus": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected",
+                              "withdrawn"
+                            ]
+                          },
+                          "territories": {
+                            "type": "array",
+                            "maxItems": 250,
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{2}$"
+                            }
+                          },
+                          "claims": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "display",
+                              "translation",
+                              "audio",
+                              "sharing"
+                            ],
+                            "properties": {
+                              "display": {
+                                "type": "boolean"
+                              },
+                              "translation": {
+                                "type": "boolean"
+                              },
+                              "audio": {
+                                "type": "boolean"
+                              },
+                              "sharing": {
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "expiresAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "isMetadataOnly": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Verified rights:read MFA/RBAC metadata-only rights claims; not publication",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
     "/v1/admin/catalog/works/{workId}/editions/{editionId}/revisions": {
       "get": {
         "operationId": "AdminCatalogController_revisionList",
