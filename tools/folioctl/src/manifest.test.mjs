@@ -1,33 +1,13 @@
 import {test} from 'node:test';
 import {strict as assert} from 'node:assert';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync,appendFileSync,readFileSync,existsSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {rmSync,symlinkSync,appendFileSync,readFileSync,existsSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {randomUUID,createHash} from 'node:crypto';
 import {manifestSchema,validatePreparedFolder,safeRelPath} from './manifest.mjs';
 
-function fixture(){
-  const root=mkdtempSync(join(tmpdir(),'folio-ctl-test-'));
-  const files=[
-    ['metadata/authors.ndjson',JSON.stringify({id:randomUUID(),canonical_name:'Fixture Author'})+'\n','metadata'],
-    ['metadata/works.ndjson',JSON.stringify({id:randomUUID(),original_title:'Fixture',original_language:'tr'})+'\n','metadata'],
-    ['metadata/editions.ndjson',JSON.stringify({id:randomUUID(),language:'tr'})+'\n','metadata'],
-    ['metadata/revisions.ndjson',JSON.stringify({id:randomUUID(),status:'draft'})+'\n','metadata'],
-    ['metadata/rights.ndjson',JSON.stringify({evidence:'Manual review required; not approved',display_allowed:false})+'\n','metadata'],
-    ['texts/part1/blocks.jsonl',JSON.stringify({block_id:randomUUID(),source_text:'Tamamen sentetik metin.'})+'\n','text'],
-  ];
-  const indexed=[];
-  for(const [path,text,kind] of files){
-    mkdirSync(dirname(join(root,path)),{recursive:true});
-    writeFileSync(join(root,path),text);
-    indexed.push({path,sha256:createHash('sha256').update(text).digest('hex'),size_bytes:Buffer.byteLength(text),kind});
-  }
-  const manifest={schema_version:'1.0.0',package_id:randomUUID(),created_at:'2026-10-10T00:00:00.000Z',source:'local-editorial',scope:'licensed-library',
-    declared_counts:{authors:1,works:1,editions:1,revisions:1},tool:{name:'synthetic-test',version:'0.1.0'},files:indexed};
-  writeFileSync(join(root,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
-  return {root,manifest};
-}
+import {fixture} from './fixtures.mjs';
+
 const cli=new URL('../bin/folioctl.mjs',import.meta.url).pathname;
 
 test('validated prepared folder has checksum for every indexed source and rights evidence',async()=>{

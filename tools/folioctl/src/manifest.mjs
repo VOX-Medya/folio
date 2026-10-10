@@ -2,6 +2,7 @@ import {z} from 'zod';
 import {lstatSync,readFileSync,readdirSync,statSync,createReadStream} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {resolve,relative,join,sep,posix} from 'node:path';
+import {indexedFileKind,createJsonlScanner,validateSemanticPackage} from './semantics.mjs';
 
 export const MAX_FILE_BYTES=512*1024*1024;
 export const MAX_PACKAGE_BYTES=4*1024*1024*1024;
@@ -77,7 +78,7 @@ export async function validatePreparedFolder(input){
     if(!expected)throw new Error(`Unindexed package file: ${file.path}`);
     if(expected.size_bytes!==file.size)throw new Error(`Size mismatch: ${file.path}`);
     if(await hashFile(file.absolute)!==expected.sha256)throw new Error(`SHA-256 mismatch: ${file.path}`);
-    if((file.path.startsWith('metadata/') && expected.kind!=='metadata') || (file.path.startsWith('texts/') && expected.kind!=='text'))throw new Error(`Incorrect file kind: ${file.path}`);
+    if(indexedFileKind(file.path)!==expected.kind)throw new Error(`Incorrect or unsupported file kind/path: ${file.path}`);
   }
   for(const name of ['authors','works','editions','revisions']){
     const file=files.find(f=>f.path===`metadata/${name}.ndjson`);
@@ -99,5 +100,16 @@ export async function validatePreparedFolder(input){
     if(sum.size>META_LIMIT)throw new Error('Oversized sha256sums.txt');
     if(readFileSync(sum.absolute,'utf8')!==checksumText)throw new Error('Checksum index differs from files');
   }
-  return {manifest,checksums:checksumText,count:physical.length,totalBytes:total};
+  const summaries=new Map(),rowBudget={rows:0};
+  for(const file of physical){
+    if(!['text','alignment'].includes(indexedFileKind(file.path)))continue;
+    const scanner=createJsonlScanner(file.path,rowBudget);
+    for await(const chunk of createReadStream(file.absolute))scanner.push(chunk);
+    summaries.set(file.path,scanner.finish());
+  }
+  const semantic=validateSemanticPackage(manifest,name=>{
+    const file=files.find(f=>f.path===name);
+    return file?readFileSync(file.absolute):null;
+  },summaries);
+  return {manifest,checksums:checksumText,count:physical.length,totalBytes:total,semantic};
 }

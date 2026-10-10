@@ -11,6 +11,7 @@
     "schema:write": "node src/write-schema.mjs"
   },
   "dependencies": {
+    "tar-stream": "^3.2.2",
     "zod": "^4.6.5"
   }
 }
