@@ -432,6 +432,54 @@ async function main():Promise<void>{
     check(browser.status===200&&
       adminCatalogWorkPageSchema.parse(JSON.parse(browser.body)).items.length===1,
       'Real direct-TLS HttpOnly Web session could not query MFA-verified metadata');
+
+    const cookieDraft={canonicalName:'Web Writer '+suffix};
+    check((await post(port,createRoot,cookie,cookieDraft)).status===403,
+      'Web admin POST without CSRF bypassed double-submit boundary');
+    check((await post(port,createRoot,{
+      ...cookie,'x-folio-csrf':'A'.repeat(43),
+    },cookieDraft)).status===403,
+      'Forged HMAC-CSRF permitted privileged author write');
+    check((await post(port,createRoot,{
+      ...cookie,origin:'https://wrong-origin.example',
+      'x-folio-csrf':'A'.repeat(43),
+    },cookieDraft)).status===403,
+      'Cross-origin cookie POST wrote an unpublished author');
+    check((await post(port,createRoot,{
+      ...cookie,authorization:'Bearer '+native.sessionToken,
+    },cookieDraft)).status===401,
+      'Bearer + cookie crossover created privileged author');
+    const csrfWire=await call(true,port,'/v1/auth/web/csrf',cookie);
+    const csrf=csrfWire.headers['x-folio-csrf'];
+    check(csrfWire.status===204&&typeof csrf==='string',
+      'Real direct-TLS authenticated cookie CSRF bootstrap unavailable');
+    const secureCookie={...cookie,'x-folio-csrf':csrf};
+    const cookieCreated=await post(port,createRoot,{
+      ...secureCookie,'x-user-id':guest.userId,'x-admin-role':'superadmin',
+      'x-request-id':'forged-cookie-trace',
+    },cookieDraft);
+    check(cookieCreated.status===201&&
+      cookieCreated.headers['cache-control']==='private, no-store'&&
+      cookieCreated.headers['x-request-id']!=='forged-cookie-trace',
+      'Same-origin Cookie + CSRF + MFA could not create an audited author');
+    const cookieId=adminCatalogAuthorCreatedSchema.parse(
+      JSON.parse(cookieCreated.body)).id;
+    const cookieAudit=await pool.query<{
+      actor_id:string;request_id:string;
+    }>('SELECT actor_id,request_id FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [cookieId,'author.create']);
+    check(cookieAudit.rows.length===1&&
+      cookieAudit.rows[0]?.actor_id===editor.userId&&
+      cookieAudit.rows[0]?.request_id===cookieCreated.headers['x-request-id'],
+      'CSRF-authorized web mutation did not audit the actual session owner');
+    const cookieWork=await post(port,root+'/works',secureCookie,{
+      originalTitle:'Web Work '+suffix,originalLanguage:'en',
+      authors:[{authorId:cookieId}],
+    });
+    check(cookieWork.status===201&&
+      adminCatalogWorkCreatedSchema.parse(JSON.parse(cookieWork.body))
+        .publicationStatus==='draft',
+      'Valid Web POST did not create a DRAFT-only canonical work');
     check((await call(true,port,search,{
       ...cookie,origin:'https://wrong-origin.example',
     })).status===403,'Cross-origin cookie read private admin draft');
@@ -469,12 +517,18 @@ async function main():Promise<void>{
       'Synthetic expired MFA proof could be denied for a different timestamp reason');
     check((await call(true,port,search,cookie)).status===403,
       'Expired same-device MFA remained authorized');
+    check((await post(port,createRoot,secureCookie,{
+      canonicalName:'Expired web editor '+suffix,
+    })).status===403,'Expired same-device MFA still authorized catalog draft POST');
     await pool.query(
       'UPDATE admin_role_memberships SET revoked_at=$1 WHERE user_id=$2::uuid',
       [new Date(),editor.userId],
     );
     check((await call(true,port,search,bearer)).status===403,
       'Revoked database role could still read private draft');
+    check((await post(port,createRoot,bearer,{
+      canonicalName:'Revoked editor '+suffix,
+    })).status===403,'Revoked persisted role still authorized draft POST');
 
     const specResponse=await call(true,port,'/openapi-json');
     check(specResponse.status===200,'HTTPS OpenAPI missing');
@@ -482,12 +536,21 @@ async function main():Promise<void>{
       paths:Record<string,Record<string,unknown>>;
     };
     check(!!spec.paths[root+'/works']?.get&&
-      !!spec.paths[root+'/authors']?.get,
-      'Explicit secure admin catalog endpoints missing from versioned OpenAPI');
+      !!spec.paths[root+'/authors']?.get&&
+      !!spec.paths[root+'/works']?.post&&
+      !!spec.paths[root+'/authors']?.post&&
+      !spec.paths[root+'/users'],
+      'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
     check((await call(true,port,search,bearer)).status===404,
       'Flag shutoff did not immediately hide private catalog API');
-    console.log('ADMIN CATALOG HTTPS PASS: default-off, direct socket TLS, signed-in session + exact-device MFA + DB catalog:read in one transaction, read-only TR/EN drafts, canonical aliases, bounded UUID pagination, wildcard literal, no private bodies/user search, cookie origin and native bearer separation, no-store 4xx/5xx, role revoke/expired MFA denial, OpenAPI. Synthetic folio_test ONLY.');
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Disabling catalog HTTP left POST author creation reachable');
+    process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
+    check((await post(port,createRoot,bearer,draftAuthor)).status===404,
+      'Independent admin write flag failed to turn off mutation');
+    console.log('ADMIN CATALOG HTTPS PASS: independently default-off GET/POST, verified TLS and native/session cookie + same-origin HMAC-CSRF; catalog:read vs edit, exact-device MFA, author and two-edition work DRAFT creation, trusted actor/request audit in one transaction, FK/unique rollback, malicious body/user/role headers denied, 400/401/403/404/409/503 private no-store, revocation/expiry and OpenAPI. Synthetic folio_test ONLY.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
