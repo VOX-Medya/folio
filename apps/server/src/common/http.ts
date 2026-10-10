@@ -39,7 +39,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
       400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 429: 'RATE_LIMITED', 503: 'SERVICE_UNAVAILABLE',
     };
     if (status === HttpStatus.TOO_MANY_REQUESTS) response.setHeader('Retry-After', '900');
-    if ((request.originalUrl ?? request.url ?? '').startsWith('/v1/me/')) {
+    if ((request.originalUrl ?? request.url ?? '').startsWith('/v1/me/') ||
+        (request.originalUrl ?? request.url ?? '').startsWith('/v1/auth/web/')) {
       response.setHeader('Cache-Control', 'private, no-store');
     }
     response.status(status).json({error: {

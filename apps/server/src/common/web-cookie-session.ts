@@ -51,6 +51,25 @@ function verifiedToken(raw:string):string {
   return raw;
 }
 
+/**
+ * Validate origin, TLS and absence of already-present credentials BEFORE
+ * performing any rate-limit accounting, password hash or session creation.
+ * Login CSRF does not use the session CSRF header since no session exists yet.
+ */
+export function assertSafeWebLoginRequest(request:WebCookieRequest,policy:WebCookiePolicy):void{
+  requireHttps(request);
+  const allowed=originOf(policy.origin);
+  csrfSecret(policy.csrfKeyHex);
+  if(request.headers?.origin!==allowed||
+     (request.headers?.['sec-fetch-site']!==undefined&&
+      request.headers['sec-fetch-site']!=='same-origin')){
+    throw new ForbiddenException('Web login origin denied');
+  }
+  if(request.headers?.cookie!==undefined||request.headers?.authorization!==undefined){
+    throw new UnauthorizedException('Existing authentication transport forbidden on login');
+  }
+}
+
 /** Set only AFTER DB-verified web sign-in on a genuine HTTPS connection. */
 export function issueWebSessionCookie(
   request:WebCookieRequest,rawBearer:string,policy:WebCookiePolicy,
@@ -154,5 +173,18 @@ export async function verifyWebCookieSession(
   }catch(error){
     if(error instanceof UnauthorizedException)throw error;
     throw new ServiceUnavailableException('Web session verification unavailable');
+  }
+}
+
+/** CSRF bootstrap cannot become a cross-site readable token endpoint. */
+export function assertSafeWebCsrfBootstrap(request:WebCookieRequest,policy:WebCookiePolicy):void{
+  requireHttps(request);
+  const allowed=originOf(policy.origin);
+  csrfSecret(policy.csrfKeyHex);
+  const rawOrigin=request.headers?.origin;
+  if((rawOrigin!==undefined&&rawOrigin!==allowed)||
+     (request.headers?.['sec-fetch-site']!==undefined&&
+      request.headers['sec-fetch-site']!=='same-origin')){
+    throw new ForbiddenException('Cross-origin CSRF bootstrap denied');
   }
 }
