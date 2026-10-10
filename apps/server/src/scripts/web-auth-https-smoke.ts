@@ -170,6 +170,8 @@ async function main(){
     check(csrfGet.status===204&&typeof csrf==='string'&&
       /^[A-Za-z0-9_-]{43}$/.test(csrf)&&csrfGet.body==='',
       'Verified cookie could not bootstrap CSRF');
+    check((await httpsCall(port,root+'/csrf','GET',{cookie})).status===403,
+      'CSRF bootstrap without Origin or Fetch Metadata was accepted');
     check((await httpsCall(port,root+'/csrf','GET',{
       cookie,'sec-fetch-site':'cross-site',
     })).status===403,'Cross-site CSRF bootstrap accepted');
@@ -186,7 +188,9 @@ async function main(){
     });
     check(logout.status===204&&logout.headers['set-cookie']?.[0]?.includes('Max-Age=0'),
       'Verified web logout did not clear the secure cookie');
-    check((await httpsCall(port,root+'/csrf','GET',{cookie})).status===401,
+    check((await httpsCall(port,root+'/csrf','GET',{
+      cookie,'sec-fetch-site':'same-origin',
+    })).status===401,
       'Revoked browser session still authorized');
 
     // Two accepted account attempts above (bad password + successful sign-in).
