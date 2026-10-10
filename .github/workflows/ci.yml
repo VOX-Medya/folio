@@ -38,6 +38,7 @@ jobs:
           bash infra/lab.sh import-smoke
           bash infra/lab.sh storage-quota-smoke
           bash infra/lab.sh storage-integrity-smoke
+          bash infra/lab.sh storage-malware-smoke
           bash infra/lab.sh auth-smoke
           bash infra/lab.sh admin-rbac-smoke
           bash infra/lab.sh admin-totp-smoke
