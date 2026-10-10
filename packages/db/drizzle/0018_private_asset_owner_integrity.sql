@@ -32,7 +32,8 @@ ALTER TABLE "media_assets"
 ALTER TABLE "media_assets"
   ADD CONSTRAINT "media_assets_status_ck" CHECK (
     "status" IN ('pending_verify','verified','rejected','deleted') AND
-    ("status"<>'verified' OR "verified_at" IS NOT NULL)
+    ("status"<>'verified' OR "verified_at" IS NOT NULL) AND
+    ("status"<>'pending_verify' OR "verified_at" IS NULL)
   );
 --> statement-breakpoint
 CREATE INDEX "media_assets_owner_status_idx"
