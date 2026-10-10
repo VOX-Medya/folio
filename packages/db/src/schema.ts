@@ -6,6 +6,7 @@ export const authors = pgTable('authors', {
   id: uuid('id').primaryKey().defaultRandom(),
   canonicalName: text('canonical_name').notNull(),
   sortName: text('sort_name').notNull(),
+  metadataVersion: integer('metadata_version').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, t => [index('authors_sort_name_idx').on(t.sortName)]);
 
@@ -15,6 +16,7 @@ export const works = pgTable('works', {
   originalLanguage: varchar('original_language', { length: 12 }).notNull(),
   firstPublicationYear: integer('first_publication_year'),
   publicationStatus: varchar('publication_status', {length: 24}).notNull().default('draft'),
+  metadataVersion: integer('metadata_version').notNull().default(0),
   createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
 }, t => [
   index('works_original_title_idx').on(t.originalTitle),

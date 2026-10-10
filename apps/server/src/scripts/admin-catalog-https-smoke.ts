@@ -14,6 +14,7 @@ import {
   adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
   adminCatalogAuthorPageSchema,adminCatalogWorkCreatedSchema,
   adminCatalogWorkDetailSchema,adminCatalogWorkPageSchema,apiErrorSchema,
+  canonicalAuthorMetadataUpdatedSchema,canonicalWorkMetadataUpdatedSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createFolioDb,registerPendingAccount,
@@ -53,6 +54,9 @@ async function call(secure:boolean,port:number,path:string,
 }
 function post(port:number,path:string,headers:Record<string,string>,body:unknown){
   return call(true,port,path,headers,'POST',body);
+}
+function patch(port:number,path:string,headers:Record<string,string>,body:unknown){
+  return call(true,port,path,headers,'PATCH',body);
 }
 
 async function main():Promise<void>{
@@ -164,6 +168,10 @@ async function main():Promise<void>{
       externalIds:[{source:'folio_ci',externalId:'native-'+suffix}]};
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Read-only rollout unexpectedly enabled catalog mutation');
+    check((await patch(port,authorDetailPath,bearer,{
+      expectedVersion:0,canonicalName:'Not edited',
+    })).status===404,
+      'Read-only rollout enabled canonical PATCH despite independent write flag');
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='true';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Non-contract write flag unexpectedly enabled mutation');
@@ -446,6 +454,79 @@ async function main():Promise<void>{
     check(collided.rows[0]?.count===0,
       'Duplicate external author key committed partial author row');
 
+    const authorPath=root+'/authors/'+nativeDraftId;
+    const authorPatchInput={expectedVersion:0,
+      canonicalName:'Updated Native Writer '+suffix,
+      aliases:[{name:'Updated Alias '+suffix,locale:'tr'}],
+      externalIds:[{source:'folio_ci',externalId:'updated-'+suffix}]};
+    for(const invalid of [
+      {expectedVersion:0},
+      {...authorPatchInput,role:'superadmin'},
+      {...authorPatchInput,actorId:guest.userId},
+      {...authorPatchInput,publicationStatus:'published'},
+      {...authorPatchInput,expectedVersion:-1},
+      {...authorPatchInput,externalIds:[{source:'folio_ci',externalId:'duplicate'},{
+        source:'folio_ci',externalId:'duplicate'}]},
+    ]){
+      const denied=await patch(port,authorPath,bearer,invalid);
+      check(denied.status===400,'Invalid canonical author metadata PATCH was accepted');
+    }
+    check((await patch(port,authorPath,{
+      authorization:'Bearer '+viewerSession.sessionToken,
+    },authorPatchInput)).status===403,
+      'MFA read-only role gained catalog:edit via PATCH');
+    check((await patch(port,authorPath,{
+      authorization:'Bearer '+web.sessionToken,
+    },authorPatchInput)).status===403,
+      'Password and valid admin role bypassed same-device MFA for author PATCH');
+    const patchedAuthor=await patch(port,authorPath,{
+      ...bearer,'x-user-id':guest.userId,'x-admin-role':'superadmin',
+      'x-request-id':'forged-author-update',
+    },authorPatchInput);
+    check(patchedAuthor.status===200&&
+      patchedAuthor.headers['cache-control']==='private, no-store'&&
+      patchedAuthor.headers['x-request-id']!=='forged-author-update',
+      'Verified catalog author metadata version update unavailable');
+    const savedAuthor=canonicalAuthorMetadataUpdatedSchema.parse(
+      JSON.parse(patchedAuthor.body));
+    check(savedAuthor.id===nativeDraftId&&savedAuthor.metadataVersion===1,
+      'Canonical author metadata version did not advance exactly once');
+    const afterAuthor=adminCatalogAuthorDetailSchema.parse(JSON.parse(
+      (await call(true,port,authorPath,bearer)).body));
+    check(afterAuthor.author.metadataVersion===1&&
+      afterAuthor.author.canonicalName==='Updated Native Writer '+suffix&&
+      afterAuthor.aliases.length===1&&
+      afterAuthor.aliases[0]?.name==='Updated Alias '+suffix&&
+      afterAuthor.externalIds.length===1&&
+      afterAuthor.externalIds[0]?.externalId==='updated-'+suffix,
+      'Author metadata patch lost canonical aliases or external IDs');
+    const originalAuthorAudit=await pool.query<{
+      actor_id:string;request_id:string;
+      before_json:{metadataVersion:number;canonicalName:string};
+      after_json:{metadataVersion:number;canonicalName:string};
+    }>('SELECT actor_id,request_id,before_json,after_json FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [nativeDraftId,'author.metadata.update']);
+    check(originalAuthorAudit.rows.length===1&&
+      originalAuthorAudit.rows[0]?.actor_id===editor.userId&&
+      originalAuthorAudit.rows[0]?.request_id===patchedAuthor.headers['x-request-id']&&
+      originalAuthorAudit.rows[0]?.before_json?.metadataVersion===0&&
+      originalAuthorAudit.rows[0]?.after_json?.metadataVersion===1&&
+      originalAuthorAudit.rows[0]?.after_json?.canonicalName==='Updated Native Writer '+suffix,
+      'Author patch audit did not preserve trusted actor and before/after');
+    // Two editors loaded metadata version 1: FOR UPDATE must serialize writes.
+    const authorRaces=await Promise.all([
+      patch(port,authorPath,bearer,{expectedVersion:1,
+        sortName:'First Writer '+suffix}),
+      patch(port,authorPath,bearer,{expectedVersion:1,
+        sortName:'Second Writer '+suffix}),
+    ]);
+    check(authorRaces.map(x=>x.status).sort().join(',')==='200,409',
+      'Concurrent canonical author updates lost optimistic conflict');
+    const finalAuthor=adminCatalogAuthorDetailSchema.parse(JSON.parse(
+      (await call(true,port,authorPath,bearer)).body));
+    check(finalAuthor.author.metadataVersion===2,
+      'Concurrent author PATCH did not increment metadata version once');
+
     const workInput={
       originalTitle:'Authorized Draft '+suffix,originalLanguage:'tr',
       authors:[{authorId:nativeDraftId,contribution:'author',sortOrder:0}],
@@ -563,6 +644,75 @@ async function main():Promise<void>{
       'Repeated real HTTPS canonical detail changed without an editorial update');
 
 
+    const workPath=root+'/works/'+createdWork.id;
+    for(const invalid of [
+      {expectedVersion:0},
+      {expectedVersion:0,publicationStatus:'published'},
+      {expectedVersion:0,rawSourceText:'invented'},
+      {expectedVersion:0,actorId:guest.userId,originalTitle:'Forged'},
+      {expectedVersion:0,originalTitle:' '},
+      {expectedVersion:0,firstPublicationYear:2600},
+    ]){
+      check((await patch(port,workPath,bearer,invalid)).status===400,
+        'Work editor accepted content, status, spoofed actor or empty patch');
+    }
+    check((await patch(port,workPath,{authorization:'Bearer '+
+      viewerSession.sessionToken},{expectedVersion:0,originalTitle:'Denied'})).status===403,
+      'Real read-only MFA role overwrote canonical work title');
+    const correctedTitle='Corrected Canonical Title '+suffix;
+    const patchedWork=await patch(port,workPath,{
+      ...bearer,'x-request-id':'forged-work-update',
+      'x-admin-role':'superadmin','x-user-id':guest.userId,
+    },{expectedVersion:0,originalTitle:correctedTitle,firstPublicationYear:1876});
+    check(patchedWork.status===200&&
+      patchedWork.headers['cache-control']==='private, no-store'&&
+      patchedWork.headers['x-request-id']!=='forged-work-update',
+      'MFA editor could not atomically PATCH unpublished canonical title/year');
+    const savedWork=canonicalWorkMetadataUpdatedSchema.parse(
+      JSON.parse(patchedWork.body));
+    check(savedWork.id===createdWork.id&&savedWork.metadataVersion===1&&
+      savedWork.publicationStatus==='draft',
+      'Draft work optimistic revision or publication status mismatch');
+    const revised=adminCatalogWorkDetailSchema.parse(JSON.parse(
+      (await call(true,port,workPath,bearer)).body));
+    check(revised.work.metadataVersion===1&&
+      revised.work.originalTitle===correctedTitle&&
+      revised.work.firstPublicationYear===1876&&
+      revised.work.publicationStatus==='draft'&&
+      revised.titles.filter(t=>t.kind==='original'&&t.language==='tr')
+        .every(t=>t.title===correctedTitle)&&
+      revised.titles.some(t=>t.language==='en'&&t.kind==='translation')&&
+      revised.editions.length===2,
+      'Canonical title PATCH corrupted original title, alternate translation or editions');
+    const workPatchAudit=await pool.query<{
+      actor_id:string;request_id:string;
+      before_json:{metadataVersion:number;originalTitle:string};
+      after_json:{metadataVersion:number;originalTitle:string;publicationStatus:string};
+    }>('SELECT actor_id,request_id,before_json,after_json FROM audit_events WHERE entity_id=$1::uuid AND action=$2',
+      [createdWork.id,'work.metadata.update']);
+    check(workPatchAudit.rows.length===1&&
+      workPatchAudit.rows[0]?.actor_id===editor.userId&&
+      workPatchAudit.rows[0]?.request_id===patchedWork.headers['x-request-id']&&
+      workPatchAudit.rows[0]?.before_json?.metadataVersion===0&&
+      workPatchAudit.rows[0]?.after_json?.metadataVersion===1&&
+      workPatchAudit.rows[0]?.after_json?.originalTitle===correctedTitle&&
+      workPatchAudit.rows[0]?.after_json?.publicationStatus==='draft',
+      'Canonical work metadata before-after audit missing original title or owner');
+    const workRaces=await Promise.all([
+      patch(port,workPath,bearer,{expectedVersion:1,firstPublicationYear:1877}),
+      patch(port,workPath,bearer,{expectedVersion:1,firstPublicationYear:1878}),
+    ]);
+    check(workRaces.map(x=>x.status).sort().join(',')==='200,409',
+      'Concurrent canonical work metadata updates ignored optimistic version');
+    const finalWork=adminCatalogWorkDetailSchema.parse(JSON.parse(
+      (await call(true,port,workPath,bearer)).body));
+    check(finalWork.work.metadataVersion===2&&
+      [1877,1878].includes(finalWork.work.firstPublicationYear??0),
+      'Work revision after competing requests was incoherent');
+    check((await patch(port,workPath+'?publicationStatus=published',bearer,{
+      expectedVersion:2,originalTitle:'Query Forgery',
+    })).status===400,'Query metadata override bypassed strict PATCH route');
+
     // Failure AFTER work, author, title and edition insertion must unwind
     // all of them; not merely reject an invalid foreign ID before writing.
     const rolledBackName='Rolled Back '+suffix;
@@ -645,6 +795,36 @@ async function main():Promise<void>{
     check(csrfWire.status===204&&typeof csrf==='string',
       'Real direct-TLS authenticated cookie CSRF bootstrap unavailable');
     const secureCookie={...cookie,'x-folio-csrf':csrf};
+    check((await patch(port,workPath,cookie,{
+      expectedVersion:2,firstPublicationYear:1880,
+    })).status===403,
+      'Web cookie without HMAC-CSRF edited protected metadata');
+    check((await patch(port,workPath,{
+      ...cookie,'x-folio-csrf':'A'.repeat(43),
+    },{expectedVersion:2,firstPublicationYear:1880})).status===403,
+      'Forged Web CSRF value edited canonical metadata');
+    const cookiePatch=await patch(port,workPath,{
+      ...secureCookie,'x-request-id':'forged-browser-update',
+    },{expectedVersion:2,firstPublicationYear:1880});
+    check(cookiePatch.status===200&&
+      cookiePatch.headers['x-request-id']!=='forged-browser-update'&&
+      canonicalWorkMetadataUpdatedSchema.parse(JSON.parse(cookiePatch.body))
+        .metadataVersion===3,
+      'Valid same-origin cookie, HMAC-CSRF and same-device MFA could not PATCH draft');
+    const patchAudits=await pool.query<{request_id:string;actor_id:string}>(
+      'SELECT request_id,actor_id FROM audit_events WHERE entity_id=$1::uuid AND action=$2 ORDER BY created_at DESC',
+      [createdWork.id,'work.metadata.update']);
+    check(patchAudits.rows.some(row=>
+      row.request_id===cookiePatch.headers['x-request-id']&&
+      row.actor_id===editor.userId),
+      'Cookie-based patch audit did not contain the true editor and server trace');
+    const unknownPatch=await patch(port,root+'/works/'+randomUUID(),secureCookie,{
+      expectedVersion:0,originalTitle:'Never exist',
+    });
+    check(unknownPatch.status===404&&
+      unknownPatch.headers['cache-control']==='private, no-store',
+      'Authorized unknown canonical work patch did not return private 404');
+
     const cookieCreated=await post(port,createRoot,{
       ...secureCookie,'x-user-id':guest.userId,'x-admin-role':'superadmin',
       'x-request-id':'forged-cookie-trace',
@@ -717,6 +897,9 @@ async function main():Promise<void>{
       'Expired same-device MFA remained authorized');
     check((await call(true,port,root+'/works/'+createdWork.id,cookie)).status===403,
       'Expired exact-device MFA could still fetch unpublished work details');
+    check((await patch(port,workPath,secureCookie,{
+      expectedVersion:3,firstPublicationYear:1881,
+    })).status===403,'Expired exact-device MFA modified canonical work metadata');
     check((await post(port,createRoot,secureCookie,{
       canonicalName:'Expired web editor '+suffix,
     })).status===403,'Expired same-device MFA still authorized catalog draft POST');
@@ -728,6 +911,9 @@ async function main():Promise<void>{
       'Revoked database role could still read private draft');
     check((await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===403,
       'Revoked persisted role could still fetch canonical author metadata');
+    check((await patch(port,authorPath,bearer,{
+      expectedVersion:2,canonicalName:'Recalled writer',
+    })).status===403,'Revoked catalog:edit role still modified canonical author');
     check((await post(port,createRoot,bearer,{
       canonicalName:'Revoked editor '+suffix,
     })).status===403,'Revoked persisted role still authorized draft POST');
@@ -743,6 +929,8 @@ async function main():Promise<void>{
       !!spec.paths[root+'/authors']?.post&&
       !!spec.paths[root+'/works/{workId}']?.get&&
       !!spec.paths[root+'/authors/{authorId}']?.get&&
+      !!spec.paths[root+'/works/{workId}']?.patch&&
+      !!spec.paths[root+'/authors/{authorId}']?.patch&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
@@ -751,13 +939,19 @@ async function main():Promise<void>{
     check((await call(true,port,root+'/works/'+createdWork.id,bearer)).status===404&&
       (await call(true,port,root+'/authors/'+nativeDraftId,bearer)).status===404,
       'Disabling catalog read mode left unpublished detail endpoints available');
+    check((await patch(port,workPath,bearer,{
+      expectedVersion:3,firstPublicationYear:1882,
+    })).status===404,'Read flag shutoff did not hide metadata PATCH');
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Disabling catalog HTTP left POST author creation reachable');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Independent admin write flag failed to turn off mutation');
-    console.log('ADMIN CATALOG HTTPS PASS: default-off TLS catalog GET/POST; verified same-device MFA + persisted catalog:read vs edit, cookie origin HMAC-CSRF and separate native bearer; PostgreSQL REPEATABLE READ author/work detail snapshots with stable sorted links and no private content, work/edition atomic DRAFT create, trusted audit, FK/unique rollback, malformed UUID/role/owner denial, expired MFA/revoked role, no-store responses, OpenAPI. Synthetic folio_test ONLY.');
+    check((await patch(port,authorPath,bearer,{
+      expectedVersion:2,sortName:'Should not update',
+    })).status===404,'Independent write flag shutoff left PATCH enabled');
+    console.log('ADMIN CATALOG HTTPS PASS: real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
   }finally{
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();

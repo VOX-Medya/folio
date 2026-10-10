@@ -1,7 +1,12 @@
-import {asc,eq,sql} from 'drizzle-orm';
+import {and,asc,eq,sql} from 'drizzle-orm';
 import {z} from 'zod';
-import {authorCreateSchema,workCreateSchema} from '@folio/contracts';
-import type {AuthorCreate,WorkCreate} from '@folio/contracts';
+import {
+  authorCreateSchema,workCreateSchema,canonicalAuthorMetadataPatchSchema,
+  canonicalWorkMetadataPatchSchema,
+} from '@folio/contracts';
+import type {
+  AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,CanonicalWorkMetadataPatch,
+} from '@folio/contracts';
 import type {createFolioDb} from './index.js';
 import {withVerifiedAdminPermission} from './admin-authorization.js';
 import * as schema from './schema.js';
@@ -129,6 +134,134 @@ export async function createVerifiedAdminDraftWork(
     (tx,who)=>insertWorkDraft(tx,who.userId,input,traceId));
 }
 
+
+/**
+ * Versioned editorial metadata ONLY. A row FOR UPDATE serializes concurrent
+ * editors and the MFA/role share locks are held in this SAME transaction.
+ * The trace and actor are created/verified server-side, never caller input.
+ * Editor cannot change source text, country licensing or publication status.
+ */
+export async function patchVerifiedAdminAuthorMetadata(
+  db:CatalogDb,bearer:string,authorId:string,raw:unknown,requestId:string,
+){
+  const id=z.uuid().parse(authorId);
+  const traceId=z.uuid().parse(requestId);
+  const input:CanonicalAuthorMetadataPatch=canonicalAuthorMetadataPatchSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,identity)=>{
+    const [before]=await tx.select({
+      id:schema.authors.id,canonicalName:schema.authors.canonicalName,
+      sortName:schema.authors.sortName,
+      metadataVersion:schema.authors.metadataVersion,
+    }).from(schema.authors).where(eq(schema.authors.id,id)).limit(1).for('update');
+    if(!before)return null;
+    if(before.metadataVersion!==input.expectedVersion){
+      throw new Error('Canonical metadata version conflict');
+    }
+    const oldAliases=await tx.select({
+      name:schema.authorAliases.name,locale:schema.authorAliases.locale,
+    }).from(schema.authorAliases).where(eq(schema.authorAliases.authorId,id))
+      .orderBy(asc(schema.authorAliases.name),asc(schema.authorAliases.id));
+    const oldExternalIds=await tx.select({
+      source:schema.authorExternalIds.source,
+      externalId:schema.authorExternalIds.externalId,
+    }).from(schema.authorExternalIds).where(eq(schema.authorExternalIds.authorId,id))
+      .orderBy(asc(schema.authorExternalIds.source),asc(schema.authorExternalIds.externalId));
+    const version=before.metadataVersion+1;
+    const [updated]=await tx.update(schema.authors).set({
+      metadataVersion:version,
+      canonicalName:input.canonicalName??before.canonicalName,
+      sortName:input.sortName??before.sortName,
+    }).where(eq(schema.authors.id,id)).returning();
+    if(!updated)throw new Error('Canonical author disappeared during edit');
+    if(input.aliases!==undefined){
+      await tx.delete(schema.authorAliases).where(eq(schema.authorAliases.authorId,id));
+      if(input.aliases.length)await tx.insert(schema.authorAliases).values(
+        input.aliases.map(alias=>({authorId:id,name:alias.name,
+          locale:alias.locale??null})),
+      );
+    }
+    if(input.externalIds!==undefined){
+      await tx.delete(schema.authorExternalIds).where(eq(schema.authorExternalIds.authorId,id));
+      if(input.externalIds.length)await tx.insert(schema.authorExternalIds).values(
+        input.externalIds.map(ext=>({authorId:id,source:ext.source,
+          externalId:ext.externalId})),
+      );
+    }
+    const aliases=input.aliases===undefined?oldAliases:input.aliases.map(alias=>({
+      name:alias.name,locale:alias.locale??null,
+    }));
+    const externalIds=input.externalIds??oldExternalIds;
+    await tx.insert(schema.auditEvents).values({
+      actorId:identity.userId,action:'author.metadata.update',
+      entityType:'author',entityId:id,requestId:traceId,
+      beforeJson:{metadataVersion:before.metadataVersion,
+        canonicalName:before.canonicalName,sortName:before.sortName,
+        aliases:oldAliases,externalIds:oldExternalIds},
+      afterJson:{metadataVersion:version,
+        canonicalName:updated.canonicalName,sortName:updated.sortName,
+        aliases,externalIds},
+    });
+    return {id,metadataVersion:version};
+  });
+}
+
+export async function patchVerifiedAdminWorkMetadata(
+  db:CatalogDb,bearer:string,workId:string,raw:unknown,requestId:string,
+){
+  const id=z.uuid().parse(workId);
+  const traceId=z.uuid().parse(requestId);
+  const input:CanonicalWorkMetadataPatch=canonicalWorkMetadataPatchSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,identity)=>{
+    const [before]=await tx.select({
+      id:schema.works.id,originalTitle:schema.works.originalTitle,
+      originalLanguage:schema.works.originalLanguage,
+      firstPublicationYear:schema.works.firstPublicationYear,
+      publicationStatus:schema.works.publicationStatus,
+      metadataVersion:schema.works.metadataVersion,
+    }).from(schema.works).where(eq(schema.works.id,id)).limit(1).for('update');
+    if(!before)return null;
+    if(before.publicationStatus!=='draft'){
+      throw new Error('Published canonical work is immutable via draft editor');
+    }
+    if(before.metadataVersion!==input.expectedVersion){
+      throw new Error('Canonical metadata version conflict');
+    }
+    const version=before.metadataVersion+1;
+    const title=input.originalTitle??before.originalTitle;
+    const year=input.firstPublicationYear===undefined
+      ?before.firstPublicationYear:input.firstPublicationYear;
+    await tx.update(schema.works).set({
+      originalTitle:title,firstPublicationYear:year,metadataVersion:version,
+    }).where(eq(schema.works.id,id));
+    if(input.originalTitle!==undefined){
+      // Preserve original title/link consistency for both created drafts and
+      // legacy imported works that have no work_titles original row yet.
+      const changed=await tx.update(schema.workTitles).set({title})
+        .where(and(eq(schema.workTitles.workId,id),
+          eq(schema.workTitles.language,before.originalLanguage),
+          eq(schema.workTitles.kind,'original')))
+        .returning({id:schema.workTitles.id});
+      if(!changed.length)await tx.insert(schema.workTitles).values({
+        workId:id,language:before.originalLanguage,title,kind:'original',
+      });
+    }
+    await tx.insert(schema.auditEvents).values({
+      actorId:identity.userId,action:'work.metadata.update',
+      entityType:'work',entityId:id,requestId:traceId,
+      beforeJson:{metadataVersion:before.metadataVersion,
+        originalTitle:before.originalTitle,
+        originalLanguage:before.originalLanguage,
+        firstPublicationYear:before.firstPublicationYear,
+        publicationStatus:before.publicationStatus},
+      afterJson:{metadataVersion:version,originalTitle:title,
+        originalLanguage:before.originalLanguage,
+        firstPublicationYear:year,
+        publicationStatus:'draft'},
+    });
+    return {id,metadataVersion:version,publicationStatus:'draft' as const};
+  });
+}
+
 /** Internal detail fetch only. Public catalog listing awaits verified publishing rights.
  *
  * All child rows must come from one repeatable-read PostgreSQL snapshot: a
@@ -206,6 +339,7 @@ export async function getVerifiedAdminWorkDetails(
         originalLanguage:work.originalLanguage,
         firstPublicationYear:work.firstPublicationYear,
         publicationStatus:work.publicationStatus,
+        metadataVersion:work.metadataVersion,
       },
       authors:authors.map(author=>({
         id:author.id,name:author.name,role:author.role,
@@ -239,6 +373,7 @@ export async function getVerifiedAdminAuthorDetails(
     const [author]=await tx.select({
       id:schema.authors.id,canonicalName:schema.authors.canonicalName,
       sortName:schema.authors.sortName,
+      metadataVersion:schema.authors.metadataVersion,
     }).from(schema.authors).where(eq(schema.authors.id,id)).limit(1);
     if(!author)return null;
     const aliases=await tx.select({
