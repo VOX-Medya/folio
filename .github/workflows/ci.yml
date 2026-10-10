@@ -3,9 +3,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: folio-ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,6 +46,16 @@ jobs:
         run: pnpm ci:contract-test
       - run: pnpm licenses list --json > licenses.json && node tools/security/check-licenses.mjs licenses.json
       - run: pnpm e2e
+      - name: Preserve failed browser test diagnostics only
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: folio-browser-failure-${{ github.run_id }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build local Docker image (no deployment)
         run: docker build --file infra/Dockerfile --tag folio-ci:local .
       - name: Dependency audit (pre-release informational)
