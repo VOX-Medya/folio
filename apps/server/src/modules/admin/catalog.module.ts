@@ -14,7 +14,7 @@ import {
   getVerifiedAdminWorkDetails,patchVerifiedAdminAuthorMetadata,
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
-  patchVerifiedAdminEditionMetadata,
+  patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
 } from '@folio/db';
 import {
@@ -29,6 +29,7 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
+  adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -125,6 +126,9 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   workDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminWorkDetails(this.db(),bearer,id));
+  }
+  revisionDiff(bearer:string,input:unknown){
+    return this.authorized(()=>getVerifiedAdminRevisionMetadataDiff(this.db(),bearer,input));
   }
   authorDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
