@@ -12,7 +12,7 @@ type AuthDb=ReturnType<typeof createFolioDb>['db'];
  * real public login MUST remain disabled until an explicit trusted-hop contract.
  */
 export interface PeerRequest {
-  socket?:{remoteAddress?:string|null};
+  socket?:{remoteAddress?:string|null|undefined};
   headers?:Record<string,string|string[]|undefined>;
 }
 export function trustedSocketClientIp(request:PeerRequest):string{
