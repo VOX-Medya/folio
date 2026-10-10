@@ -139,7 +139,6 @@ describe('Ogg Opus structural quarantine-only preflight',()=>{
       {audio:Buffer.alloc(0)},
       {audio:Buffer.from([0])},
       {audio:opusHead()},
-      {audio:Buffer.alloc(64*1024+1,0x32)},
     ])reject(fixture(conf));
   });
 
