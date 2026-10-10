@@ -1,5 +1,18 @@
 name: folio_lab
 services:
+  storage-init:
+    image: alpine:3.21
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    security_opt:
+      - no-new-privileges:true
+    command: ["/bin/sh", "-ec", "chown 1000:1000 /vault && chmod 0700 /vault"]
+    volumes:
+      - folio_private_assets:/vault
+    restart: "no"
   api:
     build:
       context: ..
@@ -9,11 +22,16 @@ services:
       HOST: 0.0.0.0
       PORT: 3100
       NODE_ENV: development
+      FOLIO_PRIVATE_STORAGE_ROOT: /opt/folio-private
+    volumes:
+      - folio_private_assets:/opt/folio-private
     ports:
       - "127.0.0.1:${FOLIO_API_PORT:-3310}:3100"
     depends_on:
       postgres:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     networks:
       - folio_private
     healthcheck:
@@ -31,6 +49,9 @@ services:
     environment:
       DATABASE_URL: postgresql://folio_lab:${FOLIO_DB_PASSWORD:?Required lab-only password}@postgres:5432/folio_lab
       NODE_ENV: development
+      FOLIO_PRIVATE_STORAGE_ROOT: /opt/folio-private
+    volumes:
+      - folio_private_assets:/opt/folio-private
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,3 +82,5 @@ networks:
 volumes:
   folio_postgres_data:
     name: folio_lab_postgres_data
+  folio_private_assets:
+    name: folio_lab_private_assets
