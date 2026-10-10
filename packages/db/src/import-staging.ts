@@ -153,6 +153,16 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
     // different. This is REVIEW EVIDENCE, never an automatic work merger.
     // Batch bound and fail-closed if the match set is too large to examine.
     const hashesByWork=packageWorkSourceHashes(revisions,editions);
+    // Multiple package works claiming the same byte-for-byte source are also
+    // ambiguous. Never assume separate IDs or titles establish separate works.
+    const packageWorkIdsByHash=new Map<string,Set<string>>();
+    for(const [workId,sourceHashes] of hashesByWork){
+      for(const digest of sourceHashes){
+        const works=packageWorkIdsByHash.get(digest)??new Set<string>();
+        works.add(workId);
+        packageWorkIdsByHash.set(digest,works);
+      }
+    }
     const hashes=[...new Set(revisions.map(row=>row.source_sha256))];
     const workIdsByHash=new Map<string,Set<string>>();
     for(let i=0;i<hashes.length;i+=200){
@@ -186,7 +196,9 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
         row.title===w.original_title&&row.language===w.original_language)
         .map(row=>row.id);
       const hashes=hashesByWork.get(w.id)??new Set<string>();
-      const sourceMatchIds=[...hashes].flatMap(hash=>[...(workIdsByHash.get(hash)??[])]);
+      const sourceMatchIds=[...hashes].flatMap(hash=>[
+        ...(workIdsByHash.get(hash)??[]),...(packageWorkIdsByHash.get(hash)??[]),
+      ]);
       const match=boundedCandidates([...titleIds,...sourceMatchIds],w.id);
       const hashCollision=sourceMatchIds.some(id=>id!==w.id);
       const existingAuthorsForWork=existingWorkLinks.filter(link=>link.workId===w.id).map(link=>link.authorId).sort();
@@ -209,7 +221,10 @@ export async function previewPreparedCatalogImport(db:Database,raw:unknown){
     for(const r of revisions){
       const existing=existingRevisions.get(r.id);
       const same=!!existing&&existing.editionId===r.edition_id&&existing.language===r.language&&existing.rawSha256===r.source_sha256;
-      const sameSourceWorkIds=workIdsByHash.get(r.source_sha256)??new Set<string>();
+      const sameSourceWorkIds=new Set([
+        ...(workIdsByHash.get(r.source_sha256)??[]),
+        ...(packageWorkIdsByHash.get(r.source_sha256)??[]),
+      ]);
       const preparedWorkId=editionById.get(r.edition_id)?.work_id??'';
       const match=boundedCandidates(sameSourceWorkIds,preparedWorkId);
       items.push({kind:'revision',externalId:r.id,action:existing?(same?'noop':'conflict'):'deferred',
@@ -291,6 +306,16 @@ export async function resumeStagedCatalogMetadata(db:Database,actorId:string,bat
     items.filter(item=>item.kind==='revision').map(item=>revisionSchema.parse(item.payload)),
     items.filter(item=>item.kind==='edition').map(item=>editionSchema.parse(item.payload)),
   );
+  const ownerByDigest=new Map<string,string>();
+  for(const [workId,sourceHashes] of hashesByWork){
+    for(const digest of sourceHashes){
+      const prior=ownerByDigest.get(digest);
+      if(prior!==undefined&&prior!==workId){
+        throw new Error('In-package duplicate source SHA-256 requires human work identity review');
+      }
+      ownerByDigest.set(digest,workId);
+    }
+  }
   const order:Record<string,number>={author:0,work:1,edition:2,revision:3,rights:4};
   const sorted=items.filter(item=>item.status==='staged').sort((a,b)=>(order[a.kind]??99)-(order[b.kind]??99)||a.externalId.localeCompare(b.externalId));
   let applied=0;
