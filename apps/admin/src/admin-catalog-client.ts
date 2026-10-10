@@ -10,6 +10,7 @@ import {
   adminCatalogTitleAppendSchema,adminCatalogTitleAppendedSchema,
   adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
+  adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
 } from '@folio/contracts';
 import type {
   AdminCatalogAuthorDetail,AdminCatalogAuthorPage,
@@ -17,7 +18,7 @@ import type {
   AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,
   CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
-  AdminCatalogEditionMetadataPatch,
+  AdminCatalogEditionMetadataPatch,AdminCatalogRevisionDiff,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
 
@@ -235,4 +236,35 @@ export async function patchAdminEdition(
     'PATCH',200,parsed.data,
   );
   return parse(raw,value=>adminCatalogEditionMetadataUpdatedSchema.parse(value));
+}
+
+/** Read-only, bounded, server-authorized comparison. This does not query
+ * revision contents or create a publication/rights approval. The caller
+ * supplies only validated UUIDs and a server-issued pagination cursor. */
+export async function getAdminRevisionDiff(
+  workId:string,editionId:string,fromRevisionId:string,toRevisionId:string,
+  cursor?:string,signal?:AbortSignal,
+):Promise<AdminCatalogRevisionDiff>{
+  const parsed=adminCatalogRevisionDiffQuerySchema.safeParse({
+    fromRevisionId,limit:50,...(cursor===undefined?{}:{cursor}),
+  });
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  // All IDs are checked BEFORE the HTTPS request, including the target revision.
+  const work=checkedId(workId),edition=checkedId(editionId),to=checkedId(toRevisionId);
+  if(parsed.data.fromRevisionId===to)throw new CatalogClientError('invalid');
+  const query=new URLSearchParams({
+    fromRevisionId:parsed.data.fromRevisionId,limit:String(parsed.data.limit),
+  });
+  if(parsed.data.cursor)query.set('cursor',parsed.data.cursor);
+  const raw=await request(
+    '/v1/admin/catalog/works/'+work+'/editions/'+edition+
+      '/revisions/'+to+'/diff?'+query.toString(),
+    'GET',200,undefined,signal,
+  );
+  const result=parse(raw,data=>adminCatalogRevisionDiffSchema.parse(data));
+  if(result.editionId!==edition||result.fromRevisionId!==parsed.data.fromRevisionId||
+    result.toRevisionId!==to){
+    throw new CatalogClientError('unexpected');
+  }
+  return result;
 }
