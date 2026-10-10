@@ -54,3 +54,6 @@
 - CPU/RAM DB/worker konkurensleri sınırlandırılır; ses dosyaları bant genişliğine ve disk alanına göre kapasite planı. 1.000 kitap metadata önemsiz, ses ve eşzamanlı yüklemede asıl yük.
 - App/DB/worker healthcheck, readiness/liveness, günlük log rotation, disk/RAM/queue/DB connection monitoring; hata uyarısı.
 - Dosya varlığını backup ile değil storage adapter semantiğiyle sağlar; tek VPS SLA sağlamaz, uzakta şifreli yedek + kurtarma tatbikatı zorunlu.
+
+## CI platform sozlesmesi (#7, 10 Ekim 2026)
+Ubuntu CI `pnpm check`, paylasilan tipler, Drizzle, NestJS, Vite, unit/HTTP, OpenAPI drift, Playwright Chrome, lisans bildirim taramasi ve yerel Docker imaj derlemesini dogrular. Expo `pnpm mobile:export` komutu web JS + Android Hermes + iOS Hermes JS bundle ciktilarini birlikte uretir; `tools/ci/check-expo-exports.mjs` uc hedefi zorunlu kilar. Bu derlemeler native APK/AAB/IPA veya gercek Android/iOS cihaz testi DEGILDIR; bunlar V1-04 kabul kapisinda ayrica uygulanir. Gelistirme audit uyarilari `docs/09-DEPENDENCY-RISKS.md` icinde kayitli; yayin CI icin guvenlik denetimi ayrica zorunlu bloklayicidir. Bu karar prod dagitimi yetkilendirmez.
