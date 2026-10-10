@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { apiErrorSchema, capabilityPageSchema, fetchCapabilities, healthResponseSchema } from '@folio/contracts';
+import {
+  apiErrorSchema,capabilityPageSchema,fetchCapabilities,
+  fetchSystemHealth,fetchSystemReadiness,healthResponseSchema,
+  readinessResponseSchema,SystemHttpError,
+} from '@folio/contracts';
 import { createFolioApp } from './main.js';
 
 describe('Folio API live HTTP contract', () => {
@@ -13,6 +17,7 @@ describe('Folio API live HTTP contract', () => {
       const health = await fetch(`${base}/v1/health`);
       expect(health.status).toBe(200);
       expect(healthResponseSchema.parse(await health.json())).toEqual({status: 'ok'});
+      expect(await fetchSystemHealth(base)).toEqual({status:'ok'});
       const requestId = health.headers.get('x-request-id');
       expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
       const firstResponse = await fetch(`${base}/v1/system/capabilities?limit=2`);
@@ -37,10 +42,19 @@ describe('Folio API live HTTP contract', () => {
       expect(notFound.status).toBe(404);
       expect(apiErrorSchema.parse(await notFound.json()).error.code).toBe('NOT_FOUND');
       const ready = await fetch(`${base}/v1/ready`);
-      if (!process.env.DATABASE_URL) {
+      if (ready.status===200) {
+        expect(readinessResponseSchema.parse(await ready.json())).toEqual({status:'ready'});
+        expect(await fetchSystemReadiness(base)).toEqual({status:'ready'});
+      }else{
         expect(ready.status).toBe(503);
-        expect(apiErrorSchema.parse(await ready.json()).error.code).toBe('SERVICE_UNAVAILABLE');
+        const body=apiErrorSchema.parse(await ready.json());
+        expect(body.error.code).toBe('SERVICE_UNAVAILABLE');
+        await expect(fetchSystemReadiness(base)).rejects.toMatchObject({
+          name:'SystemHttpError',status:503,code:'SERVICE_UNAVAILABLE',
+        });
       }
+      if(!process.env.DATABASE_URL)expect(ready.status).toBe(503);
+      expect(SystemHttpError.name).toBe('SystemHttpError');
       const documentResponse = await fetch(`${base}/openapi-json`);
       expect(documentResponse.status).toBe(200);
       const document = await documentResponse.json();
