@@ -499,6 +499,28 @@ export const contentRevisionCreateSchema = z.object({
 });
 export type ContentRevisionCreate = z.infer<typeof contentRevisionCreateSchema>;
 
+/** Admin-only unpublished chapter preview: no private artifact keys or rights claims. */
+export const adminContentChapterResponseSchema=z.object({
+  workId:z.uuid(),editionId:z.uuid(),
+  revision:z.object({
+    id:z.uuid(),parentRevisionId:z.uuid().nullable(),
+    language:z.enum(['tr','en']),status:z.string().min(1),
+    sourceSha256:z.string().regex(/^[a-f0-9]{64}$/),
+    provenanceId:z.uuid(),
+  }).strict(),
+  chapter:z.object({
+    id:z.uuid(),ordinal:z.number().int().min(0),heading:z.string(),
+  }).strict(),
+  blocks:z.array(z.object({
+    id:z.uuid(),ordinal:z.number().int().min(0),
+    kind:contentBlockKindSchema,sourceText:z.string().min(1),
+    textSha256:z.string().regex(/^[a-f0-9]{64}$/),
+    includeNormal:z.boolean(),includeRsvp:z.boolean(),includeAudio:z.boolean(),
+  }).strict()),
+}).strict();
+export type AdminContentChapterResponse=z.infer<typeof adminContentChapterResponseSchema>;
+
+
 /** Privileged RIGHTS:READ evidence claims ledger. This is NOT a rights
  * decision or grant. Never include raw legal evidence, source URL, reviewer,
  * owner identity, private object locations or any user library data. */

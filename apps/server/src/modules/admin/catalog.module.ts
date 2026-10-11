@@ -19,6 +19,7 @@ import {
   removeVerifiedAdminEmptyDraftEdition,
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
+  getVerifiedAdminContentChapter,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
   proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,
   listVerifiedAdminWorkMatchReviews,
@@ -46,6 +47,7 @@ import {
   adminImportCandidatePageSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
+  adminContentChapterResponseSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
 } from '@folio/contracts';
 import {
@@ -162,6 +164,9 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   revisionDiff(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminRevisionMetadataDiff(this.db(),bearer,input));
+  }
+  contentChapter(bearer:string,input:unknown){
+    return this.authorized(()=>getVerifiedAdminContentChapter(this.db(),bearer,input));
   }
   revisionList(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminEditionRevisions(this.db(),bearer,input));
@@ -335,6 +340,40 @@ const rightsLedgerResultApi={
     isMetadataOnly:{type:'boolean',enum:[true]},
   },
 };
+
+const contentChapterResultApi={
+  type:'object',additionalProperties:false,
+  required:['workId','editionId','revision','chapter','blocks'],
+  properties:{
+    workId:detailUuidApi,editionId:detailUuidApi,
+    revision:{type:'object',additionalProperties:false,
+      required:['id','parentRevisionId','language','status','sourceSha256','provenanceId'],
+      properties:{
+        id:detailUuidApi,parentRevisionId:{...detailUuidApi,nullable:true},
+        language:{type:'string',enum:['tr','en']},status:{type:'string',minLength:1},
+        sourceSha256:{type:'string',pattern:'^[a-f0-9]{64}$'},provenanceId:detailUuidApi,
+      },
+    },
+    chapter:{type:'object',additionalProperties:false,
+      required:['id','ordinal','heading'],
+      properties:{id:detailUuidApi,ordinal:{type:'integer',minimum:0},heading:{type:'string'}},
+    },
+    blocks:{type:'array',items:{type:'object',additionalProperties:false,
+      required:['id','ordinal','kind','sourceText','textSha256',
+        'includeNormal','includeRsvp','includeAudio'],
+      properties:{
+        id:detailUuidApi,ordinal:{type:'integer',minimum:0},
+        kind:{type:'string',enum:['paragraph','heading','footnote','page_number',
+          'running_header','publisher_note','preface','endnote','poetry','quote',
+          'list','image_ref']},
+        sourceText:{type:'string',minLength:1},
+        textSha256:{type:'string',pattern:'^[a-f0-9]{64}$'},
+        includeNormal:{type:'boolean'},includeRsvp:{type:'boolean'},includeAudio:{type:'boolean'},
+      },
+    }},
+  },
+};
+
 const revisionListResultApi={
   type:'object',additionalProperties:false,
   required:['editionId','items','nextCursor','isMetadataOnly'],
@@ -889,6 +928,37 @@ export class AdminCatalogController {
     });
     if(!result)throw new NotFoundException('Canonical rights scope not found');
     return adminCatalogRightsLedgerSchema.parse(result);
+  }
+
+
+  /** Editorial-only source preview, never the public reader rights gate. */
+  @Get('works/:workId/editions/:editionId/revisions/:revisionId/chapters/:chapterId')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified MFA/RBAC immutable draft chapter text preview, not a public reader'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiParam({name:'revisionId',type:String,format:'uuid'})
+  @ApiParam({name:'chapterId',type:String,format:'uuid'})
+  @ApiOkResponse({schema:contentChapterResultApi})
+  async contentChapter(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Param('editionId') rawEditionId:string,
+    @Param('revisionId') rawRevisionId:string,
+    @Param('chapterId') rawChapterId:string,
+    @Query() query:Record<string,unknown>){
+    this.rejectWriteQuery(query);
+    const ids=[rawWorkId,rawEditionId,rawRevisionId,rawChapterId]
+      .map(id=>adminCatalogIdSchema.safeParse(id));
+    if(ids.some(id=>!id.success)){
+      throw new BadRequestException('Invalid canonical chapter scope');
+    }
+    const bearer=await this.bearer(request);
+    const result=await this.store.contentChapter(bearer,{
+      workId:rawWorkId,editionId:rawEditionId,
+      revisionId:rawRevisionId,chapterId:rawChapterId,
+    });
+    if(!result)throw new NotFoundException('Canonical chapter not found');
+    return adminContentChapterResponseSchema.parse(result);
   }
 
   @Get('works/:workId/editions/:editionId/revisions')

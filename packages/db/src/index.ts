@@ -13,7 +13,7 @@ export {createFolioBoss, initializeFolioQueues, folioQueues, folioQueueNames, fo
 export {executeFolioJobOnce} from './job-execution.js';
 export type {FolioJobIdentity, FolioJobTx} from './job-execution.js';
 export {createCanonicalAuthor,createCanonicalWork,createVerifiedAdminDraftAuthor,createVerifiedAdminDraftWork,getCanonicalWorkDetails,getVerifiedAdminWorkDetails,getVerifiedAdminAuthorDetails,patchVerifiedAdminAuthorMetadata,patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,patchVerifiedAdminEditionMetadata,removeVerifiedAdminWorkTitle,removeVerifiedAdminWorkAuthor,patchVerifiedAdminWorkTitleMetadata,patchVerifiedAdminWorkAuthorMetadata,removeVerifiedAdminEmptyDraftEdition} from './catalog.js';
-export {createContentRevision, getRevisionBlocks, sha256Text} from './content.js';
+export {createContentRevision, getRevisionBlocks, sha256Text, getVerifiedAdminContentChapter} from './content.js';
 export {compareSemanticRevisionMetadata,getInternalRevisionMetadataDiff,getVerifiedAdminRevisionMetadataDiff,getVerifiedAdminEditionRevisions} from './content-diff.js';
 export type {SemanticDiffBlock,SemanticDiffChange} from './content-diff.js';
 export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction,getVerifiedAdminRightsLedger} from './rights.js';

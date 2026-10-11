@@ -1,10 +1,11 @@
 import {createHash} from 'node:crypto';
-import {and, eq} from 'drizzle-orm';
+import {and, asc, eq} from 'drizzle-orm';
 import {z} from 'zod';
 import {contentRevisionCreateSchema} from '@folio/contracts';
 import type {ContentRevisionCreate} from '@folio/contracts';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
+import {withVerifiedAdminPermission} from './admin-authorization.js';
 
 type ContentDb = ReturnType<typeof createFolioDb>['db'];
 export const sha256Text = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -77,4 +78,57 @@ export async function getRevisionBlocks(db:ContentDb, revisionId:string, mode:'n
   return joined.filter(({block:b})=>mode==='normal'?b.includeNormal:mode==='rsvp'?b.includeRsvp:b.includeAudio)
     .sort((a,b)=>a.chapterOrdinal-b.chapterOrdinal||a.block.ordinal-b.block.ordinal)
     .map(item=>item.block);
+}
+
+/** Admin editorial chapter preview. Never expose this under public routes.
+ * Live session, role and same-device MFA are locked with the read snapshot. */
+export async function getVerifiedAdminContentChapter(
+  db:ContentDb,bearer:string,rawInput:unknown,
+){
+  const input=z.object({
+    workId:z.uuid(),editionId:z.uuid(),revisionId:z.uuid(),chapterId:z.uuid(),
+  }).strict().parse(rawInput);
+  return withVerifiedAdminPermission(db,bearer,'catalog:read',async tx=>{
+    const [revision]=await tx.select({
+      id:schema.contentRevisions.id,
+      parentRevisionId:schema.contentRevisions.parentRevisionId,
+      language:schema.contentRevisions.language,
+      status:schema.contentRevisions.status,
+      sourceSha256:schema.contentRevisions.rawSha256,
+      provenanceId:schema.contentRevisions.provenanceId,
+    }).from(schema.contentRevisions)
+      .innerJoin(schema.editions,and(
+        eq(schema.editions.id,schema.contentRevisions.editionId),
+        eq(schema.editions.workId,input.workId),
+      ))
+      .where(and(
+        eq(schema.contentRevisions.id,input.revisionId),
+        eq(schema.contentRevisions.editionId,input.editionId),
+      )).limit(1);
+    if(!revision)return null;
+    const [chapter]=await tx.select({
+      id:schema.contentChapters.chapterId,
+      ordinal:schema.contentChapters.ordinal,
+      heading:schema.contentChapters.heading,
+    }).from(schema.contentChapters).where(and(
+      eq(schema.contentChapters.revisionId,revision.id),
+      eq(schema.contentChapters.chapterId,input.chapterId),
+    )).limit(1);
+    if(!chapter)return null;
+    const blocks=await tx.select({
+      id:schema.contentBlocks.blockId,
+      ordinal:schema.contentBlocks.ordinal,
+      kind:schema.contentBlocks.kind,
+      sourceText:schema.contentBlocks.sourceText,
+      textSha256:schema.contentBlocks.textSha256,
+      includeNormal:schema.contentBlocks.includeNormal,
+      includeRsvp:schema.contentBlocks.includeRsvp,
+      includeAudio:schema.contentBlocks.includeAudio,
+    }).from(schema.contentBlocks).where(and(
+      eq(schema.contentBlocks.revisionId,revision.id),
+      eq(schema.contentBlocks.chapterId,input.chapterId),
+    )).orderBy(asc(schema.contentBlocks.ordinal));
+    return {workId:input.workId,editionId:input.editionId,
+      revision,chapter,blocks};
+  },{isolationLevel:'repeatable read'});
 }

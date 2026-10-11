@@ -21,6 +21,7 @@ import {
   adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListSchema,adminCatalogRightsLedgerSchema,
+  adminContentChapterResponseSchema,
   adminCatalogWorkAuthorAppendedSchema,
   adminImportCandidateResultSchema,adminImportCandidatePageSchema,
 } from '@folio/contracts';
@@ -1855,6 +1856,72 @@ async function main():Promise<void>{
           makeDiffBlock(sourceAdded,addedBlockId,1),
         ]}],
     });
+
+
+    // #13: real private chapter text over Nest direct TLS and Folio PostgreSQL.
+    // Earlier immutable revision must still return its original paragraph.
+    const chapterPath=(revisionId:string,workId=linkedWorkId,editionId=createdEdition.id)=>
+      root+'/works/'+workId+'/editions/'+editionId+
+      '/revisions/'+revisionId+'/chapters/'+chapterId;
+    const beforeChapter=await call(true,port,chapterPath(firstContent.revision.id),bearer);
+    check(beforeChapter.status===200&&
+      beforeChapter.headers['cache-control']==='private, no-store',
+      'Authenticated admin could not read immutable original chapter');
+    const beforeParsed=adminContentChapterResponseSchema.parse(
+      JSON.parse(beforeChapter.body));
+    check(beforeParsed.workId===linkedWorkId&&
+      beforeParsed.editionId===createdEdition.id&&
+      beforeParsed.revision.id===firstContent.revision.id&&
+      beforeParsed.revision.parentRevisionId===null&&
+      beforeParsed.revision.sourceSha256===diffBase.rawSha256&&
+      beforeParsed.revision.provenanceId===firstContent.revision.provenanceId&&
+      beforeParsed.chapter.id===chapterId&&
+      beforeParsed.chapter.heading==='Synthetic example chapter'&&
+      beforeParsed.blocks.length===1&&
+      beforeParsed.blocks[0]?.sourceText===sourceBefore&&
+      beforeParsed.blocks[0]?.textSha256===sha256Text(sourceBefore),
+      'Chapter preview lost source SHA, chapter ordering or original immutable text');
+    const afterChapter=await call(true,port,chapterPath(changedContent.revision.id),
+      readonlyEditionBearer);
+    check(afterChapter.status===200,
+      'Verified MFA read-only catalog role could not read chapter');
+    const afterParsed=adminContentChapterResponseSchema.parse(
+      JSON.parse(afterChapter.body));
+    check(afterParsed.revision.parentRevisionId===firstContent.revision.id&&
+      afterParsed.blocks.length===2&&
+      afterParsed.blocks[0]?.sourceText===sourceAfter&&
+      afterParsed.blocks[1]?.sourceText===sourceAdded&&
+      afterParsed.blocks[0]?.ordinal===0&&afterParsed.blocks[1]?.ordinal===1,
+      'New revision overwrote old chapter or lost paragraph order');
+    check((await call(true,port,chapterPath(firstContent.revision.id))).status===401,
+      'Anonymous chapter preview bypassed session authentication');
+    check((await call(true,port,chapterPath(firstContent.revision.id),{
+      authorization:'Bearer '+guestSession.sessionToken,
+    })).status===403,'Unprivileged account received private source text');
+    check((await call(true,port,chapterPath(firstContent.revision.id),{
+      ...cookie,origin:'https://attacker.example',
+    })).status===403,'Cross-origin browser leaked unpublished chapter');
+    check((await call(false,plainAddress.port,
+      chapterPath(firstContent.revision.id),bearer)).status!==200,
+      'Plain HTTP exposed unpublished chapter');
+    check((await call(true,port,chapterPath(firstContent.revision.id,randomUUID()),
+      bearer)).status===404,'Cross-work chapter scope returned source text');
+    check((await call(true,port,chapterPath(firstContent.revision.id,
+      linkedWorkId,randomUUID()),bearer)).status===404,
+      'Cross-edition chapter scope returned source text');
+    check((await call(true,port,chapterPath(randomUUID()),bearer)).status===404,
+      'Unknown revision exposed draft source');
+    check((await call(true,port,
+      chapterPath(firstContent.revision.id)+'?ownerId='+editor.userId,
+      bearer)).status===400,'Untrusted query altered private chapter selection');
+    check(!beforeChapter.body.includes(diffBase.rawArtifactKey)&&
+      !beforeChapter.body.includes('rawArtifactKey')&&
+      !beforeChapter.body.includes('sourceLocator')&&
+      !beforeChapter.body.includes('sourceSnapshot')&&
+      !beforeChapter.body.includes(editor.email)&&
+      !beforeChapter.body.includes(native.sessionToken),
+      'Private raw artifact/actor metadata leaked in chapter response');
+    console.log('ADMIN CHAPTER HTTPS PASS: immutable revision text, SHA, stable blocks, MFA/RBAC, 401/403/404 and no raw artifact keys.');
 
     // #14 rights:read metadata only. Pending claims MUST NOT publish content.
     // Distinct private evidence and source URL exist in PostgreSQL, never JSON.
