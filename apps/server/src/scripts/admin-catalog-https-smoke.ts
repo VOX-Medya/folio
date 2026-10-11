@@ -20,11 +20,13 @@ import {
   adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListSchema,adminCatalogRightsLedgerSchema,
   adminCatalogWorkAuthorAppendedSchema,
+  adminImportCandidateResultSchema,adminImportCandidatePageSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
   createFolioDb,registerPendingAccount,submitRightsEvidence,
   schema,signInVerifiedAccount,verifyAccountEmail,
+  previewPreparedCatalogImport,stagePreparedCatalogImport,
 } from '@folio/db';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
 
@@ -961,6 +963,181 @@ async function main():Promise<void>{
       originalPair.rows.every(row=>row.publication_status==='draft'&&row.metadata_version===0),
       'Review mutated canonical work metadata or silently published/merged works');
     console.log('CANONICAL WORK MATCH REVIEW PASS: two independent MFA editors, 201/200/400/403/409, reversible-pair idempotency, stale refresh and no canonical merge/publish.');
+    // #19: an incoming package's *claimed* source metadata may create an
+    // MFA editorial case, NEVER an import approval or canonical work merge.
+    const incomingClaimPath=root+'/works/'+first.id+'/import-reviews';
+    const packageId=randomUUID(),incomingId=randomUUID();
+    const incomingTitle='Folio Editorial '+suffix+' First';
+    const manifestChecksum=randomBytes(32).toString('hex');
+    const claim={
+      packageId,manifestChecksum,incomingWorkId:incomingId,
+      incomingTitle,incomingLanguage:'tr' as const,
+    };
+    const beforeImportReview=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM import_batches');
+    check((await post(port,incomingClaimPath,cookie,claim)).status===403,
+      'Missing web CSRF opened incoming import identity review');
+    check((await post(port,incomingClaimPath,{
+      ...secureCookie,origin:'https://attacker.example',
+    },claim)).status===403,
+    'Cross-origin cookie forged incoming import candidate review');
+    check((await post(port,incomingClaimPath,readonlyBearer,claim)).status===403,
+      'Read-only role opened incoming import identity review');
+    for(const bad of [
+      {...claim,publicationStatus:'published'},
+      {...claim,autoMerge:true},
+      {...claim,rightsApproved:true},
+      {...claim,sourceText:'PRIVATE CONTENT'},
+      {...claim,manifestChecksum:'not-a-sha'},
+      {...claim,incomingWorkId:first.id},
+    ]){
+      check((await post(port,incomingClaimPath,secureCookie,bad)).status===400,
+        'Untrusted package request granted metadata/rights/merge or invalid SHA');
+    }
+    check((await post(port,incomingClaimPath,bearer,{
+      ...claim,incomingTitle:'Entirely different incoming work',
+    })).status===409,'Unmatched claimed title created a misleading candidate case');
+    check((await post(port,incomingClaimPath,bearer,{
+      ...claim,incomingTitle:'Entirely different incoming work',
+      sourceSha256:randomBytes(32).toString('hex'),
+    })).status===409,'Unverified nonmatching claimed SHA bypassed evidence inspection');
+    const madeClaim=await post(port,incomingClaimPath,{
+      ...secureCookie,'x-user-id':guest.userId,
+      'x-admin-role':'superadmin','x-request-id':'spoofed-import-review',
+    },claim);
+    check(madeClaim.status===201&&
+      madeClaim.headers['x-request-id']!=='spoofed-import-review',
+      'Valid MFA editor could not propose an incoming metadata CLAIM');
+    const openedClaim=adminImportCandidateResultSchema.parse(JSON.parse(madeClaim.body));
+    check(openedClaim.candidateWorkId===first.id&&
+      openedClaim.packageId===packageId&&openedClaim.incomingWorkId===incomingId&&
+      openedClaim.status==='pending'&&openedClaim.reviewVersion===0&&
+      openedClaim.changed===true&&openedClaim.provenanceVerified===false,
+      'Incoming candidate incorrectly represented as package provenance verified');
+    const replay=await post(port,incomingClaimPath,bearer,claim);
+    check(replay.status===201&&
+      adminImportCandidateResultSchema.parse(JSON.parse(replay.body)).id===openedClaim.id&&
+      adminImportCandidateResultSchema.parse(JSON.parse(replay.body)).changed===false,
+      'Identical package work candidate created duplicate review');
+    check((await post(port,incomingClaimPath,bearer,{
+      ...claim,manifestChecksum:randomBytes(32).toString('hex'),
+    })).status===409,'Reused package UUID with changed manifest checksum was accepted');
+    check((await post(port,incomingClaimPath,bearer,{
+      ...claim,incomingTitle:incomingTitle+' altered',
+    })).status===409,'Previously filed package claim could silently change identity');
+    const getClaim=await call(true,port,incomingClaimPath,readonlyBearer);
+    check(getClaim.status===200&&
+      getClaim.headers['cache-control']==='private, no-store',
+      'Read-only MFA catalogue role could not see an unverified claim');
+    const claimPage=adminImportCandidatePageSchema.parse(JSON.parse(getClaim.body));
+    check(claimPage.items.length===1&&claimPage.items[0]?.id===openedClaim.id&&
+      claimPage.items[0]?.status==='pending'&&
+      claimPage.items[0]?.evidenceKind==='claimed_title'&&
+      claimPage.items[0]?.snapshotCurrent&&claimPage.items[0]?.provenanceVerified===false,
+      'Incoming claim pagination leaked bytes or falsified canonical match evidence');
+    check(!getClaim.body.includes(manifestChecksum)&&
+      !getClaim.body.includes(editor.email)&&
+      !getClaim.body.includes(native.sessionToken)&&
+      !getClaim.body.includes('sourceSha256')&&
+      !getClaim.body.includes('reviewedBy'),
+      'Unverified import review leaked manifest digest, reviewer or credentials');
+    check((await call(true,port,incomingClaimPath+'?userId='+editor.userId,
+      bearer)).status===400,'Incoming review API offered forbidden user search');
+    const claimDecisionPath=incomingClaimPath+'/'+openedClaim.id;
+    const claimDecision={expectedVersion:0,decision:'distinct',
+      rationale:'An independent editor marked the claimed package identity distinct; import remains blocked.'};
+    check((await patch(port,claimDecisionPath,bearer,claimDecision)).status===403,
+      'Same editor self-approved a claimed import identity');
+    check((await patch(port,claimDecisionPath,readonlyBearer,claimDecision)).status===403,
+      'Read-only role decided a pending import identity');
+    check((await patch(port,claimDecisionPath,reviewerBearerA,{
+      ...claimDecision,decision:'merge',
+    })).status===400,'Import identity decision accepted automatic merge');
+    check((await patch(port,claimDecisionPath,reviewerBearerA,{
+      ...claimDecision,rightsApproved:true,
+    })).status===400,'Import identity decision approved unreviewed rights');
+    const racingDecisions=await Promise.all([
+      patch(port,claimDecisionPath,reviewerBearerA,claimDecision),
+      patch(port,claimDecisionPath,reviewerBearerB,claimDecision),
+    ]);
+    check(racingDecisions.map(row=>row.status).sort().join(',')==='200,409'&&
+      adminImportCandidateResultSchema.parse(JSON.parse(
+        racingDecisions.find(row=>row.status===200)!.body)).reviewVersion===1,
+      'Two different MFA editors both committed the same incoming review');
+    check((await patch(port,claimDecisionPath,reviewerBearerA,claimDecision)).status===409,
+      'Duplicate incoming identity decision produced false-positive audit');
+    const storedClaim=await pool.query<{
+      status:string;review_version:number;proposed_by:string;reviewed_by:string|null;
+    }>('SELECT status,review_version,proposed_by,reviewed_by FROM import_candidate_reviews WHERE id=$1::uuid',
+      [openedClaim.id]);
+    check(storedClaim.rows[0]?.status==='distinct'&&
+      storedClaim.rows[0]?.review_version===1&&
+      storedClaim.rows[0]?.proposed_by===editor.userId&&
+      [reviewerA.userId,reviewerB.userId].includes(storedClaim.rows[0]?.reviewed_by??''),
+      'Untrusted account or double reviewer persisted incoming import decision');
+    const importAudits=await pool.query<{action:string;actor_id:string;request_id:string}>(
+      'SELECT action,actor_id,request_id FROM audit_events WHERE entity_type=$1 AND entity_id=$2::uuid',
+      ['import_candidate_review',openedClaim.id]);
+    check(importAudits.rows.length===2&&
+      importAudits.rows.some(row=>row.action==='import.candidate.review.proposed'&&
+        row.actor_id===editor.userId&&
+        row.request_id===madeClaim.headers['x-request-id'])&&
+      importAudits.rows.some(row=>row.action==='import.candidate.review.decided'&&
+        [reviewerA.userId,reviewerB.userId].includes(row.actor_id)),
+      'Incoming package claim created dishonest actor trace or duplicate audit');
+
+    // A human distinct verdict is not evidence of a validated package. The
+    // SAME Folio prepared import planner must STILL refuse this collision.
+    const preparedClaim={
+      packageId,manifestChecksum,schemaVersion:'1.0.0' as const,
+      records:{authors:[{
+        id:author.id,canonical_name:'Folio Canonical Writer '+suffix,
+      }],works:[{id:incomingId,original_title:incomingTitle,
+        original_language:'tr' as const,authors:[author.id]}],
+      editions:[],revisions:[],rightsRecords:[]},
+    };
+    const importPreview=await previewPreparedCatalogImport(db,preparedClaim);
+    check(!importPreview.canStage&&importPreview.totals.conflict>0,
+      'Recorded distinct claim bypassed strict read-only import preview');
+    let stagedUnsafe=false;
+    try{await stagePreparedCatalogImport(db,editor.userId,preparedClaim);
+      stagedUnsafe=true;}catch{/* expected: does NOT write stage */ }
+    check(!stagedUnsafe,'Reviewer distinct verdict staged ambiguous source package');
+    const afterImportReview=await pool.query<{count:number}>(
+      'SELECT COUNT(*)::integer AS count FROM import_batches');
+    check(afterImportReview.rows[0]?.count===beforeImportReview.rows[0]?.count,
+      'Incoming identity review or rejected import created a staging batch');
+
+    const newerCandidate=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'Claimed Stale '+suffix,originalLanguage:'en',
+      authors:[{authorId:author.id}],
+    });
+    const staleClaim={...claim,packageId:randomUUID(),incomingWorkId:randomUUID(),
+      incomingTitle:'Claimed Stale '+suffix,incomingLanguage:'en' as const};
+    const staleClaimPath=root+'/works/'+newerCandidate.id+'/import-reviews';
+    const staleCase=await post(port,staleClaimPath,bearer,staleClaim);
+    check(staleCase.status===201,'Fresh claimed identity could not be recorded');
+    const staleId=adminImportCandidateResultSchema.parse(JSON.parse(staleCase.body)).id;
+    const updated=await patch(port,root+'/works/'+newerCandidate.id,reviewerBearerA,{
+      expectedVersion:0,firstPublicationYear:1888,
+    });
+    check(updated.status===200,'Candidate metadata fixture update failed');
+    check((await patch(port,staleClaimPath+'/'+staleId,reviewerBearerB,{
+      expectedVersion:0,decision:'deferred',
+      rationale:'Changed canonical metadata requires a new independent preview.',
+    })).status===409,'Stale canonical metadata accepted a review verdict');
+    const reopened=await post(port,staleClaimPath,bearer,staleClaim);
+    check(reopened.status===201&&
+      adminImportCandidateResultSchema.parse(JSON.parse(reopened.body)).reviewVersion===1,
+      'Stale package review could not be explicitly refreshed');
+    const final=await patch(port,staleClaimPath+'/'+staleId,reviewerBearerB,{
+      expectedVersion:1,decision:'deferred',
+      rationale:'Revalidated changed metadata has insufficient independent proof.',
+    });
+    check(final.status===200&&
+      adminImportCandidateResultSchema.parse(JSON.parse(final.body)).reviewVersion===2,
+      'Refreshed package review was not safely versioned');
+    console.log('INCOMING PACKAGE CLAIM REVIEW PASS: real TLS/Postgres, 201/200/400/403/409, MFA two-person audit, stale version, duplicate/checksum protection; dry-run/stage remain deny.');
     const cookiePatch=await patch(port,workPath,{
       ...secureCookie,'x-request-id':'forged-browser-update',
     },{expectedVersion:2,firstPublicationYear:1880});
@@ -1668,6 +1845,9 @@ async function main():Promise<void>{
       !!spec.paths[root+'/works/{workId}/match-reviews']?.get&&
       !!spec.paths[root+'/works/{workId}/match-reviews']?.post&&
       !!spec.paths[root+'/works/{workId}/match-reviews/{reviewId}']?.patch&&
+      !!spec.paths[root+'/works/{workId}/import-reviews']?.get&&
+      !!spec.paths[root+'/works/{workId}/import-reviews']?.post&&
+      !!spec.paths[root+'/works/{workId}/import-reviews/{reviewId}']?.patch&&
       !!spec.paths[root+'/works/{workId}/titles/{titleId}']?.delete&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
@@ -1690,6 +1870,8 @@ async function main():Promise<void>{
       'Independent admin write flag failed to turn off mutation');
     check((await post(port,matchPath,bearer,candidate)).status===404,
       'Independent write flag enabled match review proposal');
+    check((await post(port,incomingClaimPath,bearer,claim)).status===404,
+      'Independent write flag left incoming package review intake enabled');
     check((await post(port,editionsPath,bearer,{
       expectedVersion:4,language:'tr',label:'Unavailable',
     })).status===404,

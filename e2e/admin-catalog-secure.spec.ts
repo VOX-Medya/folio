@@ -929,3 +929,110 @@ test('HTTPS Paperbound match reviewer requires explicit decision, blocks stale r
   await page.getByRole('button',{name:'EN',exact:true}).click();
   await expect(review).toContainText('Work identity review');
 });
+
+test('incoming package claim UX stays private, versioned and explicitly unverified',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const incoming='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+  const claimId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+  const checksum='f'.repeat(64),pkg=authorId;
+  const path='/v1/admin/catalog/works/'+workId+'/import-reviews';
+  let opened=false,conflict=true,reviewVersion=0,status='pending';
+  const writes:Array<{method:string;body:Record<string,unknown>;csrf:string|undefined}>=[];
+  await page.route('**/v1/**',async route=>{
+    const r=route.request(),url=new URL(r.url()).pathname;
+    if(url==='/v1/auth/web/csrf'){
+      await route.fulfill({status:204,headers:{'x-folio-csrf':'R'.repeat(43)}});
+    }else if(url==='/v1/admin/catalog/works'&&r.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:'Kanonik Kitap',
+        originalLanguage:'tr',publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(url==='/v1/admin/catalog/works/'+workId&&r.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Kanonik Kitap',
+          originalLanguage:'tr',firstPublicationYear:null,
+          publicationStatus:'draft',metadataVersion:0},
+        authors:[{id:authorId,name:'Kanonik Yazar',role:'author',sortOrder:0}],
+        titles:[{id:authorId,language:'tr',title:'Kanonik Kitap',kind:'original'}],
+        editions:[],
+      }));
+    }else if(url===path&&r.method()==='GET'){
+      await route.fulfill(respond({items:opened?[{
+        id:claimId,candidateWorkId:workId,packageId:pkg,incomingWorkId:incoming,
+        incomingTitle:'Gelen Kitap',incomingLanguage:'tr',
+        status,evidenceKind:'claimed_title',reviewVersion,
+        snapshotCurrent:true,provenanceVerified:false,
+      }]:[],nextCursor:null}));
+    }else if(url===path&&r.method()==='POST'){
+      const body=r.postDataJSON() as Record<string,unknown>;
+      writes.push({method:r.method(),body,csrf:r.headers()['x-folio-csrf']});
+      expect(r.headers()['authorization']).toBeUndefined();
+      expect(r.headers()['x-admin-role']).toBeUndefined();
+      expect(body).toEqual({packageId:pkg,manifestChecksum:checksum,
+        incomingWorkId:incoming,incomingTitle:'Gelen Kitap',
+        incomingLanguage:'tr'});
+      opened=true;
+      await route.fulfill(respond({
+        id:claimId,candidateWorkId:workId,packageId:pkg,incomingWorkId:incoming,
+        status:'pending',reviewVersion:0,changed:true,provenanceVerified:false,
+      },201));
+    }else if(url===path+'/'+claimId&&r.method()==='PATCH'){
+      const body=r.postDataJSON() as Record<string,unknown>;
+      writes.push({method:r.method(),body,csrf:r.headers()['x-folio-csrf']});
+      expect(body).not.toHaveProperty('mergeInto');
+      expect(body).not.toHaveProperty('rightsApproved');
+      if(conflict){
+        conflict=false;reviewVersion=1;
+        await route.fulfill(respond({error:{code:'CONFLICT'}},409));
+      }else{
+        expect(body).toMatchObject({expectedVersion:1,decision:'distinct'});
+        reviewVersion=2;status='distinct';
+        await route.fulfill(respond({
+          id:claimId,candidateWorkId:workId,packageId:pkg,incomingWorkId:incoming,
+          status:'distinct',reviewVersion:2,changed:true,provenanceVerified:false,
+        }));
+      }
+    }else await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Kanonik');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Kanonik Kitap/}).click();
+  await page.getByRole('button',{name:'Gelen paket eser incelemeleri'}).click();
+  const review=page.getByTestId('admin-import-candidate-reviews');
+  await expect(review).toContainText('henüz doğrulanmamış metadata');
+  await expect(review).toContainText('Henüz gelen eser incelemesi yok.');
+  await review.getByRole('textbox',{name:'Paket UUID'}).fill(pkg);
+  await review.getByRole('textbox',{name:'Manifest SHA-256'}).fill(checksum);
+  await review.getByRole('textbox',{name:'Gelen eser UUID'}).fill(incoming);
+  await review.getByRole('textbox',{name:'Gelen eser özgün başlığı'}).fill('Gelen Kitap');
+  await review.getByRole('button',{name:'İncelemeyi aç'}).click();
+  await expect(review).toContainText('Gelen Kitap');
+  await expect(review).toContainText('Paket dosyası ve SHA kanıtı doğrulanmadı.');
+  expect(writes).toHaveLength(1);
+  await review.getByRole('button',{name:'Kararı incele: Gelen Kitap'}).click();
+  await review.getByRole('combobox',{name:'Editoryal karar'}).selectOption('distinct');
+  await review.getByRole('textbox',{name:/Bağımsız editör gerekçesi/})
+    .fill('Bağımsız katalog editörü kimlik iddiasını karşılaştırdı ve ayrı değerlendirdi.');
+  await review.getByRole('button',{name:'Kararı açıkça kaydet'}).click();
+  await expect(review.getByRole('alert')).toContainText('Başka bir yönetici');
+  expect(writes).toHaveLength(2);
+  await expect(review.getByRole('button',{name:'Kararı açıkça kaydet'})).toBeDisabled();
+  await review.getByRole('button',{name:'Güncel incelemeleri yükle'}).click();
+  await expect(review).toContainText('İnceleme sürümü: 1');
+  expect(writes).toHaveLength(2);
+  await review.getByRole('button',{name:'Kararı incele: Gelen Kitap'}).click();
+  await review.getByRole('combobox',{name:'Editoryal karar'}).selectOption('distinct');
+  await review.getByRole('textbox',{name:/Bağımsız editör gerekçesi/})
+    .fill('Güncel sürümde kanıtın iki ayrı eseri temsil ettiği kayda geçirildi.');
+  await review.getByRole('button',{name:'Kararı açıkça kaydet'}).click();
+  await expect(review).toContainText('Farklı eser iddiası');
+  await expect(review.getByRole('button',{name:/Kararı incele/})).toHaveCount(0);
+  expect(writes).toHaveLength(3);
+  expect(writes.map(x=>x.csrf)).toEqual(Array(3).fill('R'.repeat(43)));
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth))
+    .toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(review).toContainText('Incoming package identity reviews');
+  await expect(review).toContainText('Import remains blocked.');
+});

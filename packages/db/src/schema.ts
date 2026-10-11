@@ -550,3 +550,50 @@ export const canonicalWorkMatchReviews=pgTable('canonical_work_match_reviews',{
       ${t.reviewedBy}<>${t.proposedBy})
   )`),
 ]);
+
+/** A CLAIMED incoming package work compared to an existing canonical work.
+ * It NEVER approves staging, canonical merge, rights or publication. */
+export const importCandidateReviews=pgTable('import_candidate_reviews',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  packageId:uuid('package_id').notNull(),
+  manifestChecksum:varchar('manifest_checksum',{length:64}).notNull(),
+  incomingWorkId:uuid('incoming_work_id').notNull(),
+  incomingTitle:text('incoming_title').notNull(),
+  incomingLanguage:varchar('incoming_language',{length:12}).notNull(),
+  claimedSourceSha256:varchar('claimed_source_sha256',{length:64}),
+  inputDigest:varchar('input_digest',{length:64}).notNull(),
+  candidateWorkId:uuid('candidate_work_id').notNull().references(()=>works.id,{onDelete:'restrict'}),
+  candidateWorkVersion:integer('candidate_work_version').notNull(),
+  candidateWorkStatus:varchar('candidate_work_status',{length:24}).notNull(),
+  evidenceKind:varchar('evidence_kind',{length:32}).notNull(),
+  evidenceDigest:varchar('evidence_digest',{length:64}).notNull(),
+  status:varchar('status',{length:24}).notNull().default('pending'),
+  reviewVersion:integer('review_version').notNull().default(0),
+  proposedBy:uuid('proposed_by').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  reviewedBy:uuid('reviewed_by').references(()=>userAccounts.id,{onDelete:'restrict'}),
+  rationale:text('rationale'),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('import_candidate_review_identity_unique').on(t.packageId,t.incomingWorkId,t.candidateWorkId),
+  index('import_candidate_review_candidate_idx').on(t.candidateWorkId,t.id),
+  index('import_candidate_review_package_idx').on(t.packageId,t.id),
+  check('import_candidate_review_different_id_ck',sql`${t.incomingWorkId}<>${t.candidateWorkId}`),
+  check('import_candidate_review_lang_ck',sql`${t.incomingLanguage} IN ('tr','en')`),
+  check('import_candidate_review_title_ck',sql`length(${t.incomingTitle}) BETWEEN 1 AND 600`),
+  check('import_candidate_review_digests_ck',sql`
+    ${t.manifestChecksum} ~ '^[a-f0-9]{64}$' AND
+    ${t.inputDigest} ~ '^[a-f0-9]{64}$' AND
+    ${t.evidenceDigest} ~ '^[a-f0-9]{64}$' AND
+    (${t.claimedSourceSha256} IS NULL OR ${t.claimedSourceSha256} ~ '^[a-f0-9]{64}$')
+  `),
+  check('import_candidate_review_versions_ck',sql`${t.candidateWorkVersion}>=0 AND ${t.reviewVersion}>=0`),
+  check('import_candidate_review_evidence_ck',sql`${t.evidenceKind} IN ('claimed_source_sha256','claimed_title')`),
+  check('import_candidate_review_status_ck',sql`${t.status} IN ('pending','distinct','deferred')`),
+  check('import_candidate_review_decision_ck',sql`(
+    (${t.status}='pending' AND ${t.reviewedBy} IS NULL AND ${t.rationale} IS NULL) OR
+    (${t.status}<>'pending' AND ${t.reviewedBy} IS NOT NULL AND
+      ${t.rationale} IS NOT NULL AND length(${t.rationale}) BETWEEN 24 AND 1200 AND
+      ${t.proposedBy}<>${t.reviewedBy})
+  )`),
+]);

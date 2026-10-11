@@ -12,6 +12,8 @@ import {
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRelationRemoveSchema,
   adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
+  adminImportCandidateProposeSchema,adminImportCandidatePageSchema,
+  adminImportCandidateResultSchema,
   adminWorkMatchQuerySchema,adminWorkMatchPageSchema,
   adminWorkMatchResultSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
@@ -26,6 +28,7 @@ import type {
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
   AdminCatalogEditionMetadataPatch,AdminCatalogRevisionDiff,
   AdminWorkMatchPropose,AdminWorkMatchDecision,
+  AdminImportCandidatePropose,
   AdminCatalogRevisionList,AdminCatalogRightsLedger,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
@@ -290,6 +293,37 @@ export async function decideAdminWorkMatchReview(
     'PATCH',200,parsed.data,
   );
   return parse(result,value=>adminWorkMatchResultSchema.parse(value));
+}
+
+/** Review intake is a CLIENT CLAIM, never a validated Folio package.
+ * No endpoint here can stage/apply/publish a package or merge works. */
+export async function listAdminImportCandidateReviews(candidateWorkId:string,cursor?:string){
+  const query=adminWorkMatchQuerySchema.safeParse(cursor===undefined?{}:{cursor});
+  if(!query.success)throw new CatalogClientError('invalid');
+  const url='/v1/admin/catalog/works/'+checkedId(candidateWorkId)+'/import-reviews'+
+    (query.data.cursor?'?cursor='+encodeURIComponent(query.data.cursor):'');
+  const response=await request(url,'GET',200);
+  return parse(response,value=>adminImportCandidatePageSchema.parse(value));
+}
+export async function proposeAdminImportCandidateReview(
+  candidateWorkId:string,raw:AdminImportCandidatePropose,
+){
+  const parsed=adminImportCandidateProposeSchema.safeParse(raw);
+  if(!parsed.success||parsed.data.incomingWorkId===candidateWorkId){
+    throw new CatalogClientError('invalid');
+  }
+  const result=await request('/v1/admin/catalog/works/'+checkedId(candidateWorkId)+
+    '/import-reviews','POST',201,parsed.data);
+  return parse(result,value=>adminImportCandidateResultSchema.parse(value));
+}
+export async function decideAdminImportCandidateReview(
+  candidateWorkId:string,reviewId:string,input:AdminWorkMatchDecision,
+){
+  const parsed=adminWorkMatchDecisionSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const result=await request('/v1/admin/catalog/works/'+checkedId(candidateWorkId)+
+    '/import-reviews/'+checkedId(reviewId),'PATCH',200,parsed.data);
+  return parse(result,value=>adminImportCandidateResultSchema.parse(value));
 }
 
 /** Only versioned bibliographic metadata of a DRAFT edition is editable.

@@ -25,3 +25,7 @@ An invalid/revoked session or role gets 401/403, unknown work/review 404 after a
 ## Still open: import-level human conflict intake
 
 This ledger can currently inspect **two pre-existing canonical draft work UUIDs only**. It does not accept an arbitrary untrusted source package, staged incoming author, invented UUID, author-author pair or web file upload. `folioctl --dry-run` remains strictly READ ONLY; a conflicting package still yields `canStage=false`, and `stagePreparedCatalogImport` / `resumeStagedCatalogMetadata` do not use identity-review judgments to bypass hash/title/ISBN conflict checks. The separate import review queue, human-approved explicit *safe* mapping/repackaging, rights review, assets and 25–50 complete books are not done (#18/#19/#23). Both #12 and #19 remain OPEN. Production release is BLOCKED pending the dependency vulnerability gate; no build is deployed.
+
+## Henüz katalogda bulunmayan paket eserleri (#19 kısmi)
+
+Önceki iki mevcut DRAFT kanonik eser incelemesinden **ayrı** olarak `import_candidate_reviews`, dışarıdan **iddia edilen** paket eseri ile bilinen mevcut katalog eserini karşılaştırabilir. Karar farklı MFA editöründen gelmeli, yalnız `distinct/deferred` olabilir ve import conflict kilidini kaldırmaz. Kapsam, veri güvenliği ve yeni `0020` migrasyonu için `docs/59-INCOMING-PACKAGE-CANDIDATE-REVIEW.md` belgesine bakın.
