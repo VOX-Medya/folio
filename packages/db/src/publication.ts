@@ -1,4 +1,5 @@
 import {and,desc,eq,isNull} from 'drizzle-orm';
+import {LocalStorageAdapter} from './local-storage.js';
 import {z} from 'zod';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
@@ -24,14 +25,14 @@ async function requirePublicationRights(tx:Transaction,workId:string,editionId:s
   ];
   for(const scope of scopes){
     const [record]=await tx.select().from(schema.rightsRecords).where(scope)
-      .orderBy(desc(schema.rightsRecords.createdAt),desc(schema.rightsRecords.id)).limit(1);
+      .orderBy(desc(schema.rightsRecords.createdAt),desc(schema.rightsRecords.id)).limit(1).for('share');
     if(!permitsPublication(record,territory,new Date()))throw new Error('Publication requires current approved rights at every scope');
   }
 }
 
 /** MFA-bound, audited editorial publication. Never changes rights or exposes raw text. */
 export async function setVerifiedAdminPublication(
-  db:Database,bearer:string,raw:unknown,requestId:string,
+  db:Database,bearer:string,raw:unknown,requestId:string,privateStorageRoot:string,
 ){
   const input=z.object({
     workId:z.uuid(),editionId:z.uuid(),revisionId:z.uuid(),
@@ -51,6 +52,9 @@ export async function setVerifiedAdminPublication(
       .limit(1).for('update');
     if(!work||!edition||!revision)throw new Error('Publication scope not found');
     const target=input.action==='publish'?'published':'withdrawn';
+    if(input.action==='publish'&&[work.publicationStatus,edition.status,revision.status].some(x=>x!=='draft')){
+      throw new Error('Publication requires an unpublished draft');
+    }
     if(input.action==='publish'){
       if(work.publicationStatus==='withdrawn'||edition.status==='withdrawn'||revision.status==='withdrawn'){
         throw new Error('Withdrawn material requires fresh editorial review');
@@ -61,11 +65,42 @@ export async function setVerifiedAdminPublication(
       const [block]=await tx.select({id:schema.contentBlocks.blockId}).from(schema.contentBlocks)
         .where(eq(schema.contentBlocks.revisionId,revision.id)).limit(1);
       if(!chapter||!block)throw new Error('Publication requires prepared chapter content');
-      const [asset]=await tx.select({id:schema.mediaAssets.id}).from(schema.mediaAssets)
-        .where(and(eq(schema.mediaAssets.ownerScope,'catalog'),eq(schema.mediaAssets.status,'verified'),
-          eq(schema.mediaAssets.sha256,revision.rawSha256))).limit(1);
-      if(!asset)throw new Error('Publication requires a verified catalog source asset');
-    }else if(revision.status!=='published'){
+      // Source provenance, catalog ownership, disk inode and actual bytes MUST match
+      // the immutable revision. Folioctl imports stay pending until this authorized review.
+      const [provenance]=await tx.select({snapshot:schema.sourceProvenance.sourceSnapshot})
+        .from(schema.sourceProvenance).where(eq(schema.sourceProvenance.id,revision.provenanceId)).limit(1);
+      const source=z.object({
+        mediaAssetId:z.uuid(),sourceSha256:z.string().regex(/^[a-f0-9]{64}$/),
+      }).passthrough().safeParse(provenance?.snapshot);
+      if(!source.success||source.data.sourceSha256!==revision.rawSha256){
+        throw new Error('Publication requires a verified catalog source asset');
+      }
+      const [asset]=await tx.select().from(schema.mediaAssets)
+        .where(eq(schema.mediaAssets.id,source.data.mediaAssetId)).limit(1).for('update');
+      if(!asset||asset.ownerScope!=='catalog'||asset.ownerUserId!==null||
+        asset.status!=='pending_verify'||asset.mime!=='text/plain'||
+        asset.sha256!==revision.rawSha256||
+        revision.rawArtifactKey!=='quarantine/catalog/'+asset.storageKey+'.blob'){
+        throw new Error('Publication requires a verified catalog source asset');
+      }
+      if(!privateStorageRoot||!privateStorageRoot.startsWith('/')){
+        throw new Error('Private catalog vault is not configured');
+      }
+      try {
+        await (await LocalStorageAdapter.create(privateStorageRoot))
+          .readAdminCatalogQuarantinedText({
+            scope:'catalog',ownerUserId:null,status:'pending_verify',
+            key:asset.storageKey,sha256:asset.sha256,
+            sizeBytes:asset.sizeBytes,mime:'text/plain',
+          });
+      } catch {
+        throw new Error('Publication requires a verified catalog source asset');
+      }
+      await tx.update(schema.mediaAssets).set({
+        status:'verified',verifiedAt:new Date(),
+      }).where(eq(schema.mediaAssets.id,asset.id));
+    }else if(revision.status!=='published'||edition.status!=='published'||
+      work.publicationStatus!=='published'){
       throw new Error('Only a published revision may be withdrawn');
     }
     await tx.update(schema.contentRevisions).set({status:target})
