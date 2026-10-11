@@ -172,7 +172,7 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
           : <PreparedAudioPlayer key={chapter.id} origin={origin??''}
               revisionId={revisionId} chapterId={chapter.id} locale={locale} colors={palette}
               hasNext={chapterIndex<book.chapters.length-1}
-              onNext={()=>setChapterIndex(n=>Math.min(book.chapters.length-1,n+1))}/>
+              onNext={()=>setChapterIndex(n=>Math.min(book.chapters.length-1,n+1))}/>}
 
       <View style={{gap:10,flexDirection:'row',flexWrap:'wrap'}}>
         <Pressable testID="folio-reader-prev" accessibilityRole="button"
