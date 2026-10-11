@@ -1,3 +1,5 @@
+> **MVP kapsam üst kararı (11.10.2026):** Bu dosyadaki 58 mobil/30 admin ekran referansı gelecek için tasarım kaynağıdır, **MVP'nin tamamlanma matrisi değildir**. MVP yalnız #29–#36, #21/#23 ve #39/#40/#43 için gerekli çalışan responsive yolları teslim eder; 6 viewport × 2 dil × 2 tema her PR'da istenmez. Kaynak: [docs/62-MVP-EXECUTION-PLAN.md](62-MVP-EXECUTION-PLAN.md).
+
 # Folio Tasarım Sözleşmesi (mobil + tablet + masaüstü web + admin)
 
 ## Kaynak ve ürün kararı
