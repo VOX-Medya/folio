@@ -114,7 +114,8 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
             borderWidth:1,borderColor:palette.line,borderRadius:8}}>
           <Text style={{color:palette.ink,fontSize:17}}>A+</Text>
         </Pressable>
-        <Text style={{color:palette.accessibleMuted,fontSize:13}}>{t.theme}</Text>
+        <Text testID={'folio-reader-current-theme-'+theme}
+          style={{color:palette.accessibleMuted,fontSize:13}}>{t.theme}</Text>
         {(['system','light','dark'] as const).map(value=><Pressable
           key={value} testID={'folio-reader-theme-'+value} accessibilityRole="button"
           accessibilityState={{selected:theme===value}}

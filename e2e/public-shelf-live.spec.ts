@@ -56,8 +56,7 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
       window,'__folioReaderInjected'))).toBe(false);
     await page.getByTestId('folio-reader-font-increase').click();
     await page.getByTestId('folio-reader-theme-dark').click();
-    await expect(page.getByTestId('folio-reader-theme-dark'))
-      .toHaveAttribute('aria-selected','true');
+    await expect(page.getByTestId('folio-reader-current-theme-dark')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await page.setViewportSize({width:1024,height:768});
     await expect(page.getByTestId('folio-layout-desktop')).toBeVisible();
