@@ -89,3 +89,5 @@ export {searchPublishedCatalog} from './public-catalog-search.js';
 export {listOwnedShelf,saveOwnedShelf,deleteOwnedShelf} from './owned-shelf.js';
 export {getOwnedReadingPosition,putOwnedReadingPosition,ReadingPositionConflict,ReadingPositionNotFound,InvalidReadingAnchor} from './reading-position.js';
 export {getOwnProfile,patchOwnProfile,requestOwnAccountDeletion,OwnProfileConflict} from './own-profile.js';
+
+export {rotateOwnedInvite,redeemOwnedInvite,decideOwnedFriendship,listOwnedFriendships,FriendInviteNotFound,FriendshipConflict,FriendshipNotFound,FriendshipForbidden} from './friendship.js';
