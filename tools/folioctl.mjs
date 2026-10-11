@@ -129,7 +129,11 @@ export async function validatePackage(manifestPath){
 export async function prepareVerifiedSingleBook(manifestPath){
   const result=await validatePackage(manifestPath);
   const input=resolve(manifestPath);
-  const manifest=validateManifestShape(JSON.parse(await readFile(input,'utf8')));
+  const manifestBytes=await readFile(input);
+  if(createHash('sha256').update(manifestBytes).digest('hex')!==result.manifestSha256){
+    throw new Error('Manifest changed after its initial validation');
+  }
+  const manifest=validateManifestShape(JSON.parse(manifestBytes.toString('utf8')));
   if(manifest.files.length!==1||manifest.files[0].kind!=='text'){
     throw new Error('Initial draft import supports one text asset; audio/cover require #16/#26');
   }
