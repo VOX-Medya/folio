@@ -22,6 +22,8 @@ export {registerPreparedAudioAsset,registerPreparedAudioVariant,replacePreparedA
 export {proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,listVerifiedAdminWorkMatchReviews} from './canonical-work-match-review.js';
 export {proposeVerifiedAdminImportCandidateReview,decideVerifiedAdminImportCandidateReview,listVerifiedAdminImportCandidateReviews} from './import-candidate-review.js';
 export {preparedImportSchema,canonicalJson,payloadHash,previewPreparedCatalogImport,stagePreparedCatalogImport,resumeStagedCatalogMetadata,getStagedCatalogImportStatus} from './import-staging.js';
+export {previewVerifiedSingleBookImport,applyVerifiedSingleBookImport} from './single-book-import.js';
+export type {VerifiedSingleBook} from './single-book-import.js';
 export type {PreparedImport,ImportPlanItem} from './import-staging.js';
 
 // Quarantine-only private byte staging. No public stream or publish API.
