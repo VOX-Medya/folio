@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import {execFileSync} from 'node:child_process';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {eq,inArray} from 'drizzle-orm';
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {request as httpsRequest} from 'node:https';
 import {request as httpRequest} from 'node:http';
@@ -900,12 +899,15 @@ async function main():Promise<void>{
       'Independent editorial review status/version was not persisted');
     check((await patch(port,reviewDecisionPath,reviewerBearerA,verdict)).status===409,
       'A repeated verdict created a second decision');
-    const [persisted]=await db.select().from(schema.canonicalWorkMatchReviews)
-      .where(eq(schema.canonicalWorkMatchReviews.id,openedReview.id));
-    check(persisted?.status==='distinct'&&persisted.reviewVersion===1&&
-      persisted.proposedBy===editor.userId&&
-      [reviewerA.userId,reviewerB.userId].includes(persisted.reviewedBy??'')&&
-      persisted.reviewedBy!==persisted.proposedBy,
+    const persistedRows=await pool.query<{
+      status:string;review_version:number;proposed_by:string;reviewed_by:string|null;
+    }>('SELECT status,review_version,proposed_by,reviewed_by FROM canonical_work_match_reviews WHERE id=$1::uuid',
+      [openedReview.id]);
+    const persisted=persistedRows.rows[0];
+    check(persisted?.status==='distinct'&&persisted.review_version===1&&
+      persisted.proposed_by===editor.userId&&
+      [reviewerA.userId,reviewerB.userId].includes(persisted.reviewed_by??'')&&
+      persisted.reviewed_by!==persisted.proposed_by,
       'A proposer, impostor, or concurrent second editor overwrote the reviewer');
     const editorialAudits=await pool.query<{
       action:string;actor_id:string;request_id:string;
@@ -951,10 +953,12 @@ async function main():Promise<void>{
     check(deferred.status===200&&JSON.parse(deferred.body).status==='deferred'&&
       JSON.parse(deferred.body).reviewVersion===2,
       'Refreshed human-review decision was not properly versioned');
-    const originalPair=await db.select().from(schema.works)
-      .where(inArray(schema.works.id,[first.id,second.id]));
-    check(originalPair.length===2&&
-      originalPair.every(row=>row.publicationStatus==='draft'&&row.metadataVersion===0),
+    const originalPair=await pool.query<{
+      id:string;publication_status:string;metadata_version:number;
+    }>('SELECT id,publication_status,metadata_version FROM works WHERE id = ANY($1::uuid[])',
+      [[first.id,second.id]]);
+    check(originalPair.rows.length===2&&
+      originalPair.rows.every(row=>row.publication_status==='draft'&&row.metadata_version===0),
       'Review mutated canonical work metadata or silently published/merged works');
     console.log('CANONICAL WORK MATCH REVIEW PASS: two independent MFA editors, 201/200/400/403/409, reversible-pair idempotency, stale refresh and no canonical merge/publish.');
     const cookiePatch=await patch(port,workPath,{
