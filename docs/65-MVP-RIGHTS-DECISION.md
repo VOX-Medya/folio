@@ -1,0 +1,7 @@
+# #14 MVP Hak kararı ve görünürlük sınırı
+
+- Eser/baskı/revizyon hak iddiası, `POST /v1/admin/catalog/works/:workId/rights` ile gerçek `catalog:edit` rolü, aynı-cihaz MFA, direct-TLS ve güvenli CSRF doğrulaması sonrasında yalnız `pending` olarak oluşturulur. Hak kanıtı özel veritabanında kalır; API yanıtı yalnız kayıt kimliği ve durumdur.
+- `PATCH /v1/admin/catalog/works/:workId/rights/:recordId` yalnız `rights:review` yetkili hesapla `approved`, `rejected` veya `withdrawn` kararını ve gerekçesini atomik olarak kaydeder. Kaydı geri çekilmiş hak tekrar onaylanamaz. Gerçek hak kararı insan incelemesine bağlıdır; otomatik onay yok.
+- `GET /v1/admin/catalog/works/:workId/rights/decision?editionId=...&revisionId=...&territory=TR&action=display`, aynı-cihaz MFA ve `rights:read` ile yalnız karar ve nedenini gösterir; telif kanıtı, özel asset veya kitabın metni dönmez.
+- İzin değerlendirmesi varsayılan ret'tir: eser, baskı ve revizyon düzeylerindeki **üç** geçerli onay aynı ülke/eylem için gerekli; eksik, bekleyen, reddedilen, geri çekilen, süresi biten veya farklı ülkeye ait hak erişim izni sayılmaz.
+- `allowed:true` yayın işlemi **değildir**. Gerçek public katalog ve okuyucu, bunun yanı sıra DRAFT→yayın kararını (#23) denetleyecektir; haklar kabul edilmeden herhangi bir açık kitap metni rotası eklenmez. Test kararları yalnız sentetik `folio_test` verileri içindir. Production onayı #48 kapsamında ayrı ve kapalıdır.
