@@ -643,3 +643,31 @@ export const userReadingPositions=pgTable('user_reading_positions',{
   check('user_reading_positions_mode_ck',sql`${t.mode} in ('normal','rsvp','audio')`),
   check('user_reading_positions_version_ck',sql`${t.version} between 1 and 2147483647`),
 ]);
+
+/** #40 Only a verified account can rotate its own opaque invite; plaintext never persists. */
+export const userFriendInvites=pgTable('user_friend_invites',{
+  userId:uuid('user_id').primaryKey().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  codeHash:varchar('code_hash',{length:64}).notNull(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('user_friend_invites_code_hash_idx').on(t.codeHash),
+  check('user_friend_invites_hash_ck',sql`${t.codeHash} ~ '^[a-f0-9]{64}$'`),
+]);
+
+/** One canonical pair; blocked edges remain as a deny record, never a people index. */
+export const userFriendLinks=pgTable('user_friend_links',{
+  leftUserId:uuid('left_user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  rightUserId:uuid('right_user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  requestedBy:uuid('requested_by').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  status:varchar('status',{length:12}).notNull().default('pending'),
+  blockedBy:uuid('blocked_by').references(()=>userAccounts.id,{onDelete:'restrict'}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  primaryKey({columns:[t.leftUserId,t.rightUserId],name:'user_friend_links_pk'}),
+  index('user_friend_links_right_idx').on(t.rightUserId),
+  check('user_friend_links_pair_ck',sql`${t.leftUserId}<${t.rightUserId}`),
+  check('user_friend_links_requester_ck',sql`${t.requestedBy} IN (${t.leftUserId},${t.rightUserId})`),
+  check('user_friend_links_status_ck',sql`${t.status} IN ('pending','accepted','blocked')`),
+  check('user_friend_links_block_ck',sql`(${t.status}='blocked' AND ${t.blockedBy} IN (${t.leftUserId},${t.rightUserId})) OR (${t.status}<>'blocked' AND ${t.blockedBy} IS NULL)`),
+]);
