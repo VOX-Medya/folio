@@ -4,7 +4,8 @@ import {mkdtemp,mkdir,readFile,rm,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {validatePackage,prepareVerifiedSingleBook} from '../folioctl.mjs';
+import {createHash} from 'node:crypto';
+import {validatePackage,prepareVerifiedSingleBook,prepareVerifiedAudioAttachment} from '../folioctl.mjs';
 
 const fixture=resolve(dirname(fileURLToPath(import.meta.url)),
   '../../fixtures/folioctl/single-book');
@@ -77,4 +78,23 @@ test('manifest cannot claim approved rights or private-user ownership',()=>isola
   x.meta.files[0].ownerUserId='33333333-3333-4333-8333-333333333333';
   await x.save();
   await assert.rejects(validatePackage(x.input),/Disallowed asset field/);
+}));
+
+test('prepared voice manifest is linked to original text digest without rights claims',()=>isolatedCopy(async x=>{
+  await writeFile(join(x.temp,'content/source.txt'),'abc');
+  const audio=Buffer.from('OggS synthetic source for attach','utf8');
+  await writeFile(join(x.temp,'content/audio.ogg'),audio);
+  x.meta.files.push({path:'content/audio.ogg',kind:'audio',
+    sha256:createHash('sha256').update(audio).digest('hex'),
+    sizeBytes:audio.length});
+  await x.save();
+  const result=await prepareVerifiedAudioAttachment(x.input,8000);
+  assert.equal(result.prepared.packageId,x.meta.packageId);
+  assert.equal(result.prepared.textSha256,x.meta.files[0].sha256);
+  assert.equal(result.prepared.audio.mime,'audio/ogg');
+  assert.equal(result.prepared.audio.durationMs,8000);
+  await assert.rejects(prepareVerifiedAudioAttachment(x.input,0),/durationMs/);
+  await assert.rejects(prepareVerifiedSingleBook(x.input),/one text asset/);
+  await writeFile(join(x.temp,'content/audio.ogg'),Buffer.from('XggS synthetic source for attach'));
+  await assert.rejects(prepareVerifiedAudioAttachment(x.input,8000),/SHA-256 mismatch/);
 }));
