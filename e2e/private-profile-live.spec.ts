@@ -61,8 +61,12 @@ test('verified owner private profile, CAS conflict, other-user isolation and del
     },own.data.userId as string);
     expect(stale).toEqual({stale:409,invalid:400});
     await page.getByTestId('folio-profile-delete').click();
+    const deletionResponse=page.waitForResponse(response=>
+      response.url().endsWith('/v1/me/profile/deletion-request')&&
+      response.request().method()==='POST');
     await page.getByTestId('folio-profile-delete-confirm').click();
-    await expect(page.getByTestId('folio-profile-deletion-requested')).toBeVisible({timeout:10000});
+    expect((await deletionResponse).status()).toBe(200);
+    await expect(page.getByTestId('folio-profile-deletion-requested')).toBeVisible();
     const recorded=await page.evaluate(async()=>{
       const response=await fetch('/v1/me/profile',{credentials:'same-origin'});
       return {status:response.status,data:await response.json()};
