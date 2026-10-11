@@ -9,6 +9,7 @@ import type {DeviceSessionInventory} from '@folio/contracts';
 import type {FolioLocale} from './shell-data';
 import {WebOnboardingPanel} from './web-onboarding';
 import {OwnProfilePanel} from './own-profile';
+import {FriendPanel} from './friend-panel';
 
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 type Phase='checking'|'signedOut'|'signedIn'|'busy'|'unavailable';
@@ -257,6 +258,8 @@ export function WebSignInPanel({locale,colors,onLocaleSaved}:{locale:FolioLocale
         }}/>} 
       {origin&&<OwnProfilePanel origin={origin} locale={locale} colors={colors}
         onLocaleSaved={onLocaleSaved}
+        onSessionExpired={()=>{clearDevices();setPhase('signedOut');}}/>}
+      {origin&&<FriendPanel origin={origin} locale={locale} colors={colors}
         onSessionExpired={()=>{clearDevices();setPhase('signedOut');}}/>}
       <View style={{gap:10}}>
         <Pressable testID="folio-device-sessions-load" accessibilityRole="button"
