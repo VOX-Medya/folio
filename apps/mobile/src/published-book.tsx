@@ -6,6 +6,8 @@ import {fetchPublishedBookDetail,PublishedBookHttpError} from '@folio/contracts'
 import type {PublishedBookDetail} from '@folio/contracts';
 import type {FolioLocale} from './shell-data';
 
+/** Expo inlines this PUBLIC URL at bundle time; it is never a secret. */
+declare const process:{env:{EXPO_PUBLIC_FOLIO_CATALOG_ORIGIN?:string}};
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 type Phase='loading'|'ready'|'unavailable'|'not-found'|'error';
 const copy={
