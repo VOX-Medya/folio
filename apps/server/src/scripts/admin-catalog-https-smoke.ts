@@ -548,6 +548,7 @@ async function main():Promise<void>{
     const previousShelfOrigin=process.env.FOLIO_WEB_AUTH_ORIGIN;
     const previousShelfMode=process.env.FOLIO_WEB_AUTH_MODE;
     const previousShelfCsrf=process.env.FOLIO_WEB_CSRF_KEY_HEX;
+    const previousShelfAbuseKey=process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX;
     try{
       shelfProxy=createHttpsServer({key:readFileSync(key),cert:readFileSync(cert)},
         (request,response)=>{
@@ -582,6 +583,8 @@ async function main():Promise<void>{
       process.env.FOLIO_WEB_AUTH_MODE='direct-tls-only';
       process.env.FOLIO_WEB_AUTH_ORIGIN=shelfOrigin;
       process.env.FOLIO_WEB_CSRF_KEY_HEX=randomBytes(32).toString('hex');
+      // Synthetic real password sign-in requires the existing DB-backed abuse gate.
+      process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX=randomBytes(32).toString('hex');
       await new Promise<void>((done,reject)=>{
         const browser=spawn('pnpm',[
           'exec','playwright','test','--config','playwright.catalog.config.ts',
@@ -613,6 +616,8 @@ async function main():Promise<void>{
       else process.env.FOLIO_WEB_AUTH_MODE=previousShelfMode;
       if(previousShelfCsrf===undefined)delete process.env.FOLIO_WEB_CSRF_KEY_HEX;
       else process.env.FOLIO_WEB_CSRF_KEY_HEX=previousShelfCsrf;
+      if(previousShelfAbuseKey===undefined)delete process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX;
+      else process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX=previousShelfAbuseKey;
       if(shelfProxy){
         shelfProxy.closeAllConnections();
         await new Promise<void>(done=>shelfProxy!.close(()=>done()));
