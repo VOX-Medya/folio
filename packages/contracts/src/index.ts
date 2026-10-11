@@ -630,6 +630,23 @@ export const rightsRecordCreateSchema = z.object({
   if (new Set(data.territories).size!==data.territories.length) ctx.addIssue({code:'custom',message:'Territories must not repeat'});
 });
 export type RightsRecordCreate = z.infer<typeof rightsRecordCreateSchema>;
+
+export const adminRightsReviewInputSchema=z.object({
+  decision:z.enum(['approved','rejected','withdrawn']),
+  reason:z.string().trim().min(12).max(4000),
+}).strict();
+export const adminRightsClaimCreatedSchema=z.object({
+  id:z.uuid(),reviewStatus:z.literal('pending'),
+}).strict();
+export const adminRightsReviewedSchema=z.object({
+  id:z.uuid(),reviewStatus:z.enum(['approved','rejected','withdrawn']),
+}).strict();
+export const adminRightsDecisionResultSchema=z.object({
+  allowed:z.boolean(),
+  reason:z.enum(['approved','missing','unreviewed','territory',
+    'expired','prohibited','wrong_scope']),
+}).strict();
+
 export const rightsDecisionQuerySchema = z.object({
   workId: z.uuid(), editionId: z.uuid(), revisionId: z.uuid(),
   territory: z.string().regex(/^[A-Z]{2}$/),action: rightsActionSchema,
