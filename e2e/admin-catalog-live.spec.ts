@@ -43,7 +43,9 @@ test('real browser -> same-origin direct TLS Nest -> Folio PostgreSQL, conflict/
       const denied=await anonymous.request.get(origin+base);
       expect(denied.status()).toBe(401);
     }finally{await anonymous.close();}
-    const readonly=await viewer.request.get(origin+base);
+    const readonly=await viewer.request.get(origin+base,{
+      headers:{origin,'sec-fetch-site':'same-origin'},
+    });
     expect(readonly.status()).toBe(200);
     const viewerCsrf=await viewer.request.get(origin+'/v1/auth/web/csrf',{
       headers:{origin,'sec-fetch-site':'same-origin'},
@@ -136,7 +138,9 @@ test('real browser -> same-origin direct TLS Nest -> Folio PostgreSQL, conflict/
     await page.getByRole('button',{name:'EN',exact:true}).click();
     await expect(detail).toContainText('Metadata version: 5');
     // Fresh browser GET with the same cookie confirms durable persistence.
-    const fresh=await ctx.request.get(origin+base);
+    const fresh=await ctx.request.get(origin+base,{
+      headers:{origin,'sec-fetch-site':'same-origin'},
+    });
     expect(fresh.status()).toBe(200);
     const item=(await fresh.json()) as {
       work:{id:string;metadataVersion:number;originalTitle:string;
