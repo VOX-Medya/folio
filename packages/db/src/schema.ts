@@ -610,3 +610,31 @@ export const userShelfItems=pgTable('user_shelf_items',{
   index('user_shelf_items_work_idx').on(t.workId),
   check('user_shelf_items_status_ck',sql`${t.status} in ('to-read','reading')`),
 ]);
+
+/** #36: Only the verified owner reads or updates this immutable-revision cursor. */
+export const userReadingPositions=pgTable('user_reading_positions',{
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  revisionId:uuid('revision_id').notNull().references(()=>contentRevisions.id,{onDelete:'restrict'}),
+  workId:uuid('work_id').notNull().references(()=>works.id,{onDelete:'restrict'}),
+  chapterId:uuid('chapter_id').notNull(),
+  blockId:uuid('block_id').notNull(),
+  tokenOffset:integer('token_offset').notNull().default(0),
+  audioPositionMs:integer('audio_position_ms'),
+  mode:varchar('mode',{length:12}).notNull().default('normal'),
+  version:integer('version').notNull().default(1),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  primaryKey({columns:[t.userId,t.revisionId],name:'user_reading_positions_pk'}),
+  index('user_reading_positions_work_idx').on(t.workId),
+  foreignKey({columns:[t.revisionId,t.chapterId],
+    foreignColumns:[contentChapters.revisionId,contentChapters.chapterId],
+    name:'user_reading_positions_chapter_fk'}).onDelete('restrict'),
+  foreignKey({columns:[t.revisionId,t.blockId],
+    foreignColumns:[contentBlocks.revisionId,contentBlocks.blockId],
+    name:'user_reading_positions_block_fk'}).onDelete('restrict'),
+  check('user_reading_positions_offset_ck',sql`${t.tokenOffset} between 0 and 30000`),
+  check('user_reading_positions_audio_ck',
+    sql`${t.audioPositionMs} is null or ${t.audioPositionMs} between 0 and 86400000`),
+  check('user_reading_positions_mode_ck',sql`${t.mode} in ('normal','rsvp','audio')`),
+  check('user_reading_positions_version_ck',sql`${t.version} between 1 and 2147483647`),
+]);

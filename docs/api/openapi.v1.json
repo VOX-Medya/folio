@@ -5667,6 +5667,251 @@
           "shelf"
         ]
       }
+    },
+    "/v1/me/progress/{revisionId}": {
+      "get": {
+        "operationId": "ReadingPositionController_read",
+        "parameters": [
+          {
+            "name": "revisionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "progress"
+                  ],
+                  "properties": {
+                    "progress": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": false,
+                      "required": [
+                        "revisionId",
+                        "chapterId",
+                        "blockId",
+                        "tokenOffset",
+                        "audioPositionMs",
+                        "mode",
+                        "version"
+                      ],
+                      "properties": {
+                        "revisionId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "chapterId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "blockId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "tokenOffset": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 30000
+                        },
+                        "audioPositionMs": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 86400000
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "normal",
+                            "rsvp",
+                            "audio"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Read current verified account position for a published revision",
+        "tags": [
+          "reading-progress"
+        ]
+      },
+      "put": {
+        "operationId": "ReadingPositionController_save",
+        "parameters": [
+          {
+            "name": "revisionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion",
+                  "chapterId",
+                  "blockId",
+                  "tokenOffset",
+                  "audioPositionMs",
+                  "mode"
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "chapterId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "blockId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "tokenOffset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 30000
+                  },
+                  "audioPositionMs": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 86400000
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "normal",
+                      "rsvp",
+                      "audio"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "progress"
+                  ],
+                  "properties": {
+                    "progress": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": false,
+                      "required": [
+                        "revisionId",
+                        "chapterId",
+                        "blockId",
+                        "tokenOffset",
+                        "audioPositionMs",
+                        "mode",
+                        "version"
+                      ],
+                      "properties": {
+                        "revisionId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "chapterId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "blockId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "tokenOffset": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 30000
+                        },
+                        "audioPositionMs": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 86400000
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "normal",
+                            "rsvp",
+                            "audio"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Compare-and-swap current account reading position; stale version is 409",
+        "tags": [
+          "reading-progress"
+        ]
+      }
     }
   },
   "info": {

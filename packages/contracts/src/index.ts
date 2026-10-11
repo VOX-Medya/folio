@@ -829,3 +829,22 @@ export const shelfListSchema=z.object({
 }).strict();
 export type ShelfList=z.infer<typeof shelfListSchema>;
 export {searchPublicCatalog,fetchOwnWebShelf,saveOwnWebShelf,removeOwnWebShelf} from './public-shelf-client.js';
+
+/** #36: cursor is one owner-only immutable-revision anchor, not a public shelf field. */
+export const readingPositionUpdateSchema=z.object({
+  expectedVersion:z.number().int().min(0).max(2147483646),
+  chapterId:z.uuid(),blockId:z.uuid(),
+  tokenOffset:z.number().int().min(0).max(30000),
+  audioPositionMs:z.number().int().min(0).max(86400000).nullable(),
+  mode:z.enum(['normal','rsvp','audio']),
+}).strict();
+export type ReadingPositionUpdate=z.infer<typeof readingPositionUpdateSchema>;
+export const readingPositionSchema=readingPositionUpdateSchema.omit({expectedVersion:true}).extend({
+  revisionId:z.uuid(),version:z.number().int().min(1).max(2147483647),
+}).strict();
+export const readingPositionResponseSchema=z.object({
+  progress:readingPositionSchema.nullable(),
+}).strict();
+export type ReadingPosition=z.infer<typeof readingPositionSchema>;
+export type ReadingPositionResponse=z.infer<typeof readingPositionResponseSchema>;
+export {fetchOwnWebReadingPosition,saveOwnWebReadingPosition} from './reading-position-client.js';

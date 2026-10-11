@@ -10,7 +10,7 @@ type Tx=Parameters<Parameters<Database['transaction']>[0]>[0];
 const uuid=z.uuid();
 
 /** A live, email-verified account AND exact current device must own every shelf write. */
-async function withOwner<T>(
+export async function withOwner<T>(
   db:Database,rawUser:string,rawSession:string,action:(tx:Tx,userId:string)=>Promise<T>,
 ):Promise<T>{
   const userId=uuid.parse(rawUser),sessionId=uuid.parse(rawSession);
