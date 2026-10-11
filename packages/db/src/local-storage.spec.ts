@@ -279,3 +279,34 @@ describe('LocalStorageAdapter quarantine: no public reads or publish state',()=>
     });
   });
 });
+
+describe('MVP editorial source read never opens user quarantine or tampered bytes',()=>{
+  it('requires a catalog plain-text inode, correct digest and unmodified private permissions',async()=>{
+    await withVault(async(root,adapter)=>{
+      const raw=Buffer.from('Synthetic private editorial text','utf8');
+      const staged=await adapter.stage({
+        owner:catalog,source:source(raw),declaredSha256:digest(raw),
+        declaredMime:'text/plain',maxBytes:1024,
+      });
+      expect(await adapter.readAdminCatalogQuarantinedText(staged))
+        .toBe(raw.toString('utf8'));
+      await expect(adapter.readAdminCatalogQuarantinedText({
+        ...staged,scope:'private-user',ownerUserId:alice,
+      })).rejects.toThrow();
+      const other=await adapter.stage({
+        owner:privateOwner,source:source(raw),declaredSha256:digest(raw),
+        declaredMime:'text/plain',maxBytes:1024,
+      });
+      await expect(adapter.readAdminCatalogQuarantinedText(other))
+        .rejects.toThrow(/Unsupported editorial source preview/);
+      const disk=join(root,'quarantine','catalog',staged.key+'.blob');
+      await writeFile(disk,Buffer.from('Synthetic prIvate editorial text'));
+      await expect(adapter.readAdminCatalogQuarantinedText(staged))
+        .rejects.toThrow(/digest mismatch/);
+      await writeFile(disk,raw);
+      await chmod(disk,0o644);
+      await expect(adapter.readAdminCatalogQuarantinedText(staged))
+        .rejects.toThrow(/Unsafe editorial source inode/);
+    });
+  });
+});
