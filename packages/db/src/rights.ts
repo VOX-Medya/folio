@@ -204,6 +204,46 @@ export async function getVerifiedAdminRightsDecision(
     {isolationLevel:'repeatable read'});
 }
 
+
+/** Only a current rights:review officer may inspect raw legal evidence.
+ * The ordinary catalog:read and rights:read ledger never expose this. */
+export async function getVerifiedAdminRightsEvidence(
+  db:RightsDb,bearer:string,workId:string,recordId:string,
+){
+  const work=z.uuid().parse(workId),id=z.uuid().parse(recordId);
+  return withVerifiedAdminPermission(db,bearer,'rights:review',async tx=>{
+    const [record]=await tx.select({
+      id:schema.rightsRecords.id,
+      workId:schema.rightsRecords.workId,
+      editionId:schema.rightsRecords.editionId,
+      revisionId:schema.rightsRecords.revisionId,
+      evidence:schema.rightsRecords.evidence,
+      sourceUrl:schema.rightsRecords.sourceUrl,
+      licenseKind:schema.rightsRecords.licenseKind,
+      territories:schema.rightsRecords.territories,
+      display:schema.rightsRecords.displayAllowed,
+      translation:schema.rightsRecords.translationAllowed,
+      audio:schema.rightsRecords.audioAllowed,
+      sharing:schema.rightsRecords.sharingAllowed,
+      reviewStatus:schema.rightsRecords.reviewStatus,
+      expiresAt:schema.rightsRecords.expiresAt,
+    }).from(schema.rightsRecords)
+      .where(and(eq(schema.rightsRecords.workId,work),
+        eq(schema.rightsRecords.id,id))).limit(1);
+    if(!record)return null;
+    return {
+      id:record.id,workId:record.workId,
+      editionId:record.editionId,revisionId:record.revisionId,
+      evidence:record.evidence,sourceUrl:record.sourceUrl,
+      licenseKind:record.licenseKind,territories:record.territories,
+      claims:{display:record.display,translation:record.translation,
+        audio:record.audio,sharing:record.sharing},
+      reviewStatus:record.reviewStatus,
+      expiresAt:record.expiresAt?.toISOString()??null,
+    };
+  },{isolationLevel:'repeatable read'});
+}
+
 /** Metadata-only admin ledger; never a license grant/preview. Each page
  * revalidates real account/session, same-device MFA and persisted rights:read
  * inside the SAME PostgreSQL snapshot as the work and evidence SELECT.
