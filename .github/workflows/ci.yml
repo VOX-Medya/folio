@@ -3,7 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
 permissions:
   contents: read
 concurrency:
@@ -11,6 +14,34 @@ concurrency:
   cancel-in-progress: true
 jobs:
   check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fast type, lint, unit and OpenAPI contract checks
+        run: |
+          pnpm --filter @folio/contracts build
+          pnpm --filter @folio/db build
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm --filter @folio/server openapi:check
+          pnpm metro:security-check
+          pnpm dependency:hardening-check
+
+  full-regression:
+    name: full-regression
+    # Heavy checks stay intact. Run on main, nightly, manual, or explicit PR label.
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -90,6 +121,7 @@ jobs:
 
   clamav-native-protocol:
     name: ClamAV stdin protocol (synthetic signatures only; not a release gate)
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
