@@ -2,10 +2,10 @@ import {
   BadRequestException,Controller,Get,Header,Inject,Injectable,Module,
   NotFoundException,OnModuleDestroy,Param,Query,Req,ServiceUnavailableException,
 } from '@nestjs/common';
-import {ApiOkResponse,ApiOperation,ApiParam,ApiTags} from '@nestjs/swagger';
-import {createFolioDb,getPublishedBookDetail} from '@folio/db';
-import {publishedBookDetailSchema} from '@folio/contracts';
-import type {PublishedBookDetail} from '@folio/contracts';
+import {ApiOkResponse,ApiOperation,ApiParam,ApiQuery,ApiTags} from '@nestjs/swagger';
+import {createFolioDb,getPublishedBookDetail,searchPublishedCatalog} from '@folio/db';
+import {publishedBookDetailSchema,publishedCatalogSearchQuerySchema,publishedCatalogSearchPageSchema} from '@folio/contracts';
+import type {PublishedBookDetail,PublishedCatalogSearchPage} from '@folio/contracts';
 
 @Injectable()
 class PublishedCatalogDb implements OnModuleDestroy {
@@ -13,6 +13,11 @@ class PublishedCatalogDb implements OnModuleDestroy {
   async detail(workId:string,territory:string):Promise<PublishedBookDetail|null>{
     if(!this.connection)throw new ServiceUnavailableException('Catalog database unavailable');
     try{return await getPublishedBookDetail(this.connection.db,workId,territory);}
+    catch{throw new ServiceUnavailableException('Catalog database unavailable');}
+  }
+  async search(query:unknown,territory:string):Promise<PublishedCatalogSearchPage>{
+    if(!this.connection)throw new ServiceUnavailableException('Catalog database unavailable');
+    try{return await searchPublishedCatalog(this.connection.db,query,territory);}
     catch{throw new ServiceUnavailableException('Catalog database unavailable');}
   }
   async onModuleDestroy(){await this.connection?.pool.end();}
@@ -59,6 +64,37 @@ export class PublishedCatalogController {
     const detail=await this.catalog.detail(rawId,territory);
     if(!detail)throw new NotFoundException('Published book not found');
     return publishedBookDetailSchema.parse(detail);
+  }
+
+  @Get('search')
+  @Header('Cache-Control','no-store')
+  @ApiOperation({summary:'Search published books by title or author only, in server-approved territory'})
+  @ApiQuery({name:'q',type:String,required:true})
+  @ApiQuery({name:'limit',type:Number,required:false,minimum:1,maximum:20})
+  @ApiOkResponse({schema:{type:'object',required:['items'],additionalProperties:false,
+    properties:{items:{type:'array',maxItems:20,items:{
+      type:'object',additionalProperties:false,
+      required:['id','title','authors','editionId','revisionId','audioAvailable'],
+      properties:{
+        id:{type:'string',format:'uuid'},title:{type:'string'},
+        authors:{type:'array',items:{type:'string'}},
+        editionId:{type:'string',format:'uuid'},
+        revisionId:{type:'string',format:'uuid'},
+        audioAvailable:{type:'boolean'},
+      },
+    }}},
+  }})
+  async search(@Query() rawQuery:Record<string,unknown>,
+    @Req() request:{socket?:{encrypted?:boolean}}):Promise<PublishedCatalogSearchPage>{
+    if(request.socket?.encrypted!==true)throw new ServiceUnavailableException('Secure catalog required');
+    const territory=process.env.FOLIO_PUBLIC_CATALOG_TERRITORY;
+    if(!territory||!/^[A-Z]{2}$/.test(territory)){
+      throw new NotFoundException('Public catalog is not enabled');
+    }
+    const query=publishedCatalogSearchQuerySchema.safeParse(rawQuery);
+    if(!query.success)throw new BadRequestException('Invalid book search');
+    const result=await this.catalog.search(query.data,territory);
+    return publishedCatalogSearchPageSchema.parse(result);
   }
 }
 
