@@ -266,6 +266,137 @@ async function main():Promise<void>{
       'Same-size disk tampering delivered source content');
     writeFileSync(editablePath,editorialBytes);
     console.log('PRIVATE SOURCE HTTPS PASS: MFA, real Folio DB, non-public 0600 bytes, owner scope, SHA mismatch denial.');
+    // #23: one complete publish -> withdraw with real HTTPS, Folio DB and
+    // already staged private bytes; all scope grants require a separate MFA reviewer.
+    const publicationPath=root+'/works/'+privateWork.id+'/editions/'+editorialEdition.id+
+      '/revisions/'+editorialRevision.id+'/publication';
+    const publicationCommand=(action:'publish'|'withdraw')=>({
+      action,territory:'TR',reason:'Synthetic human-reviewed Folio MVP editorial decision',
+    });
+    const pubChapterId=randomUUID(),pubBlockId=randomUUID();
+    await db.insert(schema.contentChapters).values({
+      revisionId:editorialRevision.id,chapterId:pubChapterId,ordinal:0,heading:'Prepared text',
+    });
+    await db.insert(schema.contentBlocks).values({
+      revisionId:editorialRevision.id,chapterId:pubChapterId,blockId:pubBlockId,
+      ordinal:0,kind:'paragraph',sourceLocator:{format:'text',path:'synthetic'},
+      sourceText:editorialBytes.toString('utf8'),textSha256:editorialSha,
+      includeNormal:true,includeRsvp:true,includeAudio:true,
+    });
+    check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===404,
+      'Admin write opt-in did not protect publication');
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='direct-tls-only';
+    check((await post(port,publicationPath,{},publicationCommand('publish'))).status===401,
+      'Anonymous account published a draft');
+    check((await post(port,publicationPath,{
+      authorization:'Bearer '+guestSession.sessionToken,
+    },publicationCommand('publish'))).status===403,
+      'Non-admin account published a draft');
+    check((await post(port,publicationPath,{
+      authorization:'Bearer '+rightsSession.sessionToken,
+    },publicationCommand('publish'))).status===403,
+      'Rights reviewer bypassed independent catalog editor permission');
+    check((await post(port,publicationPath.replace(privateWork.id,randomUUID()),bearer,
+      publicationCommand('publish'))).status===404,
+      'Cross-work publication was not rejected');
+    check((await post(port,publicationPath,bearer,{
+      ...publicationCommand('publish'),ownerId:editor.userId,
+    })).status===400,'Client-supplied owner hint was accepted');
+    check((await call(false,plainAddress.port,publicationPath,bearer,'POST',
+      publicationCommand('publish'))).status===503,
+      'Plain HTTP published a protected Folio source');
+    check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
+      'Unreviewed source rights allowed publication');
+    const publicationClaims=[
+      {workId:privateWork.id},
+      {workId:privateWork.id,editionId:editorialEdition.id},
+      {workId:privateWork.id,editionId:editorialEdition.id,revisionId:editorialRevision.id},
+    ];
+    const publicationRecords=[];
+    for(const [index,scope] of publicationClaims.entries()){
+      const claim=await submitRightsEvidence(db,editor.userId,{
+        ...scope,licenseKind:'synthetic-CI-only',
+        evidence:'Synthetic publication approval scope '+index+' with manual CI fixture',
+        territories:['TR'],displayAllowed:true,
+        translationAllowed:false,audioAllowed:false,sharingAllowed:false,
+      });
+      publicationRecords.push(claim);
+      const approval=await patch(port,
+        root+'/works/'+privateWork.id+'/rights/'+claim.id,
+        {authorization:'Bearer '+rightsSession.sessionToken},{
+          decision:'approved',reason:'Synthetic reviewed Folio CI-only rights evidence',
+        });
+      check(approval.status===200,
+        'Real HTTPS MFA rights reviewer could not approve publication scope');
+      if(index!==2){
+        check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
+          'Incomplete work/edition/revision rights chain published a draft');
+      }
+    }
+    writeFileSync(editablePath,mutatedBytes);
+    check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
+      'Altered same-size private bytes became a verified publication');
+    writeFileSync(editablePath,editorialBytes);
+    const published=await post(port,publicationPath,bearer,publicationCommand('publish'));
+    check(published.status===200&&published.headers['cache-control']==='private, no-store',
+      'Reviewed synthetic catalog source failed authorized publication');
+    const publishedResult=JSON.parse(published.body);
+    check(publishedResult.workId===privateWork.id&&
+      publishedResult.editionId===editorialEdition.id&&
+      publishedResult.revisionId===editorialRevision.id&&
+      publishedResult.status==='published'&&
+      !published.body.includes(privateVault)&&!published.body.includes(stagedEditorial.key),
+      'Publication returned incomplete IDs or leaked private filesystem metadata');
+    const publicRow=await pool.query<{
+      work_status:string;edition_status:string;revision_status:string;
+      asset_status:string;verified_at:Date|null;
+    }>(
+      'SELECT w.publication_status AS work_status, e.status AS edition_status, '+
+      'r.status AS revision_status, m.status AS asset_status, m.verified_at '+
+      'FROM works w JOIN editions e ON e.work_id=w.id '+
+      'JOIN content_revisions r ON r.edition_id=e.id '+
+      'JOIN media_assets m ON m.id=$4::uuid '+
+      'WHERE w.id=$1::uuid AND e.id=$2::uuid AND r.id=$3::uuid',
+      [privateWork.id,editorialEdition.id,editorialRevision.id,editorialAsset.id],
+    );
+    check(publicRow.rows.length===1&&
+      publicRow.rows[0]?.work_status==='published'&&
+      publicRow.rows[0]?.edition_status==='published'&&
+      publicRow.rows[0]?.revision_status==='published'&&
+      publicRow.rows[0]?.asset_status==='verified'&&
+      !!publicRow.rows[0]?.verified_at,
+      'Publication was not atomic with private catalog byte verification');
+    check((await call(true,port,editorialRoute,bearer)).status===404,
+      'Published content was still accessible through draft-source preview');
+    check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
+      'A second publication was accepted without editorial review');
+    const publicationWithdrawal=await post(port,publicationPath,bearer,publicationCommand('withdraw'));
+    check(publicationWithdrawal.status===200&&JSON.parse(publicationWithdrawal.body).status==='withdrawn',
+      'Authenticated reviewer could not withdraw a published revision');
+    const stateAfter=await pool.query<{work_status:string;edition_status:string;revision_status:string}>(
+      'SELECT w.publication_status AS work_status,e.status AS edition_status,r.status AS revision_status '+
+      'FROM works w JOIN editions e ON e.work_id=w.id JOIN content_revisions r ON r.edition_id=e.id '+
+      'WHERE w.id=$1::uuid AND e.id=$2::uuid AND r.id=$3::uuid',
+      [privateWork.id,editorialEdition.id,editorialRevision.id],
+    );
+    check(stateAfter.rows[0]?.work_status==='withdrawn'&&
+      stateAfter.rows[0]?.edition_status==='withdrawn'&&
+      stateAfter.rows[0]?.revision_status==='withdrawn'&&
+      (await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
+      'Withdrawn rights/content could be silently republished');
+    const publicationAudit=await pool.query<{action:string;actor_id:string;request_id:string}>(
+      'SELECT action,actor_id,request_id FROM audit_events '+
+      'WHERE entity_id=$1::uuid AND action LIKE $2 ORDER BY created_at',
+      [editorialRevision.id,'catalog.publication.%'],
+    );
+    check(publicationAudit.rows.length===2&&
+      publicationAudit.rows[0]?.action==='catalog.publication.publish'&&
+      publicationAudit.rows[1]?.action==='catalog.publication.withdraw'&&
+      publicationAudit.rows.every(row=>row.actor_id===editor.userId&&!!row.request_id),
+      'Publish/withdraw audit did not preserve true editor identity');
+    process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
+    console.log('PUBLICATION HTTPS PASS: approved 3-scope rights, private byte SHA/inode, admin MFA, draft->published->withdrawn, 401/403/404/409, audit.');
+
     const createRoot=root+'/authors';
     const draftAuthor={canonicalName:'Native Writer '+suffix,
       aliases:[{name:'Native Alias '+suffix}],

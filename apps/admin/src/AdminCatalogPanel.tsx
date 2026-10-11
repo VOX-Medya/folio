@@ -5,6 +5,7 @@ import {AdminEditionMetadataEditor} from './AdminEditionMetadataEditor.js';
 import {AdminRevisionDiffPanel} from './AdminRevisionDiffPanel.js';
 import {AdminFolioCoverPreview} from './AdminFolioCoverPreview.js';
 import {AdminRightsLedgerPanel} from './AdminRightsLedgerPanel.js';
+import {AdminPublicationPanel} from './AdminPublicationPanel.js';
 import {AdminWorkMatchReviews} from './AdminWorkMatchReviews.js';
 import {AdminImportCandidateReviews} from './AdminImportCandidateReviews.js';
 import {
@@ -583,18 +584,25 @@ export function AdminCatalogPanel({kind,language,theme}:{
       </section>}
       {showMatchReviews&&detail?.kind==='works'&&
         detail.value.work.publicationStatus==='draft'&&
-        <AdminWorkMatchReviews key={detail.value.work.id}
+        <AdminWorkMatchReviews key={'match:'+detail.value.work.id}
           workId={detail.value.work.id} language={language}
           online={online&&!busy}/>}
       {showImportReviews&&detail?.kind==='works'&&
-        <AdminImportCandidateReviews key={detail.value.work.id}
+        <AdminImportCandidateReviews key={'incoming:'+detail.value.work.id}
           candidateWorkId={detail.value.work.id} language={language}
           online={online&&!busy}/>}
       {showRights&&detail?.kind==='works'&&
-        <AdminRightsLedgerPanel key={detail.value.work.id}
+        <AdminRightsLedgerPanel key={'rights:'+detail.value.work.id}
           workId={detail.value.work.id} language={language}
           online={online&&!busy}/>
       }
+      {detail?.kind==='works'&&
+        <AdminPublicationPanel key={'publication:'+detail.value.work.id}
+          workId={detail.value.work.id}
+          workStatus={detail.value.work.publicationStatus}
+          editions={detail.value.editions.map(e=>({id:e.id,label:e.label,status:e.status}))}
+          language={language} online={online&&!busy}
+          onReload={()=>{void loadDetail(detail.value.work.id,true);}}/>}
       {reviewedEdition&&detail?.kind==='works'&&
         <AdminRevisionDiffPanel
           key={reviewedEdition.id} workId={detail.value.work.id}

@@ -21,6 +21,7 @@ import {
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
+  adminPublicationCommandSchema,adminPublicationResultSchema,
 } from '@folio/contracts';
 import type {
   AdminCatalogAuthorDetail,AdminCatalogAuthorPage,
@@ -33,6 +34,7 @@ import type {
   AdminWorkMatchPropose,AdminWorkMatchDecision,
   AdminImportCandidatePropose,
   AdminCatalogRevisionList,AdminCatalogRightsLedger,
+  AdminPublicationCommand,AdminPublicationResult,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
 
@@ -453,5 +455,22 @@ export async function getAdminRightsLedger(
   );
   const result=parse(raw,value=>adminCatalogRightsLedgerSchema.parse(value));
   if(result.workId!==work)throw new CatalogClientError('unexpected');
+  return result;
+}
+
+/** Only the real server can approve publication after persisted MFA, rights
+ * review, asset SHA-256, provenance and draft relationship checks. */
+export async function changeAdminPublication(
+  workId:string,editionId:string,revisionId:string,command:AdminPublicationCommand,
+):Promise<AdminPublicationResult>{
+  const valid=adminPublicationCommandSchema.safeParse(command);
+  if(!valid.success)throw new CatalogClientError('invalid');
+  const work=checkedId(workId),edition=checkedId(editionId),revision=checkedId(revisionId);
+  const raw=await request('/v1/admin/catalog/works/'+work+'/editions/'+edition+
+    '/revisions/'+revision+'/publication','POST',200,valid.data);
+  const result=parse(raw,value=>adminPublicationResultSchema.parse(value));
+  if(result.workId!==work||result.editionId!==edition||result.revisionId!==revision){
+    throw new CatalogClientError('unexpected');
+  }
   return result;
 }

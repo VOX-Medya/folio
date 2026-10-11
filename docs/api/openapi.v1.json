@@ -1165,6 +1165,126 @@
         ]
       }
     },
+    "/v1/admin/catalog/works/{workId}/editions/{editionId}/revisions/{revisionId}/publication": {
+      "post": {
+        "operationId": "AdminCatalogController_publication",
+        "parameters": [
+          {
+            "name": "revisionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "editionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "territory",
+                  "reason"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "publish",
+                      "withdraw"
+                    ]
+                  },
+                  "territory": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{2}$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "workId",
+                    "editionId",
+                    "revisionId",
+                    "status"
+                  ],
+                  "properties": {
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "editionId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "revisionId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "published",
+                        "withdrawn"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Same-device MFA catalog:edit; verify private source and three rights scopes before publish/withdraw",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
     "/v1/admin/catalog/works/{workId}/rights": {
       "post": {
         "operationId": "AdminCatalogController_submitRights",

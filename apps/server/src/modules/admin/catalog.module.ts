@@ -1,6 +1,6 @@
 import {
   BadRequestException,Body,CanActivate,ConflictException,Controller,
-  Delete,ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
+  Delete,ExecutionContext,ForbiddenException,Get,Header,HttpCode,Inject,Injectable,Module,
   NotFoundException,OnModuleDestroy,Param,Patch,Post,Query,Req,ServiceUnavailableException,
   UnauthorizedException,UseGuards,
 } from '@nestjs/common';
@@ -22,6 +22,7 @@ import {
   submitVerifiedAdminRightsEvidence,reviewVerifiedAdminRightsEvidence,
   getVerifiedAdminRightsDecision,getVerifiedAdminRightsEvidence,
   getVerifiedAdminContentChapter,readVerifiedAdminPreparedText,
+  setVerifiedAdminPublication,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
   proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,
   listVerifiedAdminWorkMatchReviews,
@@ -54,6 +55,7 @@ import {
   rightsRecordCreateSchema,rightsDecisionQuerySchema,adminRightsReviewInputSchema,
   adminRightsClaimCreatedSchema,adminRightsReviewedSchema,
   adminRightsDecisionResultSchema,adminRightsEvidenceSchema,
+  adminPublicationCommandSchema,adminPublicationResultSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -124,6 +126,7 @@ export class AdminCatalogDb implements OnModuleDestroy {
       }
       if(error instanceof Error&&[
         'Rights work scope does not exist',
+        'Publication scope not found',
       ].includes(error.message)){
         throw new NotFoundException('Rights work not found');
       }
@@ -147,6 +150,12 @@ export class AdminCatalogDb implements OnModuleDestroy {
         'Import candidate review stale or evidence unavailable',
         'Incoming claim does not match canonical title or source digest',
         'Import package UUID reused with different checksum',
+        'Publication requires current approved rights at every scope',
+        'Publication requires a verified catalog source asset',
+        'Publication requires prepared chapter content',
+        'Publication requires an unpublished draft',
+        'Only a published revision may be withdrawn',
+        'Withdrawn material requires fresh editorial review',
       ].includes(error.message)){
         throw new ConflictException('Canonical metadata changed or is no longer editable');
       }
@@ -205,6 +214,10 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   rightsDecision(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminRightsDecision(this.db(),bearer,input));
+  }
+  publication(bearer:string,input:unknown,requestId:string){
+    return this.authorized(()=>setVerifiedAdminPublication(this.db(),bearer,input,
+      requestId,process.env.FOLIO_PRIVATE_STORAGE_ROOT??''));
   }
   rightsEvidence(bearer:string,workId:string,recordId:string){
     return this.authorized(()=>
@@ -934,6 +947,24 @@ const workCreatedApi={
   },
 };
 
+const publicationInputApi={
+  type:'object',additionalProperties:false,
+  required:['action','territory','reason'],
+  properties:{
+    action:{type:'string',enum:['publish','withdraw']},
+    territory:{type:'string',pattern:'^[A-Z]{2}$'},
+    reason:{type:'string',minLength:8,maxLength:500},
+  },
+};
+const publicationResultApi={
+  type:'object',additionalProperties:false,
+  required:['workId','editionId','revisionId','status'],
+  properties:{
+    workId:detailUuidApi,editionId:detailUuidApi,revisionId:detailUuidApi,
+    status:{type:'string',enum:['published','withdrawn']},
+  },
+};
+
 const preparedSourceApi={
   type:'object',additionalProperties:false,
   required:['revisionId','sha256','sizeBytes','sourceText'],
@@ -1023,6 +1054,33 @@ export class AdminCatalogController {
    * all relationship SELECTs. Unknown UUIDs are distinguishable only after
    * current catalog:read, account, device and MFA checks have passed.
    */
+
+  /** Review-approved publication is an explicit audited transition, never implied by a rights claim. */
+  @Post('works/:workId/editions/:editionId/revisions/:revisionId/publication')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @HttpCode(200)
+  @ApiOperation({summary:'Same-device MFA catalog:edit; verify private source and three rights scopes before publish/withdraw'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiParam({name:'revisionId',type:String,format:'uuid'})
+  @ApiBody({schema:publicationInputApi})
+  @ApiOkResponse({schema:publicationResultApi})
+  async publication(@Req() request:CatalogRequest,
+    @Param('workId') workId:string,@Param('editionId') editionId:string,
+    @Param('revisionId') revisionId:string,
+    @Query() query:Record<string,unknown>,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const ids=[workId,editionId,revisionId].map(id=>adminCatalogIdSchema.safeParse(id));
+    const command=adminPublicationCommandSchema.safeParse(raw);
+    if(ids.some(id=>!id.success)||!command.success){
+      throw new BadRequestException('Invalid publication command or catalog scope');
+    }
+    const bearer=await this.bearer(request);
+    return adminPublicationResultSchema.parse(await this.store.publication(bearer,{
+      workId,editionId,revisionId,...command.data,
+    },this.trace(request)));
+  }
 
   /** A verified catalog editor can only submit a PENDING claim. */
   @Post('works/:workId/rights')
