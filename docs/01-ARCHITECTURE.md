@@ -45,8 +45,9 @@
 
 ## Ortamlar
 - localhost: örnek veri, migration, unit test, hızlı geliştirme.
-- lab (Ubuntu test makinesi): Docker Compose, staging DB ayrı credentials/db, sentetik/dummy veriler, test kullanıcıları, cihaz/browser E2E. 'mehmet' adı yalnız yetkili Desktop Commander erişimi için kullanılacak; adres/token/repo secret yayımlanmaz.
-- production: ayrı gerçek sunucu, ayrı secrets, ayrı storage ve DB, HTTPS ve offsite backup. Kullanıcı açık onayı olmadan deployment yok.
+- ci/lab (birincil: GitHub-hosted Ubuntu Actions): her koşuda izole Folio Docker Compose ve ayrı `folio_test`, sentetik/dummy veriler, gerçek HTTPS/PostgreSQL ve browser E2E. Ephemeral runner production sunucusu değildir; native iOS/Android için ayrıca yetkili cihaz gerekir.
+- optional local lab: `mehmet` Desktop Commander Ubuntu cihazı ek manuel doğrulama için kullanılabilir, ancak Actions CI'ının bağımlılığı değildir; adres/token/repo secret yayımlanmaz.
+- production runtime: henüz atanmadı; ayrı gerçek sunucu/hosting, secrets, kalıcı storage ve DB, HTTPS ve offsite backup gerekir. GitHub Actions yalnız CI/CD orkestrasyonu yapar. Kullanıcı açık onayı olmadan production build/deployment yok.
 - Test cihazı 7/24 açık olsa dahi prod ve lab ayrımı. Production'a taşırken clean deploy + migration + restore test gerekir.
 
 ## Kaynak ihtiyacı / kapasite
@@ -54,6 +55,9 @@
 - CPU/RAM DB/worker konkurensleri sınırlandırılır; ses dosyaları bant genişliğine ve disk alanına göre kapasite planı. 1.000 kitap metadata önemsiz, ses ve eşzamanlı yüklemede asıl yük.
 - App/DB/worker healthcheck, readiness/liveness, günlük log rotation, disk/RAM/queue/DB connection monitoring; hata uyarısı.
 - Dosya varlığını backup ile değil storage adapter semantiğiyle sağlar; tek VPS SLA sağlamaz, uzakta şifreli yedek + kurtarma tatbikatı zorunlu.
+
+## GitHub Actions yürütme kararı (11 Ekim 2026)
+Geliştirme için varsayılan yürütme ortamı GitHub-hosted Ubuntu runner'dır. PR `check` hızlıdır; `ci:full`/main/gecelik ve manuel `validation=full` izolasyonlu tam regresyonu çalıştırır. Manuel `validation=fast` yalnız geliştirme geri bildirimi içindir. Actions ortamı production database/asset üzerinde işlem yapmaz. Ayrıntılar `docs/22-GITHUB-ACTIONS-DEVELOPMENT.md`, `docs/60-DEVELOPMENT-CI-ACCELERATION.md` ve `docs/40-DEPENDENCY-RELEASE-GATE.md` içindedir.
 
 ## CI platform sozlesmesi (#7, 10 Ekim 2026)
 Ubuntu CI `pnpm check`, paylasilan tipler, Drizzle, NestJS, Vite, unit/HTTP, OpenAPI drift, Playwright Chrome, lisans bildirim taramasi ve yerel Docker imaj derlemesini dogrular. Expo `pnpm mobile:export` komutu web JS + Android Hermes + iOS Hermes JS bundle ciktilarini birlikte uretir; `tools/ci/check-expo-exports.mjs` uc hedefi zorunlu kilar. Bu derlemeler native APK/AAB/IPA veya gercek Android/iOS cihaz testi DEGILDIR; bunlar V1-04 kabul kapisinda ayrica uygulanir. Gelistirme audit uyarilari `docs/09-DEPENDENCY-RISKS.md` icinde kayitli; yayin CI icin guvenlik denetimi ayrica zorunlu bloklayicidir. Bu karar prod dagitimi yetkilendirmez.
