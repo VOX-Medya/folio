@@ -3,9 +3,9 @@ import {
   NotFoundException,OnModuleDestroy,Param,Query,Req,ServiceUnavailableException,
 } from '@nestjs/common';
 import {ApiOkResponse,ApiOperation,ApiParam,ApiQuery,ApiTags} from '@nestjs/swagger';
-import {createFolioDb,getPublishedBookDetail,searchPublishedCatalog} from '@folio/db';
-import {publishedBookDetailSchema,publishedCatalogSearchQuerySchema,publishedCatalogSearchPageSchema} from '@folio/contracts';
-import type {PublishedBookDetail,PublishedCatalogSearchPage} from '@folio/contracts';
+import {createFolioDb,getPublishedBookDetail,getPublishedReaderText,searchPublishedCatalog} from '@folio/db';
+import {publishedBookDetailSchema,publishedReaderTextSchema,publishedCatalogSearchQuerySchema,publishedCatalogSearchPageSchema} from '@folio/contracts';
+import type {PublishedBookDetail,PublishedReaderText,PublishedCatalogSearchPage} from '@folio/contracts';
 
 @Injectable()
 class PublishedCatalogDb implements OnModuleDestroy {
@@ -19,6 +19,11 @@ class PublishedCatalogDb implements OnModuleDestroy {
     if(!this.connection)throw new ServiceUnavailableException('Catalog database unavailable');
     try{return await searchPublishedCatalog(this.connection.db,query,territory);}
     catch{throw new ServiceUnavailableException('Catalog database unavailable');}
+  }
+  async reader(revisionId:string,territory:string):Promise<PublishedReaderText|null>{
+    if(!this.connection)throw new ServiceUnavailableException('Catalog database unavailable');
+    try{return await getPublishedReaderText(this.connection.db,revisionId,territory);}
+    catch{throw new ServiceUnavailableException('Reader database unavailable');}
   }
   async onModuleDestroy(){await this.connection?.pool.end();}
 }
@@ -95,6 +100,46 @@ export class PublishedCatalogController {
     if(!query.success)throw new BadRequestException('Invalid book search');
     const result=await this.catalog.search(query.data,territory);
     return publishedCatalogSearchPageSchema.parse(result);
+  }
+
+  @Get('reader/:revisionId')
+  @Header('Cache-Control','no-store')
+  @ApiOperation({summary:'Rights-checked published chapter text, never draft/source storage'})
+  @ApiParam({name:'revisionId',type:'string',format:'uuid'})
+  @ApiOkResponse({schema:{
+    type:'object',additionalProperties:false,
+    required:['workId','revisionId','title','language','chapters'],
+    properties:{
+      workId:{type:'string',format:'uuid'},revisionId:{type:'string',format:'uuid'},
+      title:{type:'string'},language:{type:'string',enum:['tr','en']},
+      chapters:{type:'array',items:{
+        type:'object',additionalProperties:false,required:['id','heading','blocks'],
+        properties:{
+          id:{type:'string',format:'uuid'},heading:{type:'string'},
+          blocks:{type:'array',items:{
+            type:'object',additionalProperties:false,required:['id','kind','text'],
+            properties:{
+              id:{type:'string',format:'uuid'},kind:{type:'string'},text:{type:'string'},
+            },
+          }},
+        },
+      }},
+    },
+  }})
+  async reader(@Param('revisionId') rawId:string,@Query() rawQuery:Record<string,unknown>,
+    @Req() request:{socket?:{encrypted?:boolean}}):Promise<PublishedReaderText>{
+    if(request.socket?.encrypted!==true)throw new ServiceUnavailableException('Secure reader required');
+    const territory=process.env.FOLIO_PUBLIC_CATALOG_TERRITORY;
+    if(!territory||!/^[A-Z]{2}$/.test(territory)){
+      throw new NotFoundException('Public reader is not enabled');
+    }
+    if(!publishedReaderTextSchema.shape.revisionId.safeParse(rawId).success||
+      Object.keys(rawQuery??{}).length){
+      throw new BadRequestException('Invalid reader link');
+    }
+    const result=await this.catalog.reader(rawId,territory);
+    if(!result)throw new NotFoundException('Published reader text not found');
+    return publishedReaderTextSchema.parse(result);
   }
 }
 

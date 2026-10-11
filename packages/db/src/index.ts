@@ -82,7 +82,7 @@ export {AuthRateLimitExceeded,prepareAuthAttemptBuckets,consumeAuthAttemptRateLi
 export {listVerifiedDeviceSessions,revokeVerifiedDeviceSession} from './device-sessions.js';
 
 export {setVerifiedAdminPublication,permitsPublication} from './publication.js';
-export {getPublishedBookDetail,hasCurrentCatalogGrant} from './published-book.js';
+export {getPublishedBookDetail,getPublishedReaderText,hasCurrentCatalogGrant} from './published-book.js';
 
 export {searchPublishedCatalog} from './public-catalog-search.js';
 export {listOwnedShelf,saveOwnedShelf,deleteOwnedShelf} from './owned-shelf.js';

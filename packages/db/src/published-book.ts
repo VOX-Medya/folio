@@ -1,6 +1,7 @@
 import {and,asc,desc,eq,isNull} from 'drizzle-orm';
 import {z} from 'zod';
-import {publishedBookDetailSchema} from '@folio/contracts';
+import {publishedBookDetailSchema,publishedReaderTextSchema} from '@folio/contracts';
+import {sha256Text} from './content.js';
 import type {createFolioDb} from './index.js';
 import * as schema from './schema.js';
 
@@ -117,5 +118,80 @@ export async function getPublishedBookDetail(
       id:work.id,title:work.originalTitle,originalLanguage:work.originalLanguage,
       authors,editions,
     });
+  },{isolationLevel:'repeatable read'});
+}
+
+/** #33 Public text requires published revision, current three-scope rights and
+ * verified original source in ONE repeatable-read snapshot. No draft/owner body,
+ * storage key, raw asset, unverified checksum or rights evidence is serialized. */
+export async function getPublishedReaderText(
+  db:CatalogDb,rawRevisionId:unknown,rawTerritory:unknown,
+){
+  const revisionId=z.uuid().parse(rawRevisionId);
+  const territory=z.string().regex(/^[A-Z]{2}$/).parse(rawTerritory);
+  return db.transaction(async tx=>{
+    const [found]=await tx.select({
+      revisionId:schema.contentRevisions.id,editionId:schema.editions.id,
+      workId:schema.works.id,title:schema.works.originalTitle,
+      language:schema.contentRevisions.language,
+      provenanceId:schema.contentRevisions.provenanceId,
+      rawSha256:schema.contentRevisions.rawSha256,
+    }).from(schema.contentRevisions)
+      .innerJoin(schema.editions,eq(schema.editions.id,schema.contentRevisions.editionId))
+      .innerJoin(schema.works,eq(schema.works.id,schema.editions.workId))
+      .where(and(eq(schema.contentRevisions.id,revisionId),
+        eq(schema.contentRevisions.status,'published'),
+        eq(schema.editions.status,'published'),
+        eq(schema.works.publicationStatus,'published'))).limit(1);
+    if(!found||(found.language!=='tr'&&found.language!=='en'))return null;
+    const now=new Date();
+    if(!await rightsAllowed(tx,found.workId,found.editionId,revisionId,'display',territory,now)){
+      return null;
+    }
+    const [source]=await tx.select({snapshot:schema.sourceProvenance.sourceSnapshot})
+      .from(schema.sourceProvenance)
+      .where(eq(schema.sourceProvenance.id,found.provenanceId)).limit(1);
+    const claim=z.object({mediaAssetId:z.uuid(),sourceSha256:z.string().regex(/^[a-f0-9]{64}$/)})
+      .passthrough().safeParse(source?.snapshot);
+    if(!claim.success||claim.data.sourceSha256!==found.rawSha256)return null;
+    const [asset]=await tx.select({
+      scope:schema.mediaAssets.ownerScope,owner:schema.mediaAssets.ownerUserId,
+      status:schema.mediaAssets.status,verifiedAt:schema.mediaAssets.verifiedAt,
+      sha256:schema.mediaAssets.sha256,mime:schema.mediaAssets.mime,
+    }).from(schema.mediaAssets).where(eq(schema.mediaAssets.id,claim.data.mediaAssetId)).limit(1);
+    if(!asset||asset.scope!=='catalog'||asset.owner!==null||
+      asset.status!=='verified'||!asset.verifiedAt||
+      asset.sha256!==found.rawSha256||asset.mime!=='text/plain')return null;
+    // This first reader accepts only a small, complete plaintext catalogue book.
+    // Reject oversized/empty revisions rather than return silently truncated text.
+    const chapters=await tx.select({
+      id:schema.contentChapters.chapterId,ordinal:schema.contentChapters.ordinal,
+      heading:schema.contentChapters.heading,
+    }).from(schema.contentChapters)
+      .where(eq(schema.contentChapters.revisionId,revisionId))
+      .orderBy(asc(schema.contentChapters.ordinal)).limit(81);
+    if(!chapters.length||chapters.length>80)return null;
+    const blocks=await tx.select({
+      id:schema.contentBlocks.blockId,chapterId:schema.contentBlocks.chapterId,
+      ordinal:schema.contentBlocks.ordinal,kind:schema.contentBlocks.kind,
+      text:schema.contentBlocks.sourceText,sha256:schema.contentBlocks.textSha256,
+    }).from(schema.contentBlocks).where(and(
+      eq(schema.contentBlocks.revisionId,revisionId),eq(schema.contentBlocks.includeNormal,true),
+    )).orderBy(asc(schema.contentBlocks.chapterId),asc(schema.contentBlocks.ordinal))
+      .limit(4001);
+    if(!blocks.length||blocks.length>4000)return null;
+    if(blocks.some(b=>b.text.length>30000||sha256Text(b.text)!==b.sha256))return null;
+    const data={
+      workId:found.workId,revisionId:found.revisionId,title:found.title,
+      language:found.language,
+      chapters:chapters.map(ch=>({
+        id:ch.id,heading:ch.heading,
+        blocks:blocks.filter(b=>b.chapterId===ch.id).map(b=>({
+          id:b.id,kind:b.kind,text:b.text,
+        })),
+      })).filter(ch=>ch.blocks.length>0),
+    };
+    return publishedReaderTextSchema.safeParse(data).success
+      ?publishedReaderTextSchema.parse(data):null;
   },{isolationLevel:'repeatable read'});
 }

@@ -786,6 +786,21 @@ export const publishedBookDetailSchema=z.object({
 export type PublishedBookDetail=z.infer<typeof publishedBookDetailSchema>;
 export {fetchPublishedBookDetail,PublishedBookHttpError} from './published-book-client.js';
 
+/** #33 Bounded, immutable published chapters. Text is DATA, never HTML. */
+export const publishedReaderTextSchema=z.object({
+  workId:z.uuid(),revisionId:z.uuid(),title:z.string().min(1),
+  language:z.enum(['tr','en']),
+  chapters:z.array(z.object({
+    id:z.uuid(),heading:z.string().max(500),
+    blocks:z.array(z.object({
+      id:z.uuid(),kind:z.string().min(1).max(32),text:z.string().max(30000),
+    }).strict()).min(1).max(4000),
+  }).strict()).min(1).max(80),
+}).strict();
+export type PublishedReaderText=z.infer<typeof publishedReaderTextSchema>;
+export {fetchPublishedReaderText,PublishedReaderHttpError} from './published-reader-client.js';
+
+
 /** MVP: public search only covers books and authors, never people. */
 export const publishedCatalogSearchQuerySchema=z.object({
   q:z.string().trim().min(1).max(120),
