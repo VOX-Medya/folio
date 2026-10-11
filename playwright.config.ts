@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: '**/admin-catalog-live.spec.ts',
+  testIgnore: ['**/admin-catalog-live.spec.ts','**/public-shelf-live.spec.ts'],
   timeout: 45000,
   workers: 2,
   use: { browserName: 'chromium', channel: 'chrome', headless: true },

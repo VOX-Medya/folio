@@ -23,9 +23,9 @@ export const screenCopy={
       detail:'Private books and shelves will not be shared with other users.'},
   },
   catalog:{
-    tr:{heading:'Kitaplar ve yazarlar',message:'Kitap ve yazar araması henüz etkin değil.',
+    tr:{heading:'Kitaplar ve yazarlar',message:'Yayımlanmış kitap ve yazarları arayabilirsin.',
       detail:'Yalnız hakları doğrulanmış ve yayımlanmış eserler listelenecek. Kullanıcı araması bulunmaz.'},
-    en:{heading:'Books and authors',message:'Book and author search is not enabled yet.',
+    en:{heading:'Books and authors',message:'Search published books and authors.',
       detail:'Only rights-approved published books will appear. There is no people search.'},
   },
   goals:{

@@ -785,3 +785,31 @@ export const publishedBookDetailSchema=z.object({
 }).strict();
 export type PublishedBookDetail=z.infer<typeof publishedBookDetailSchema>;
 export {fetchPublishedBookDetail,PublishedBookHttpError} from './published-book-client.js';
+
+/** MVP: public search only covers books and authors, never people. */
+export const publishedCatalogSearchQuerySchema=z.object({
+  q:z.string().trim().min(1).max(120),
+  limit:z.preprocess(v=>typeof v==='string'&&/^\d+$/.test(v)?Number(v):v,
+    z.number().int().min(1).max(20).default(20)),
+}).strict();
+export const publishedCatalogItemSchema=z.object({
+  id:z.uuid(),title:z.string().min(1),authors:z.array(z.string().min(1)).max(50),
+  editionId:z.uuid(),revisionId:z.uuid(),audioAvailable:z.boolean(),
+}).strict();
+export const publishedCatalogSearchPageSchema=z.object({
+  items:z.array(publishedCatalogItemSchema).max(20),
+}).strict();
+export type PublishedCatalogSearchPage=z.infer<typeof publishedCatalogSearchPageSchema>;
+
+/** This data never contains a reading position; that arrives separately in #36. */
+export const shelfUpdateSchema=z.object({
+  status:z.enum(['to-read','reading']),
+}).strict();
+export const shelfItemSchema=publishedCatalogItemSchema.extend({
+  status:z.enum(['to-read','reading']),
+}).strict();
+export const shelfListSchema=z.object({
+  items:z.array(shelfItemSchema).max(50),
+}).strict();
+export type ShelfList=z.infer<typeof shelfListSchema>;
+export {searchPublicCatalog,fetchOwnWebShelf,saveOwnWebShelf,removeOwnWebShelf} from './public-shelf-client.js';

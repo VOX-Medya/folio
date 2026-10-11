@@ -42,7 +42,7 @@ describe('V1-00 modular monolith architecture acceptance',()=>{
         expect(path).toMatch(/^\/v1\//);
         expect(path).not.toMatch(/\/users?(\/|\{|$)|\/people|\/friends\/search|_test/);
         for(const [verb,op] of Object.entries(operations)){
-          expect(['get','post','patch','delete']).toContain(verb);
+          expect(['get','post','put','patch','delete']).toContain(verb);
           // Every private owner/admin business operation must document
           // both verified native bearer and guarded Web-cookie transports.
           if(path.startsWith('/v1/me/')||

@@ -7,10 +7,10 @@ test('Expo V1 tabs navigate and preserve TR/EN locale across browser back',async
   await expect(page.getByTestId('folio-bottom-navigation')).toBeVisible();
   await page.getByTestId('folio-tab-catalog').click();
   await expect(page).toHaveURL(/\/catalog$/);
-  await expect(page.getByText('Kitap ve yazar araması henüz etkin değil.').filter({visible:true}).first()).toBeVisible();
+  await expect(page.getByText('Yayımlanmış kitap ve yazarları arayabilirsin.').filter({visible:true}).first()).toBeVisible();
   await expect(page.getByText('Kullanıcı araması bulunmaz.',{exact:false})).toBeVisible();
   await page.getByRole('button',{name:'EN'}).click();
-  await expect(page.getByText('Book and author search is not enabled yet.').filter({visible:true}).first()).toBeVisible();
+  await expect(page.getByText('Search published books and authors.').filter({visible:true}).first()).toBeVisible();
   await page.goBack();
   await expect(page.getByText('The reader is still in development.').filter({visible:true}).first()).toBeVisible();
   await expect(page.getByTestId('folio-tab-home').filter({visible:true}).first()).toBeVisible();
@@ -28,7 +28,8 @@ for(const width of [320,390,768,1024,1440,1920]){
     await page.getByTestId('folio-tab-library').click();
     await expect(page).toHaveURL(/\/library$/);
     await expect(page.getByText('Kütüphanene erişmek için giriş yapman gerekecek.').filter({visible:true}).first()).toBeVisible();
-    await expect(page.getByText('Kişisel raf, özel kitap veya ilerleme verisi', {exact:false}).filter({visible:true}).first()).toBeVisible();
+    await expect(page.getByTestId('folio-owned-shelf')).toBeVisible();
+    await expect(page.getByText('Kişisel raf için güvenli HTTPS oturumu gerekli.')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await expect(page.getByTestId('folio-tab-profile').filter({visible:true}).first()).toBeVisible();
   });
