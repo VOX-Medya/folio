@@ -1,6 +1,6 @@
 import {
   BadRequestException,Body,CanActivate,ConflictException,Controller,
-  Delete,ExecutionContext,ForbiddenException,Get,Header,Inject,Injectable,Module,
+  Delete,ExecutionContext,ForbiddenException,Get,Header,HttpCode,Inject,Injectable,Module,
   NotFoundException,OnModuleDestroy,Param,Patch,Post,Query,Req,ServiceUnavailableException,
   UnauthorizedException,UseGuards,
 } from '@nestjs/common';
@@ -1059,6 +1059,7 @@ export class AdminCatalogController {
   @Post('works/:workId/editions/:editionId/revisions/:revisionId/publication')
   @UseGuards(AdminCatalogWriteGuard)
   @Header('Cache-Control','private, no-store')
+  @HttpCode(200)
   @ApiOperation({summary:'Same-device MFA catalog:edit; verify private source and three rights scopes before publish/withdraw'})
   @ApiParam({name:'workId',type:String,format:'uuid'})
   @ApiParam({name:'editionId',type:String,format:'uuid'})
