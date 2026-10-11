@@ -2,9 +2,9 @@ import {randomUUID,createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {dirname,join} from 'node:path';
+import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {and,eq} from 'drizzle-orm';
+import {eq} from 'drizzle-orm';
 import {
   createFolioDb,registerPendingAccount,verifyAccountEmail,signInVerifiedAccount,schema,
 } from '../src/index.js';
@@ -64,11 +64,10 @@ async function main(){
     mkdirSync(join(folder,'content'));
     writeFileSync(join(folder,'content/source.txt'),source);
     writeFileSync(manifestPath,JSON.stringify(manifest));
-    const editor=await registerPendingAccount(db,
-      'folioctl-editor-'+randomUUID()+'@example.com',password);
+    const editorEmail='folioctl-editor-'+randomUUID()+'@example.com';
+    const editor=await registerPendingAccount(db,editorEmail,password);
     await verifyAccountEmail(db,editor.verificationToken);
-    const session=await signInVerifiedAccount(db,
-      'folioctl-editor-'+editor.userId+'@example.com',password,'folioctl-import-test');
+    const session=await signInVerifiedAccount(db,editorEmail,password,'folioctl-import-test');
     const manager=await registerPendingAccount(db,
       'folioctl-granter-'+randomUUID()+'@example.com',password);
     await verifyAccountEmail(db,manager.verificationToken);
