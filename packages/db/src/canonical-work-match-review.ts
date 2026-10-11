@@ -18,7 +18,7 @@ const MAX_EVIDENCE_ROWS=1000;
 const failed=()=>new Error('Canonical work match review is stale or unavailable');
 const independent=()=>new Error('Verified independent catalog reviewer required');
 type Evidence={workVersion:number;candidateVersion:number;
-  evidenceKind:'shared_source_sha256'|'same_title'|'manual';
+  evidenceKind:'shared_source_sha256'|'shared_isbn'|'same_title'|'manual';
   evidenceDigest:string};
 
 /**
@@ -50,12 +50,34 @@ async function inspectEvidence(tx:Tx,a:string,b:string):Promise<Evidence|null>{
   const rightHashes=[...new Set(sources.filter(row=>row.workId===b).map(row=>row.sha))].sort();
   const common=new Set(leftHashes);
   const hasCommon=rightHashes.some(digest=>common.has(digest));
+  // An ISBN is a reviewer clue, NEVER a globally unique canonical work ID.
+  // Compare only exact stored kind/value pairs; do not infer normalization.
+  const identifiers=await tx.select({
+    workId:schema.editions.workId,kind:schema.editionIdentifiers.kind,
+    value:schema.editionIdentifiers.value,
+  }).from(schema.editionIdentifiers)
+    .innerJoin(schema.editions,eq(schema.editionIdentifiers.editionId,schema.editions.id))
+    .where(and(inArray(schema.editions.workId,[a,b]),
+      inArray(schema.editionIdentifiers.kind,['isbn-10','isbn-13'])))
+    .orderBy(asc(schema.editions.workId),asc(schema.editionIdentifiers.kind),
+      asc(schema.editionIdentifiers.value))
+    .limit(MAX_EVIDENCE_ROWS+1);
+  if(identifiers.length>MAX_EVIDENCE_ROWS)throw failed();
+  const isbnKey=(row:{kind:string;value:string})=>JSON.stringify([row.kind,row.value]);
+  const leftIsbns=[...new Set(identifiers.filter(row=>row.workId===a)
+    .map(isbnKey))].sort();
+  const rightIsbns=[...new Set(identifiers.filter(row=>row.workId===b)
+    .map(isbnKey))].sort();
+  const knownIsbns=new Set(leftIsbns);
+  const hasCommonIsbn=rightIsbns.some(value=>knownIsbns.has(value));
   const sameTitle=left.title===right.title&&left.language===right.language;
-  const evidenceKind=hasCommon?'shared_source_sha256':sameTitle?'same_title':'manual';
-  // Hash includes immutable source-digest sets, title/language and metadata
-  // versions, so stale human decisions cannot silently apply to new evidence.
+  const evidenceKind=hasCommon?'shared_source_sha256':
+    hasCommonIsbn?'shared_isbn':sameTitle?'same_title':'manual';
+  // Include both complete bounded inventories in the evidence fingerprint:
+  // an edition identifier change invalidates previously recorded judgments
+  // even if metadataVersion is not advanced by an internal writer.
   const evidenceDigest=createHash('sha256').update(JSON.stringify({
-    left,right,leftHashes,rightHashes,
+    left,right,leftHashes,rightHashes,leftIsbns,rightIsbns,
   })).digest('hex');
   return {workVersion:left.version,candidateVersion:right.version,
     evidenceKind,evidenceDigest};
