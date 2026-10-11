@@ -154,3 +154,61 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await second.close();
   }
 });
+
+
+test('Chrome verified account login, onboarding, sessions and CSRF-protected logout',async({browser})=>{
+  test.setTimeout(110_000);
+  const origin=required('FOLIO_LIVE_SHELF_ORIGIN');
+  const email=required('FOLIO_LIVE_WEB_LOGIN_EMAIL');
+  const password=required('FOLIO_LIVE_WEB_LOGIN_PASSWORD');
+  const context=await browser.newContext({
+    ignoreHTTPSErrors:true,viewport:{width:390,height:844},
+  });
+  try{
+    const page=await context.newPage();
+    await page.goto(origin+'/profile');
+    await expect(page.getByTestId('folio-login-email')).toBeVisible();
+    const denied=await page.evaluate(async()=>{
+      const response=await fetch('/v1/me/shelf',{credentials:'same-origin'});
+      return response.status;
+    });
+    expect(denied).toBe(401);
+
+    await page.getByTestId('folio-login-email').fill(email);
+    await page.getByTestId('folio-login-password').fill('Incorrect-Strong-Password-2026!');
+    await page.getByTestId('folio-login-submit').click();
+    await expect(page.getByTestId('folio-web-auth-error')).toContainText('doğrulanamadı');
+    await expect(page.getByTestId('folio-web-session-verified')).toHaveCount(0);
+    await page.getByTestId('folio-login-password').fill(password);
+    await page.getByTestId('folio-login-submit').click();
+    await expect(page.getByTestId('folio-web-session-verified')).toBeVisible();
+    const cookie=(await context.cookies(origin)).find(c=>c.name==='__Host-folio_session');
+    expect(cookie).toMatchObject({httpOnly:true,secure:true,sameSite:'Strict'});
+    expect(cookie?.value).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    await expect(page.getByTestId('folio-web-onboarding-panel')).toBeVisible();
+    await page.getByTestId('folio-device-sessions-load').click();
+    await expect(page.getByTestId('folio-devices-list')).toBeVisible();
+    const before=await page.evaluate(async()=>{
+      const response=await fetch('/v1/me/shelf',{credentials:'same-origin'});
+      return response.status;
+    });
+    expect(before).toBe(200);
+    // No role/MFA is gained from successful ordinary password authentication.
+    const admin=await page.evaluate(async()=>{
+      const response=await fetch('/v1/admin/catalog/works?q=Folio&limit=10',{credentials:'same-origin'});
+      return response.status;
+    });
+    expect([401,403,404]).toContain(admin);
+
+    await page.getByTestId('folio-logout-submit').click();
+    await expect(page.getByTestId('folio-login-submit')).toBeVisible();
+    const after=await page.evaluate(async()=>{
+      const response=await fetch('/v1/me/shelf',{credentials:'same-origin'});
+      return response.status;
+    });
+    expect(after).toBe(401);
+    expect((await context.cookies(origin)).filter(c=>c.name==='__Host-folio_session'))
+      .toHaveLength(0);
+  }finally{await context.close();}
+});
