@@ -789,7 +789,7 @@ export {fetchPublishedBookDetail,PublishedBookHttpError} from './published-book-
 /** MVP: public search only covers books and authors, never people. */
 export const publishedCatalogSearchQuerySchema=z.object({
   q:z.string().trim().min(1).max(120),
-  limit:z.preprocess(v=>typeof v==='string'&&/^\\d+$/.test(v)?Number(v):v,
+  limit:z.preprocess(v=>typeof v==='string'&&/^\d+$/.test(v)?Number(v):v,
     z.number().int().min(1).max(20).default(20)),
 }).strict();
 export const publishedCatalogItemSchema=z.object({
