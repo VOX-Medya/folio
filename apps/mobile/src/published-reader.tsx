@@ -4,6 +4,7 @@ import {paperbound} from '@folio/ui-tokens';
 import {fetchPublishedReaderText,PublishedReaderHttpError} from '@folio/contracts';
 import type {PublishedReaderText} from '@folio/contracts';
 import type {FolioLocale} from './shell-data';
+import {RsvpPlayer} from './rsvp-player';
 
 declare const process:{env:{EXPO_PUBLIC_FOLIO_CATALOG_ORIGIN?:string}};
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
@@ -18,6 +19,7 @@ const copy={
     retry:'Yeniden yükle',previous:'Önceki bölüm',next:'Sonraki bölüm',
     fontDown:'Yazıyı küçült',fontUp:'Yazıyı büyüt',theme:'Okuma teması',
     system:'Sistem',light:'Açık',dark:'Koyu',chapter:'Bölüm',
+    normal:'Normal okuma',rsvp:'RSVP akışı',
     location:'Son okuma konumu henüz sunucuya kaydedilmiyor.',
   },
   en:{
@@ -28,6 +30,7 @@ const copy={
     retry:'Reload',previous:'Previous chapter',next:'Next chapter',
     fontDown:'Decrease font size',fontUp:'Increase font size',theme:'Reader theme',
     system:'System',light:'Light',dark:'Dark',chapter:'Chapter',
+    normal:'Normal reading',rsvp:'RSVP stream',
     location:'Last reading position is not yet saved to the server.',
   },
 } as const;
@@ -52,12 +55,14 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
   const [chapterIndex,setChapterIndex]=useState(0);
   const [fontSize,setFontSize]=useState(18);
   const [theme,setTheme]=useState<ReaderTheme>('system');
+  const [mode,setMode]=useState<'normal'|'rsvp'>('normal');
   const [retry,setRetry]=useState(0);
   const palette=theme==='system'?colors:theme==='dark'?paperbound.mobile.dark:paperbound.mobile.light;
   useEffect(()=>{
     const controller=new AbortController();
     setBook(null);
     setChapterIndex(0);
+    setMode('normal');
     if(!origin){setPhase('unavailable');return ()=>controller.abort();}
     setPhase('loading');
     void fetchPublishedReaderText(origin,revisionId,{signal:controller.signal})
@@ -126,17 +131,36 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
           <Text style={{color:palette.ink,fontSize:13}}>{t[value]}</Text>
         </Pressable>)}
       </View>
+      <View style={{gap:8,flexDirection:'row',flexWrap:'wrap'}}>
+        <Pressable testID="folio-reader-mode-normal" accessibilityRole="button"
+          accessibilityLabel={t.normal} onPress={()=>setMode('normal')}
+          style={{minHeight:48,paddingHorizontal:14,justifyContent:'center',
+            borderRadius:9,borderColor:palette.line,borderWidth:1,
+            backgroundColor:mode==='normal'?palette.tint:palette.surface}}>
+          <Text style={{color:palette.ink,fontWeight:'600'}}>{t.normal}</Text>
+        </Pressable>
+        <Pressable testID="folio-reader-mode-rsvp" accessibilityRole="button"
+          accessibilityLabel={t.rsvp} onPress={()=>setMode('rsvp')}
+          style={{minHeight:48,paddingHorizontal:14,justifyContent:'center',
+            borderRadius:9,borderColor:palette.line,borderWidth:1,
+            backgroundColor:mode==='rsvp'?palette.tint:palette.surface}}>
+          <Text style={{color:palette.ink,fontWeight:'600'}}>{t.rsvp}</Text>
+        </Pressable>
+      </View>
       <Text testID="folio-reader-chapter-title" accessibilityRole="header"
         style={{color:palette.ink,fontSize:22,fontWeight:'700',lineHeight:31}}>
         {chapter.heading}
       </Text>
-      <View testID="folio-reader-chapter-body" style={{gap:14}}>
-        {chapter.blocks.map(block=><Text key={block.id}
-          testID={'folio-reader-block-'+block.id}
-          style={{fontSize,lineHeight:Math.round(fontSize*1.6),color:palette.ink}}>
-          {block.text}
-        </Text>)}
-      </View>
+      {mode==='normal'
+        ? <View testID="folio-reader-chapter-body" style={{gap:14}}>
+          {chapter.blocks.map(block=><Text key={block.id}
+            testID={'folio-reader-block-'+block.id}
+            style={{fontSize,lineHeight:Math.round(fontSize*1.6),color:palette.ink}}>
+            {block.text}
+          </Text>)}
+        </View>
+        : <RsvpPlayer key={chapter.id} blocks={chapter.blocks} locale={locale} colors={palette}/>}
+
       <View style={{gap:10,flexDirection:'row',flexWrap:'wrap'}}>
         <Pressable testID="folio-reader-prev" accessibilityRole="button"
           accessibilityLabel={t.previous} disabled={chapterIndex===0}

@@ -57,6 +57,31 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await page.getByTestId('folio-reader-font-increase').click();
     await page.getByTestId('folio-reader-theme-dark').click();
     await expect(page.getByTestId('folio-reader-current-theme-dark')).toBeVisible();
+    await page.getByTestId('folio-reader-prev').click();
+    await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Prepared text');
+    await page.getByTestId('folio-reader-mode-rsvp').click();
+    await expect(page.getByTestId('folio-rsvp-current-words')).toHaveText('Synthetic');
+    await page.getByTestId('folio-rsvp-next').click();
+    await expect(page.getByTestId('folio-rsvp-current-words')).toHaveText('unpublished');
+    await page.getByTestId('folio-rsvp-previous').click();
+    await expect(page.getByTestId('folio-rsvp-current-words')).toHaveText('Synthetic');
+    await page.getByTestId('folio-rsvp-word-group').click();
+    await expect(page.getByTestId('folio-rsvp-current-words'))
+      .toHaveText('Synthetic unpublished');
+    await page.getByTestId('folio-rsvp-wpm-up').click();
+    await expect(page.getByTestId('folio-rsvp-wpm')).toHaveText('300 WPM');
+    await page.getByTestId('folio-rsvp-display').click();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('folio-rsvp-current-words')).toHaveText('Folio source');
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByTestId('folio-rsvp-current-words'))
+      .toHaveText('Synthetic unpublished');
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Duraklat');
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Başlat');
+    await page.getByTestId('folio-reader-mode-normal').click();
+    await expect(page.getByTestId('folio-reader-chapter-body')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await page.setViewportSize({width:1024,height:768});
     await expect(page.getByTestId('folio-layout-desktop').filter({visible:true}).first()).toBeVisible();
