@@ -53,11 +53,11 @@ export const readingRouteCopy={
       invalid:'Invalid book link.',back:'Back to books'},
   },
   reader:{
-    tr:{heading:'E-kitap okuyucu',message:'Okuyucu henüz güvenli içerik API’sine bağlanmadı.',
-      detail:'Metin veya okuma konumu, sunucu oturum ve telif kontrolü olmadan yüklenmez.',
+    tr:{heading:'E-kitap okuyucu',message:'Yayımlanmış bölümler geçerli telif haklarıyla güvenli katalogdan yüklenir.',
+      detail:'Okuma konumunu sunucuya kaydetme özelliği henüz hazırlanmaktadır.',
       invalid:'Geçersiz okuyucu bağlantısı.',back:'Kitaplara dön'},
-    en:{heading:'E-book reader',message:'The reader is not connected to the secured content API yet.',
-      detail:'Neither text nor reading progress loads without server-side session and rights checks.',
+    en:{heading:'E-book reader',message:'Published chapters are loaded from the secure rights-checked catalog.',
+      detail:'Server-side reading position sync is not yet available.',
       invalid:'Invalid reader link.',back:'Back to books'},
   },
 } as const;

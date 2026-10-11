@@ -28,7 +28,8 @@ test('Expo reader route blocks unauthorized content and rejects malformed deep l
   await page.setViewportSize({width:390,height:844});
   await page.goto(base+'/reader/'+valid);
   await expect(page.getByTestId('folio-reader-route')).toBeVisible();
-  await expect(page.getByText('Okuyucu henüz güvenli içerik API’sine bağlanmadı.')).toBeVisible();
+  await expect(page.getByText('Yayımlanmış bölümler geçerli telif haklarıyla güvenli katalogdan yüklenir.')).toBeVisible();
+  await expect(page.getByTestId('folio-reader-unavailable')).toBeVisible();
   await expect(page.getByTestId('folio-web-session-verified')).toHaveCount(0);
   await page.goto(base+'/reader/not-a-uuid');
   await expect(page.getByTestId('folio-invalid-reading-route')).toBeVisible();
