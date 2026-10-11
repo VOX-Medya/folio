@@ -23,7 +23,7 @@ import {
   adminCatalogRevisionListSchema,adminCatalogRightsLedgerSchema,
   adminContentChapterResponseSchema,
   adminRightsClaimCreatedSchema,adminRightsReviewedSchema,
-  adminRightsDecisionResultSchema,
+  adminRightsDecisionResultSchema,adminRightsEvidenceSchema,
   adminCatalogWorkAuthorAppendedSchema,
   adminImportCandidateResultSchema,adminImportCandidatePageSchema,
 } from '@folio/contracts';
@@ -2052,6 +2052,32 @@ async function main():Promise<void>{
       check(item.reviewStatus==='pending','Rights claim created approved without review');
       createdRightIds.push(item.id);
     }
+
+    const evidencePath=rightsSubmitPath+'/'+createdRightIds[2]+'/evidence';
+    const evidenceReply=await call(true,port,evidencePath,rightsBearer);
+    check(evidenceReply.status===200&&
+      evidenceReply.headers['cache-control']==='private, no-store',
+      'Verified rights reviewer could not inspect pending private evidence');
+    const legal=adminRightsEvidenceSchema.parse(JSON.parse(evidenceReply.body));
+    check(legal.workId===linkedWorkId&&
+      legal.editionId===createdEdition.id&&
+      legal.revisionId===changedContent.revision.id&&
+      legal.evidence===baseClaim.evidence&&
+      legal.reviewStatus==='pending'&&legal.claims.display===true&&
+      legal.territories.length===1&&legal.territories[0]==='TR'&&
+      !evidenceReply.body.includes(native.sessionToken),
+      'Reviewer evidence content was lost, widened or leaked a session');
+    check((await call(true,port,evidencePath,bearer)).status===403,
+      'Ordinary catalog editor obtained private legal evidence');
+    check((await call(true,port,evidencePath,readonlyEditionBearer)).status===403,
+      'Read-only role obtained private legal evidence');
+    check((await call(true,port,evidencePath,{})).status===401,
+      'Anonymous user read private legal evidence');
+    check((await call(true,port,root+'/works/'+randomUUID()+
+      '/rights/'+createdRightIds[2]+'/evidence',rightsBearer)).status===404,
+      'Evidence from another work crossed the scoped reviewer boundary');
+    check((await call(false,plainAddress.port,evidencePath,
+      rightsBearer)).status!==200,'Plain HTTP returned private legal evidence');
     const pendingDecision=await call(true,port,rightsQuery('TR','display'),bearer);
     check(pendingDecision.status===200&&
       adminRightsDecisionResultSchema.parse(JSON.parse(pendingDecision.body))
