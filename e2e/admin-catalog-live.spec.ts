@@ -137,6 +137,37 @@ test('real browser -> same-origin direct TLS Nest -> Folio PostgreSQL, conflict/
       .toBeLessThanOrEqual(1);
     await page.getByRole('button',{name:'EN',exact:true}).click();
     await expect(detail).toContainText('Metadata version: 5');
+    // Live visual/responsive evidence: the same authenticated browser remains
+    // backed by real HTTPS and PostgreSQL across breakpoints and color schemes.
+    // These captures contain synthetic catalogue data only, never session IDs.
+    for(const language of ['en','tr'] as const){
+      await page.getByRole('button',{name:language.toUpperCase(),exact:true}).click();
+      const queryLabel=language==='tr'?'Yazar veya eser metni':'Author or work text';
+      const versionLabel=language==='tr'?'Metadata sürümü: 5':'Metadata version: 5';
+      for(const colorScheme of ['light','dark'] as const){
+        await page.emulateMedia({colorScheme});
+        await expect(page.locator('[data-paperbound-theme]'))
+          .toHaveAttribute('data-paperbound-theme',colorScheme);
+        for(const width of [320,390,768,1024,1440,1920]){
+          await page.setViewportSize({width,height:900});
+          await expect(detail).toContainText(versionLabel);
+          await expect(page.getByRole('searchbox',{name:queryLabel})).toBeVisible();
+          const overflow=await page.evaluate(
+            ()=>document.documentElement.scrollWidth-window.innerWidth);
+          expect(overflow,`${language}/${colorScheme}/${width}px document overflow`)
+            .toBeLessThanOrEqual(1);
+          if(colorScheme==='dark'&&[320,768,1440].includes(width)){
+            await test.info().attach(
+              `live-catalog-${language}-dark-${width}`,{
+                body:await page.screenshot({fullPage:true}),contentType:'image/png',
+              });
+          }
+        }
+      }
+    }
+    expect(await page.evaluate(()=>document.cookie))
+      .not.toContain('__Host-folio_session');
+    console.log('LIVE CATALOG RESPONSIVE QA: 24 TR/EN x theme x viewport combinations, no document overflow.');
     // Fresh browser GET with the same cookie confirms durable persistence.
     const fresh=await ctx.request.get(origin+base,{
       headers:{origin,'sec-fetch-site':'same-origin'},
