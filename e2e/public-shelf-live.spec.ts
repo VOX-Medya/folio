@@ -45,7 +45,23 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await page.getByTestId('folio-shelf-continue-'+workId).click();
     await expect(page).toHaveURL(/\/reader\/[0-9a-f-]+$/);
     await expect(page.getByTestId('folio-reader-route')).toBeVisible();
+    await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Prepared text');
+    await expect(page.getByTestId('folio-reader-chapter-body'))
+      .toContainText('Synthetic unpublished Folio source');
+    await page.getByTestId('folio-reader-next').click();
+    await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Additional plaintext');
+    await expect(page.getByTestId('folio-reader-chapter-body'))
+      .toContainText('<script>window.__folioReaderInjected=true;</script>');
+    expect(await page.evaluate(()=>Object.prototype.hasOwnProperty.call(
+      window,'__folioReaderInjected'))).toBe(false);
+    await page.getByTestId('folio-reader-font-increase').click();
+    await page.getByTestId('folio-reader-theme-dark').click();
+    await expect(page.getByTestId('folio-reader-theme-dark'))
+      .toHaveAttribute('aria-selected','true');
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.setViewportSize({width:1024,height:768});
+    await expect(page.getByTestId('folio-layout-desktop')).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(1024);
   }finally{
     await first.close();
     await second.close();

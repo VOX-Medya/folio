@@ -26,7 +26,7 @@ import {
   adminRightsDecisionResultSchema,adminRightsEvidenceSchema,
   adminCatalogWorkAuthorAppendedSchema,
   adminImportCandidateResultSchema,adminImportCandidatePageSchema,
-  publishedBookDetailSchema,publishedCatalogSearchPageSchema,shelfListSchema,
+  publishedBookDetailSchema,publishedReaderTextSchema,publishedCatalogSearchPageSchema,shelfListSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
@@ -182,7 +182,9 @@ async function main():Promise<void>{
     // No approved rights or public media state is minted by this fixture.
     const privateVault=join(temp,'private-vault');
     process.env.FOLIO_PRIVATE_STORAGE_ROOT=privateVault;
-    const editorialBytes=Buffer.from('Synthetic unpublished Folio source '+suffix,'utf8');
+    const chapterOneText='Synthetic unpublished Folio source '+suffix;
+    const chapterTwoText='<script>window.__folioReaderInjected=true;</script> remains literal plaintext';
+    const editorialBytes=Buffer.from(chapterOneText+'\n\n'+chapterTwoText,'utf8');
     const editorialSha=createHash('sha256').update(editorialBytes).digest('hex');
     const stagedEditorial=await (await LocalStorageAdapter.create(privateVault)).stage({
       owner:{scope:'catalog',ownerUserId:null},
@@ -276,21 +278,32 @@ async function main():Promise<void>{
     process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='TR';
     check((await call(true,port,publicBookPath)).status===404,
       'Unpublished work metadata leaked to public catalog');
+    const readerPath='/v1/catalog/reader/'+editorialRevision.id;
+    check((await call(true,port,readerPath)).status===404,
+      'Draft revision body exposed to public reader');
     const publicationPath=root+'/works/'+privateWork.id+'/editions/'+editorialEdition.id+
       '/revisions/'+editorialRevision.id+'/publication';
     const publicationCommand=(action:'publish'|'withdraw')=>({
       action,territory:'TR',reason:'Synthetic human-reviewed Folio MVP editorial decision',
     });
-    const pubChapterId=randomUUID(),pubBlockId=randomUUID();
-    await db.insert(schema.contentChapters).values({
-      revisionId:editorialRevision.id,chapterId:pubChapterId,ordinal:0,heading:'Prepared text',
-    });
-    await db.insert(schema.contentBlocks).values({
-      revisionId:editorialRevision.id,chapterId:pubChapterId,blockId:pubBlockId,
-      ordinal:0,kind:'paragraph',sourceLocator:{format:'text',path:'synthetic'},
-      sourceText:editorialBytes.toString('utf8'),textSha256:editorialSha,
-      includeNormal:true,includeRsvp:true,includeAudio:true,
-    });
+    const pubChapterId=randomUUID(),pubChapterTwoId=randomUUID();
+    const pubBlockId=randomUUID(),pubBlockTwoId=randomUUID();
+    await db.insert(schema.contentChapters).values([
+      {revisionId:editorialRevision.id,chapterId:pubChapterId,ordinal:0,heading:'Prepared text'},
+      {revisionId:editorialRevision.id,chapterId:pubChapterTwoId,ordinal:1,heading:'Additional plaintext'},
+    ]);
+    await db.insert(schema.contentBlocks).values([
+      {revisionId:editorialRevision.id,chapterId:pubChapterId,blockId:pubBlockId,
+        ordinal:0,kind:'paragraph',sourceLocator:{format:'text',path:'synthetic/0'},
+        sourceText:chapterOneText,
+        textSha256:createHash('sha256').update(chapterOneText).digest('hex'),
+        includeNormal:true,includeRsvp:true,includeAudio:true},
+      {revisionId:editorialRevision.id,chapterId:pubChapterTwoId,blockId:pubBlockTwoId,
+        ordinal:0,kind:'paragraph',sourceLocator:{format:'text',path:'synthetic/1'},
+        sourceText:chapterTwoText,
+        textSha256:createHash('sha256').update(chapterTwoText).digest('hex'),
+        includeNormal:true,includeRsvp:true,includeAudio:true},
+    ]);
     check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===404,
       'Admin write opt-in did not protect publication');
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='direct-tls-only';
@@ -367,6 +380,23 @@ async function main():Promise<void>{
       !publicBook.body.includes(stagedEditorial.key)&&
       !publicBook.body.includes('Synthetic publication approval scope'),
       'Public book response leaked source/rights or mismatched author/edition');
+    // #33: one true published plaintext source -> two immutable chapters.
+    const readerResponse=await call(true,port,readerPath);
+    const readerData=publishedReaderTextSchema.parse(JSON.parse(readerResponse.body));
+    check(readerResponse.status===200&&readerResponse.headers['cache-control']==='no-store'&&
+      readerData.workId===privateWork.id&&readerData.revisionId===editorialRevision.id&&
+      readerData.chapters.length===2&&
+      readerData.chapters[0]?.heading==='Prepared text'&&
+      readerData.chapters[0]?.blocks[0]?.text===chapterOneText&&
+      readerData.chapters[1]?.blocks[0]?.text===chapterTwoText&&
+      !readerResponse.body.includes(stagedEditorial.key)&&
+      !readerResponse.body.includes(privateVault),
+      'Published reader leaked source keys or returned unverified chapters');
+    check((await call(true,port,readerPath+'?territory=US')).status===400,
+      'Reader accepted client-controlled publication territory');
+    check((await call(false,plainAddress.port,readerPath,{
+      'x-forwarded-proto':'https',
+    })).status===503,'Forged TLS proxy could read published chapters');
     // #31: real title/author search and private-user shelf on the published fixture.
     const searchUrl='/v1/catalog/search?q='+encodeURIComponent(privateWork.originalTitle);
     const publishedSearch=await call(true,port,searchUrl);
@@ -505,6 +535,8 @@ async function main():Promise<void>{
       'x-forwarded-proto':'https',
     })).status===503,'Forged proxy TLS bypassed public book transport');
     process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='US';
+    check((await call(true,port,readerPath)).status===404,
+      'Reader body was accessible outside approved territory');
     check((await call(true,port,publicBookPath)).status===404,
       'Public work was visible outside approved territory');
     process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='TR';
@@ -543,6 +575,8 @@ async function main():Promise<void>{
       'Authenticated reviewer could not withdraw a published revision');
     check((await call(true,port,publicBookPath)).status===404,
       'Withdrawn work metadata remained publicly accessible');
+    check((await call(true,port,readerPath)).status===404,
+      'Withdrawn revision body remained publicly accessible');
     check(publishedCatalogSearchPageSchema.parse(JSON.parse(
       (await call(true,port,searchUrl)).body,
     )).items.length===0,'Withdrawn work appeared in public search');

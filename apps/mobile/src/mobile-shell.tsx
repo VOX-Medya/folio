@@ -11,6 +11,7 @@ import {mobileSections,readingRouteCopy,screenCopy,validReadingRouteId} from './
 import type {FolioLocale,MobileSection,ReadingRouteKind} from './shell-data';
 import {WebSignInPanel} from './web-sign-in';
 import {PublishedBookPanel} from './published-book';
+import {PublishedReaderPanel} from './published-reader';
 import {PublicCatalogSearchPanel} from './public-search';
 import {OwnedShelfPanel} from './owned-shelf';
 
@@ -169,6 +170,8 @@ export function MobileShell({section,route}:{section:MobileSection;route?:{kind:
                       borderWidth:1,borderRadius:18,padding:20,gap:14}}>
                   {validId&&route.kind==='book'
                     ? <PublishedBookPanel workId={route.id as string} locale={locale} colors={colors}/>
+                    : validId&&route.kind==='reader'
+                    ? <PublishedReaderPanel revisionId={route.id as string} locale={locale} colors={colors}/>
                     : <Text testID="folio-reading-route-notice"
                         style={{fontSize:15,lineHeight:23,color:colors.accessibleMuted}}>
                       {validId
