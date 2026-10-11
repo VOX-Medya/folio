@@ -1174,7 +1174,7 @@ async function main():Promise<void>{
     const mainAuthorPath=relationBase+'/authors/'+author.id;
     const secondaryPath=relationBase+'/authors/'+secondary.id;
     const emptyPath=relationBase+'/editions/'+empty.id;
-    const rightsPath=relationBase+'/editions/'+rightsProtected.id;
+    const relationRightsPath=relationBase+'/editions/'+rightsProtected.id;
     const sourcePath=relationBase+'/editions/'+sourceProtected.id;
     check((await patch(port,originalTitlePath,bearer,{
       expectedVersion:0,title:'Forbidden original rewriting',
@@ -1243,7 +1243,7 @@ async function main():Promise<void>{
       evidence:'Synthetic rights pending; NEVER publish',
       licenseKind:'unverified',territories:['TR'],
     });
-    check((await remove(port,rightsPath,bearer,{expectedVersion:3})).status===409,
+    check((await remove(port,relationRightsPath,bearer,{expectedVersion:3})).status===409,
       'Draft edition with RIGHTS evidence was silently deleted');
     check((await remove(port,sourcePath,bearer,{expectedVersion:3})).status===409,
       'Draft edition with immutable SOURCE REVISION was silently deleted');
@@ -1261,7 +1261,7 @@ async function main():Promise<void>{
       'Empty DRAFT edition was not removed with a versioned receipt');
     check((await remove(port,emptyPath,bearer,{expectedVersion:4})).status===404,
       'Repeating a completed edition removal did not fail closed');
-    check((await remove(port,rightsPath,bearer,{expectedVersion:4})).status===409,
+    check((await remove(port,relationRightsPath,bearer,{expectedVersion:4})).status===409,
       'Rights-protected edition was removable after unrelated update');
     const afterRelations=await call(true,port,relationBase,bearer);
     const finalRelations=adminCatalogWorkDetailSchema.parse(JSON.parse(afterRelations.body));
