@@ -869,3 +869,5 @@ export {fetchOwnWebProfile,updateOwnWebProfile,requestOwnWebDeletion} from './ow
 
 export {friendInviteCodeSchema,friendInviteIssueSchema,friendInviteIssuedSchema,friendInviteRedeemSchema,friendRequestResultSchema,friendshipActionSchema,friendshipDecisionResultSchema,friendshipEntrySchema,friendshipListSchema} from './friendship.js';
 export type {FriendInviteIssued,FriendRequestResult,FriendshipAction,FriendshipDecisionResult,FriendshipList} from './friendship.js';
+
+export {fetchOwnWebFriendships,rotateOwnWebFriendInvite,requestOwnWebFriendship,decideOwnWebFriendship} from './friendship-client.js';
