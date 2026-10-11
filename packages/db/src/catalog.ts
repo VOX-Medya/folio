@@ -603,7 +603,7 @@ export async function removeVerifiedAdminEmptyDraftEdition(
     await tx.insert(schema.auditEvents).values({
       actorId:who.userId,requestId:traceId,
       action:'edition.empty_draft.remove',entityType:'edition',entityId:eid,
-      beforeJson:{workId:id,workMetadataVersion:rev.oldVersion,...edition,
+      beforeJson:{...edition,workMetadataVersion:rev.oldVersion,
         identifiers,contributors},
       afterJson:{workId:id,workMetadataVersion:rev.newVersion,
         removed:true,sourceRevisionsRemoved:false,rightsRemoved:false},
