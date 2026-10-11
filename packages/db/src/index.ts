@@ -83,3 +83,6 @@ export {listVerifiedDeviceSessions,revokeVerifiedDeviceSession} from './device-s
 
 export {setVerifiedAdminPublication,permitsPublication} from './publication.js';
 export {getPublishedBookDetail,hasCurrentCatalogGrant} from './published-book.js';
+
+export {searchPublishedCatalog} from './public-catalog-search.js';
+export {listOwnedShelf,saveOwnedShelf,deleteOwnedShelf} from './owned-shelf.js';
