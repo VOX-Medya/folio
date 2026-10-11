@@ -139,7 +139,7 @@ export async function prepareVerifiedSingleBook(manifestPath){
     throw new Error('Draft source size/SHA-256 mismatch after read');
   }
   const sourceText=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
-  if(!sourceText||sourceText.includes('\\0'))throw new Error('Invalid UTF-8 prepared text');
+  if(!sourceText||sourceText.includes(String.fromCharCode(0)))throw new Error('Invalid UTF-8 prepared text');
   return {packageId:manifest.packageId,manifestSha256:result.manifestSha256,
     schemaVersion:manifest.schemaVersion,book:manifest.book,
     source:{path:file.path,sha256:file.sha256,sizeBytes:file.sizeBytes,sourceText}};
@@ -180,7 +180,7 @@ async function main(){
   try {
     if(command==='dry-run'){
       const report=await previewVerifiedSingleBookImport(db,input);
-      process.stdout.write(JSON.stringify(report)+'\\n');
+      process.stdout.write(JSON.stringify(report) + String.fromCharCode(10));
       return;
     }
     const bearer=process.env.FOLIO_ADMIN_BEARER;
@@ -189,7 +189,7 @@ async function main(){
       throw new Error('Apply requires FOLIO_ADMIN_BEARER (active MFA admin) and FOLIO_PRIVATE_STORAGE_ROOT');
     }
     const applied=await applyVerifiedSingleBookImport(db,bearer,input,root);
-    process.stdout.write(JSON.stringify(applied)+'\\n');
+    process.stdout.write(JSON.stringify(applied) + String.fromCharCode(10));
   }finally{
     await pool.end();
   }
