@@ -1107,6 +1107,113 @@ async function main():Promise<void>{
     check(deferred.status===200&&JSON.parse(deferred.body).status==='deferred'&&
       JSON.parse(deferred.body).reviewVersion===2,
       'Refreshed human-review decision was not properly versioned');
+    // #12: ISBN is an exact bibliographic review clue, NEVER a unique work
+    // identity or authorization to merge. Distinct DRAFT titles/languages may
+    // store the same ISBN; unrelated "other" identifiers must not count.
+    const sharedIsbn='9780306406157',sharedOther='synthetic-evidence-'+suffix;
+    const isbnLeft=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'ISBN Clue Left '+suffix,originalLanguage:'tr',
+      authors:[{authorId:author.id}],
+      editions:[{language:'tr',label:'ISBN Left',identifiers:[
+        {kind:'isbn-13',value:sharedIsbn},{kind:'other',value:sharedOther},
+      ]}],
+    });
+    const isbnRight=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'ISBN Clue Right '+suffix,originalLanguage:'en',
+      authors:[{authorId:author.id}],
+      editions:[{language:'en',label:'ISBN Right',identifiers:[
+        {kind:'isbn-13',value:sharedIsbn},{kind:'other',value:sharedOther},
+      ]}],
+    });
+    const isbnPath=root+'/works/'+isbnLeft.id+'/match-reviews';
+    const isbnInput={candidateWorkId:isbnRight.id};
+    const openedIsbn=await post(port,isbnPath,bearer,isbnInput);
+    check(openedIsbn.status===201,'Identical stored ISBN did not open a safe review');
+    const isbnRow=JSON.parse(openedIsbn.body) as {
+      id:string;reviewVersion:number;status:string;changed:boolean;
+    };
+    check(isbnRow.reviewVersion===0&&isbnRow.status==='pending'&&isbnRow.changed,
+      'New ISBN review was not pending');
+    const isbnPage=await call(true,port,isbnPath,readonlyBearer);
+    const isbnItems=(JSON.parse(isbnPage.body) as {
+      items:Array<{id:string;evidenceKind:string;snapshotCurrent:boolean}>;
+    }).items;
+    check(isbnPage.status===200&&isbnItems.length===1&&
+      isbnItems[0]?.id===isbnRow.id&&
+      isbnItems[0]?.evidenceKind==='shared_isbn'&&
+      isbnItems[0]?.snapshotCurrent,
+      'Read-only MFA review lost exact ISBN clue or disclosed the wrong evidence');
+    const isbnReversed=await post(port,root+'/works/'+isbnRight.id+'/match-reviews',
+      bearer,{candidateWorkId:isbnLeft.id});
+    check(isbnReversed.status===201&&
+      JSON.parse(isbnReversed.body).id===isbnRow.id&&
+      JSON.parse(isbnReversed.body).changed===false,
+      'Reversed ISBN match generated duplicate editorial review');
+    const isbnVerdictPath=isbnPath+'/'+isbnRow.id;
+    const isbnVerdict=await patch(port,isbnVerdictPath,reviewerBearerA,{
+      expectedVersion:0,decision:'distinct',
+      rationale:'A shared ISBN alone cannot establish identical canonical work identity.',
+    });
+    check(isbnVerdict.status===200&&JSON.parse(isbnVerdict.body).reviewVersion===1,
+      'Independent MFA editor could not record non-merging ISBN assessment');
+
+    const rightDetails=adminCatalogWorkDetailSchema.parse(JSON.parse(
+      (await call(true,port,root+'/works/'+isbnRight.id,bearer)).body));
+    const rightEdition=rightDetails.editions[0]?.id;
+    check(!!rightEdition,'ISBN fixture edition missing');
+    const isbnEdit=await patch(port,
+      root+'/works/'+isbnRight.id+'/editions/'+rightEdition,
+      reviewerBearerA,{
+        expectedVersion:0,identifiers:[
+          {kind:'isbn-13',value:'9780131103627'},
+          {kind:'other',value:sharedOther},
+        ],
+      });
+    check(isbnEdit.status===200,'Authorized ISBN revision was not committed');
+    const staleIsbn=await call(true,port,isbnPath,readonlyBearer);
+    const staleItems=(JSON.parse(staleIsbn.body) as {
+      items:Array<{snapshotCurrent:boolean}>;
+    }).items;
+    check(staleItems.length===1&&!staleItems[0]?.snapshotCurrent,
+      'Changed edition ISBN did not mark the old review snapshot stale');
+    const newIsbn=await post(port,isbnPath,bearer,isbnInput);
+    check(newIsbn.status===201&&JSON.parse(newIsbn.body).changed===true&&
+      JSON.parse(newIsbn.body).status==='pending'&&
+      JSON.parse(newIsbn.body).reviewVersion===2,
+      'Explicit ISBN evidence refresh failed to invalidate old verdict');
+    const refreshedIsbn=await call(true,port,isbnPath,readonlyBearer);
+    const freshRows=(JSON.parse(refreshedIsbn.body) as {
+      items:Array<{evidenceKind:string;snapshotCurrent:boolean;reviewVersion:number}>;
+    }).items;
+    check(freshRows[0]?.evidenceKind==='manual'&&
+      freshRows[0]?.snapshotCurrent&&freshRows[0]?.reviewVersion===2,
+      'Other (non-ISBN) identifier was incorrectly considered shared ISBN');
+    check((await patch(port,isbnVerdictPath,reviewerBearerB,{
+      expectedVersion:1,decision:'distinct',
+      rationale:'An expired review must not survive changed bibliographic evidence.',
+    })).status===409,'Stale ISBN decision was accepted');
+    const finalIsbn=await patch(port,isbnVerdictPath,reviewerBearerB,{
+      expectedVersion:2,decision:'deferred',
+      rationale:'After the ISBN changed, the books require independent additional evidence.',
+    });
+    check(finalIsbn.status===200&&
+      JSON.parse(finalIsbn.body).status==='deferred',
+      'Refreshed ISBN review could not be independently adjudicated');
+    const persistedIsbn=await pool.query<{
+      status:string;review_version:number;evidence_kind:string;
+    }>('SELECT status,review_version,evidence_kind FROM canonical_work_match_reviews WHERE id=$1::uuid',
+      [isbnRow.id]);
+    check(persistedIsbn.rows[0]?.status==='deferred'&&
+      persistedIsbn.rows[0]?.review_version===3&&
+      persistedIsbn.rows[0]?.evidence_kind==='manual',
+      'ISBN reviewer conclusion persisted an obsolete shared ISBN');
+    const isbnAudits=await pool.query<{action:string}>(
+      'SELECT action FROM audit_events WHERE entity_type=$1 AND entity_id=$2::uuid',
+      ['canonical_work_match_review',isbnRow.id],
+    );
+    check(isbnAudits.rows.length===4,
+      'ISBN proposal/decision/refresh/independent decision audit was incomplete');
+    console.log('CANONICAL ISBN REVIEW PASS: exact ISBN clue, no other-ID inference, MFA two-person decision, stale refresh, versioned audit, no canonical merge.');
     const originalPair=await pool.query<{
       id:string;publication_status:string;metadata_version:number;
     }>('SELECT id,publication_status,metadata_version FROM works WHERE id = ANY($1::uuid[])',
