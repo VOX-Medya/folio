@@ -18,7 +18,7 @@ const copy={
     saving:'İnceleme sunucuda kaydediliyor…',success:'Sunucu yanıtı doğrulandı; güncel kayıtlar yeniden okunuyor.',
     validation:'UUID, karar ve açıklama alanlarını kontrol edin. İstek gönderilmedi.',
     help:'Kararı yalnız teklifi açandan farklı, bu cihazda MFA doğrulamış bir katalog editörü verebilir.',
-    evidence:'Kanıt',sameTitle:'Aynı özgün başlık',hash:'Aynı kaynak SHA-256',manual:'Manuel karşılaştırma',
+    evidence:'Kanıt',sameTitle:'Aynı özgün başlık',hash:'Aynı kaynak SHA-256',isbn:'Aynı kayıtlı ISBN (kimlik kanıtı değil)',manual:'Manuel karşılaştırma',
     version:'İnceleme sürümü',current:'Güncel kanıt',stale:'Kaynak metadata değişti. Yeniden inceleme kaydı açılmalı.',
     choose:'Kararı incele',decision:'İnceleme kararı',distinct:'Farklı eserler',deferred:'Daha fazla kanıt gerekli',
     rationale:'Gerekçeli editoryal açıklama (en az 24 karakter)',confirm:'Kararı açıkça kaydet',
@@ -32,7 +32,7 @@ const copy={
     saving:'Saving verified review on the server…',success:'Server response verified; reloading current records.',
     validation:'Check UUID, decision and rationale. Nothing was sent.',
     help:'Only a different MFA-verified catalog editor may decide a review they did not propose.',
-    evidence:'Evidence',sameTitle:'Matching original title',hash:'Matching source SHA-256',manual:'Manual comparison',
+    evidence:'Evidence',sameTitle:'Matching original title',hash:'Matching source SHA-256',isbn:'Matching stored ISBN (not proof of identity)',manual:'Manual comparison',
     version:'Review version',current:'Current evidence',stale:'Source metadata changed. The review must be proposed again.',
     choose:'Review decision',decision:'Editorial decision',distinct:'Distinct works',deferred:'More evidence required',
     rationale:'Editorial rationale (at least 24 characters)',confirm:'Explicitly record decision',
@@ -137,7 +137,7 @@ export function AdminWorkMatchReviews({workId,language,online}:Props){
   }
   const disabled=busy||!online||locked;
   const evidence=(value:Review['evidenceKind'])=>value==='shared_source_sha256'
-    ?w.hash:value==='same_title'?w.sameTitle:w.manual;
+    ?w.hash:value==='shared_isbn'?w.isbn:value==='same_title'?w.sameTitle:w.manual;
   const status=(value:Review['status'])=>value==='pending'
     ?w.pending:value==='distinct'?w.doneDistinct:w.doneDeferred;
   return <section className="folio-catalog-card folio-catalog-relations"
