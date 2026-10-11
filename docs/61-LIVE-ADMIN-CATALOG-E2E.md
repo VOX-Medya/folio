@@ -12,6 +12,14 @@
 
 Tam akış: gerçek arama → gerçek detay/ilişkiler → ikinci editörün commit'i → istemcinin 409'u → explicit refresh → sürümlü eser düzenleme → opsiyonel başlık düzenleme → yazar rol/sıra düzenleme → iki tıklamalı boş taslak baskı silme → gerçek API GET → PostgreSQL eser sürümü, hak/başlık korunumu, baskı silinmesi ve iki editör kimliğine bağlanan **tam beş işlem audit olayı** kontrolü. Ayrı read-only oturumu yazmaya kalkarsa 403; oturumsuz 401. İstemcide TR/EN, 390px yatay taşma ve HttpOnly izolasyonu doğrulanır.
 
+## Canlı responsive, dil ve tema matrisi (#12, kısmi)
+
+Aynı *mock içermeyen* Chrome oturumunda, sunucuda kaydedilmiş son `metadataVersion` yeniden okunur; **320, 390, 768, 1024, 1440 ve 1920 px** viewport genişliklerinin her birinde Türkçe/İngilizce, açık/koyu Paperbound tema kombinasyonları çalıştırılır (**2 × 2 × 6 = 24** kontrol). Test, kayıt detayı ve kitap/yazar arama kutusunun erişilebilir adını, görünürlüğünü, doğru dil/sürüm metnini, `data-paperbound-theme` durumunu, yatay doküman taşmasını ve Web session çerezinin JS'ye açılmadığını doğrular. Veritabanı, gerçek HTTPS, CSRF ve permission kapıları değişmez.
+
+Koyu tema için iki dilde 320/768/1440 px toplam **altı sentetik ekran görüntüsü** Playwright test çıktılarına eklenir. CI `full-regression` gerçek catalog smoke adımının **hemen ardından**, normal mock UI E2E'nin çıktı dizinini temizlemesinden önce bu PNG dosyalarını `folio-catalog-live-visual-<run id>` artifact'ine yükler (7 günlük saklama). Artifact yoksa screenshot başarısı varsayılmaz: ilgili Actions job/log/artifact ayrı doğrulanır.
+
+Bu yalnızca **katalog detayı odaklı** tarayıcı QA'sıdır. Kesin görsel piksel karşılaştırması, kontrast/klavye/ekran-okuyucu kapsamının bütünü, tüm hata/offline ekranları, gerçek Android ve iOS cihazları ile hak/kimlik mapping'i için kabul iddiası oluşturmaz. `#12` açık kalır.
+
 ## Çalıştırma / sınırlar
 
 CI'nin `full-regression` job'unda izole Folio PostgreSQL test veritabanı hazırlanır, ardından `bash infra/lab.sh admin-catalog-https-smoke` komutu canlı tarayıcı alt testini **bekleyerek** çalıştırır. Bu alt test, `pnpm exec playwright test --config playwright.live.config.ts` ile yalnız bu dosyayı çalıştırır. Standart `pnpm e2e` (mock UI regresyonları, Expo Web) bilinçli olarak bu dosyayı `testIgnore` ile dışarıda tutar; aksi halde gerçek DB yokken sahte başarı veya başarısızlık oluşurdu.
