@@ -1,3 +1,5 @@
+> **MVP test kapsam üst kararı (11.10.2026):** Günlük geliştirme CI: yalnız GitHub Actions Ubuntu'da hızlı PR `check` ve tek main MVP regresyonu. Bu dosyadaki geniş cross-browser/native/full asset/perf matrisleri **her PR için zorunlu değildir**; gerçek production release kabulü ve insana bağlı platform/hukuk/backup için #48/#47'de yapılır. Runtime auth/rights/private-asset korumaları her ortamda zorunlu kalır. [Güncel test politikası](60-DEVELOPMENT-CI-ACCELERATION.md).
+
 # Kalite kapıları, güvenlik, CI, lab ve canlıya çıkış
 
 ## Temel prensip
