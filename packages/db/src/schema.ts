@@ -542,7 +542,7 @@ export const canonicalWorkMatchReviews=pgTable('canonical_work_match_reviews',{
   check('canonical_work_match_order_ck',sql`${t.workId}<${t.candidateWorkId}`),
   check('canonical_work_match_versions_ck',sql`${t.workVersion}>=0 AND ${t.candidateVersion}>=0 AND ${t.reviewVersion}>=0`),
   check('canonical_work_match_status_ck',sql`${t.status} IN ('pending','distinct','deferred')`),
-  check('canonical_work_match_evidence_ck',sql`${t.evidenceKind} IN ('shared_source_sha256','same_title','manual') AND ${t.evidenceDigest} ~ '^[0-9a-f]{64}$'`),
+  check('canonical_work_match_evidence_ck',sql`${t.evidenceKind} IN ('shared_source_sha256','shared_isbn','same_title','manual') AND ${t.evidenceDigest} ~ '^[0-9a-f]{64}$'`),
   check('canonical_work_match_decision_ck',sql`(
     (${t.status}='pending' AND ${t.reviewedBy} IS NULL AND ${t.rationale} IS NULL) OR
     (${t.status}<>'pending' AND ${t.reviewedBy} IS NOT NULL AND
