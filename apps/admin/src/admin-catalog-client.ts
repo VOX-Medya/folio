@@ -11,6 +11,8 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRelationRemoveSchema,
+  adminCatalogTitleMetadataPatchSchema,adminCatalogWorkAuthorMetadataPatchSchema,
+  adminCatalogEditionRemovedSchema,
   adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
   adminImportCandidateProposeSchema,adminImportCandidatePageSchema,
   adminImportCandidateResultSchema,
@@ -27,6 +29,7 @@ import type {
   CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
   AdminCatalogEditionMetadataPatch,AdminCatalogRevisionDiff,
+  AdminCatalogTitleMetadataPatch,AdminCatalogWorkAuthorMetadataPatch,
   AdminWorkMatchPropose,AdminWorkMatchDecision,
   AdminImportCandidatePropose,
   AdminCatalogRevisionList,AdminCatalogRightsLedger,
@@ -258,6 +261,44 @@ export async function removeAdminWorkAuthor(
     'DELETE',200,parsed.data,
   );
   return parse(raw,value=>adminCatalogWorkAuthorAppendedSchema.parse(value));
+}
+
+/** Versioned metadata patch of an OPTIONAL title. Canonical original title
+ * and source/translation contents never change. */
+export async function patchAdminWorkTitle(
+  workId:string,titleId:string,input:AdminCatalogTitleMetadataPatch,
+){
+  const parsed=adminCatalogTitleMetadataPatchSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const result=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/titles/'+checkedId(titleId),
+    'PATCH',200,parsed.data,
+  );
+  return parse(result,v=>adminCatalogTitleAppendedSchema.parse(v));
+}
+export async function patchAdminWorkAuthorLink(
+  workId:string,authorId:string,input:AdminCatalogWorkAuthorMetadataPatch,
+){
+  const parsed=adminCatalogWorkAuthorMetadataPatchSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const result=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/authors/'+checkedId(authorId),
+    'PATCH',200,parsed.data,
+  );
+  return parse(result,v=>adminCatalogWorkAuthorAppendedSchema.parse(v));
+}
+/** Only removes an EMPTY DRAFT edition shell after a separate human confirm.
+ * The server separately verifies zero revisions/rights and DB RESTRICT FKs. */
+export async function removeAdminEmptyDraftEdition(
+  workId:string,editionId:string,input:{expectedVersion:number},
+){
+  const parsed=adminCatalogRelationRemoveSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const result=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/editions/'+checkedId(editionId),
+    'DELETE',200,parsed.data,
+  );
+  return parse(result,v=>adminCatalogEditionRemovedSchema.parse(v));
 }
 
 /** Only a live administrator may review existing DRAFT canonical work pairs.

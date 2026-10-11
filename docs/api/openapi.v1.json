@@ -2769,6 +2769,101 @@
         "tags": [
           "admin-catalog"
         ]
+      },
+      "delete": {
+        "operationId": "AdminCatalogController_removeEmptyEdition",
+        "parameters": [
+          {
+            "name": "editionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "workId",
+                    "metadataVersion",
+                    "removed"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metadataVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "removed": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA/RBAC catalog:edit; remove EMPTY DRAFT edition only, never revisions or rights, audited",
+        "tags": [
+          "admin-catalog"
+        ]
       }
     },
     "/v1/admin/catalog/works/{workId}/titles": {
@@ -3063,6 +3158,130 @@
         "tags": [
           "admin-catalog"
         ]
+      },
+      "patch": {
+        "operationId": "AdminCatalogController_patchTitle",
+        "parameters": [
+          {
+            "name": "titleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "title"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "language"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "language": {
+                    "type": "string",
+                    "enum": [
+                      "tr",
+                      "en"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "alternate",
+                      "translation"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "workId",
+                    "metadataVersion"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metadataVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA/RBAC catalog:edit; versioned OPTIONAL title metadata update, original forbidden, audited",
+        "tags": [
+          "admin-catalog"
+        ]
       }
     },
     "/v1/admin/catalog/works/{workId}/authors/{authorId}": {
@@ -3150,6 +3369,119 @@
           }
         ],
         "summary": "MFA/RBAC catalog:edit; unlink DRAFT work-author relation, retaining one true author; audited",
+        "tags": [
+          "admin-catalog"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminCatalogController_patchAuthorLink",
+        "parameters": [
+          {
+            "name": "authorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "contribution"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "sortOrder"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "contribution": {
+                    "type": "string",
+                    "enum": [
+                      "author",
+                      "co-author",
+                      "editor"
+                    ]
+                  },
+                  "sortOrder": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "workId",
+                    "authorId",
+                    "metadataVersion"
+                  ],
+                  "properties": {
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metadataVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA/RBAC catalog:edit; reorder/change DRAFT author role, last true author protected",
         "tags": [
           "admin-catalog"
         ]

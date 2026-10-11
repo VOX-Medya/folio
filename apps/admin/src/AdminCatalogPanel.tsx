@@ -619,6 +619,7 @@ export function AdminCatalogPanel({kind,language,theme}:{
           workId={detail.value.work.id}
           version={detail.value.work.metadataVersion}
           authors={detail.value.authors} titles={detail.value.titles}
+          editions={detail.value.editions}
           online={online&&!busy} language={language}
           onReload={()=>{
             setMessage(w.saved);

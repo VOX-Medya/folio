@@ -14,6 +14,8 @@ import {
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogRelationRemoveSchema,
+  adminCatalogTitleMetadataPatchSchema,adminCatalogWorkAuthorMetadataPatchSchema,
+  adminCatalogEditionRemovedSchema,
   adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
   adminWorkMatchResultSchema,adminWorkMatchPageSchema,adminWorkMatchQuerySchema,
   adminImportCandidateProposeSchema,adminImportCandidateResultSchema,
@@ -477,5 +479,45 @@ describe('unverified incoming package review strict metadata boundary',()=>{
       {...page,items:[{...item,reviewedBy:id}]},
       {...page,items:[{...item,provenanceVerified:true}]},
     ])expect(adminImportCandidatePageSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('versioned DRAFT relation CRUD contracts',()=>{
+  it('accepts only optional alternate title metadata and denies spoofed source/rights',()=>{
+    for(const good of [
+      {expectedVersion:0,title:'Eser II'},
+      {expectedVersion:1,kind:'translation'},
+      {expectedVersion:2,language:'en'},
+    ])expect(adminCatalogTitleMetadataPatchSchema.safeParse(good).success).toBe(true);
+    for(const bad of [
+      {expectedVersion:0},{expectedVersion:-1,title:'Test'},
+      {expectedVersion:0,kind:'original'},
+      {expectedVersion:0,title:' '},{expectedVersion:0,language:'fr'},
+      {expectedVersion:0,actorId:id,title:'New'},
+      {expectedVersion:0,sourceText:'PRIVATE',title:'New'},
+      {expectedVersion:0,rightsApproved:true,title:'New'},
+    ])expect(adminCatalogTitleMetadataPatchSchema.safeParse(bad).success).toBe(false);
+  });
+  it('permits role/reorder only, not edition/source/author rewriting',()=>{
+    for(const good of [
+      {expectedVersion:0,sortOrder:3},
+      {expectedVersion:0,contribution:'co-author'},
+      {expectedVersion:1,contribution:'editor',sortOrder:0},
+    ])expect(adminCatalogWorkAuthorMetadataPatchSchema.safeParse(good).success).toBe(true);
+    for(const bad of [
+      {expectedVersion:0},{expectedVersion:-1,sortOrder:1},
+      {expectedVersion:0,sortOrder:10001},
+      {expectedVersion:0,contribution:'publisher'},
+      {expectedVersion:0,authorId:id,sortOrder:0},
+      {expectedVersion:0,publicationStatus:'published',contribution:'editor'},
+    ])expect(adminCatalogWorkAuthorMetadataPatchSchema.safeParse(bad).success).toBe(false);
+  });
+  it('requires positive empty-edition removal acknowledgement and no private data',()=>{
+    const receipt={id,workId:id,metadataVersion:1,removed:true};
+    expect(adminCatalogEditionRemovedSchema.parse(receipt)).toEqual(receipt);
+    expect(adminCatalogEditionRemovedSchema.safeParse({...receipt,removed:false}).success)
+      .toBe(false);
+    expect(adminCatalogEditionRemovedSchema.safeParse({...receipt,deletedSource:true}).success)
+      .toBe(false);
   });
 });
