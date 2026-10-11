@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,readFile,rm,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {validatePackage} from '../folioctl.mjs';
+import {validatePackage,prepareVerifiedSingleBook} from '../folioctl.mjs';
 
 const fixture=resolve(dirname(fileURLToPath(import.meta.url)),
   '../../fixtures/folioctl/single-book');
@@ -61,4 +61,20 @@ test('symbolic link package asset cannot escape private package root',()=>isolat
   await x.save();
   await symlink(join(fixture,'content/source.txt'),join(x.temp,'content/source.txt'));
   await assert.rejects(validatePackage(x.input),/Symbolic links are forbidden/);
+}));
+
+test('validated text becomes the exact source text for one draft block',async()=>{
+  const input=await prepareVerifiedSingleBook(manifestPath);
+  assert.equal(input.source.sourceText,'abc');
+  assert.equal(input.source.sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+});
+test('manifest cannot claim approved rights or private-user ownership',()=>isolatedCopy(async x=>{
+  await writeFile(join(x.temp,'content/source.txt'),'abc');
+  x.meta.book.rights={reviewStatus:'approved'};
+  await x.save();
+  await assert.rejects(validatePackage(x.input),/Disallowed book field/);
+  delete x.meta.book.rights;
+  x.meta.files[0].ownerUserId='33333333-3333-4333-8333-333333333333';
+  await x.save();
+  await assert.rejects(validatePackage(x.input),/Disallowed asset field/);
 }));
