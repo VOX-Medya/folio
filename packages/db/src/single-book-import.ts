@@ -192,7 +192,7 @@ export async function applyVerifiedSingleBookImport(
       revisionId:revision.id,chapterId,blockId,ordinal:0,
       kind:'paragraph',sourceLocator:{kind:'plain-text',sourcePath:input.source.path},
       sourceText:input.source.sourceText,textSha256:input.source.sha256,
-      includeNormal:true,includeRsvp:true,includeAudio:false,
+      includeNormal:true,includeRsvp:true,includeAudio:true,
     });
     const [batch]=await tx.insert(schema.importBatches).values({
       packageId:input.packageId,manifestChecksum:input.manifestSha256,

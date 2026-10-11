@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import {lstat,readFile,realpath} from 'node:fs/promises';
+import {constants} from 'node:fs';
+import {lstat,readFile,realpath,open} from 'node:fs/promises';
 import {dirname,resolve,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -148,6 +149,39 @@ export async function prepareVerifiedSingleBook(manifestPath){
     schemaVersion:manifest.schemaVersion,book:manifest.book,
     source:{path:file.path,sha256:file.sha256,sizeBytes:file.sizeBytes,sourceText}};
 }
+/**
+ * A second, manually prepared version of the same package manifest may add
+ * exactly ONE audio asset. The unchanged text SHA-256 anchors the existing
+ * imported draft. The new audio file is checked twice, including while being
+ * written to Folio's 0600 private quarantine. No auto-generation or TTS.
+ */
+export async function prepareVerifiedAudioAttachment(manifestPath,durationMs){
+  if(!Number.isSafeInteger(durationMs)||durationMs<1||durationMs>86_400_000){
+    throw new Error('Explicit prepared audio durationMs required (1..86400000)');
+  }
+  const result=await validatePackage(manifestPath);
+  const raw=await readFile(resolve(manifestPath));
+  if(createHash('sha256').update(raw).digest('hex')!==result.manifestSha256){
+    throw new Error('Prepared audio manifest changed after validation');
+  }
+  const manifest=validateManifestShape(JSON.parse(raw.toString('utf8')));
+  const text=manifest.files.filter(file=>file.kind==='text');
+  const audio=manifest.files.filter(file=>file.kind==='audio');
+  if(text.length!==1||audio.length!==1||manifest.files.length!==2){
+    throw new Error('Attach requires one original text and one prepared audio asset');
+  }
+  const file=audio[0];
+  const mime=file.path.endsWith('.ogg')?'audio/ogg':
+    file.path.endsWith('.m4a')?'audio/mp4':null;
+  if(!mime)throw new Error('Prepared audio must be .ogg or .m4a');
+  return {
+    prepared:{packageId:manifest.packageId,title:manifest.book.title,
+      language:manifest.book.language,editionLabel:manifest.book.editionLabel,
+      textSha256:text[0].sha256,audio:{sha256:file.sha256,
+        sizeBytes:file.sizeBytes,mime,durationMs}},
+    audioPath:resolve(dirname(manifestPath),file.path),
+  };
+}
 function folioTestDatabaseUrl(){
   const raw=process.env.DATABASE_URL;
   if(!raw)throw new Error('Explicit isolated Folio DATABASE_URL required');
@@ -164,8 +198,9 @@ function folioTestDatabaseUrl(){
 }
 async function main(){
   const [command,path,...extra]=process.argv.slice(2);
-  if(!['validate','dry-run','apply'].includes(command)||!path||extra.length){
-    throw new Error('Usage: pnpm folioctl {validate|dry-run|apply} <package/manifest.json>');
+  if(!['validate','dry-run','apply','attach-audio'].includes(command)||!path||
+     (command==='attach-audio'?extra.length!==1:extra.length!==0)){
+    throw new Error('Usage: pnpm folioctl {validate|dry-run|apply} <manifest.json> OR attach-audio <manifest.json> <durationMs>');
   }
   if(command==='validate'){
     const result=await validatePackage(path);
@@ -174,14 +209,36 @@ async function main(){
       ' bytes '+result.verifiedBytes+' manifest SHA-256 '+result.manifestSha256);
     return;
   }
-  const input=await prepareVerifiedSingleBook(path);
+  const audioJob=command==='attach-audio'
+    ?await prepareVerifiedAudioAttachment(path,Number(extra[0]))
+    :null;
+  const input=audioJob?null:await prepareVerifiedSingleBook(path);
   const url=folioTestDatabaseUrl();
   // This entry point runs from tools/, without assuming a root workspace package
   // symlink. The @folio/db build must exist (CI and the documented workflow).
-  const {createFolioDb,previewVerifiedSingleBookImport,applyVerifiedSingleBookImport}=
+  const {createFolioDb,previewVerifiedSingleBookImport,applyVerifiedSingleBookImport,
+    attachVerifiedPreparedAudio}=
     await import('../packages/db/dist/index.js');
   const {db,pool}=createFolioDb(url);
   try {
+    if(command==='attach-audio'&&audioJob){
+      const bearer=process.env.FOLIO_ADMIN_BEARER;
+      const root=process.env.FOLIO_PRIVATE_STORAGE_ROOT;
+      if(!bearer||!root){
+        throw new Error('Audio attach requires active MFA FOLIO_ADMIN_BEARER and FOLIO_PRIVATE_STORAGE_ROOT');
+      }
+      const handle=await open(audioJob.audioPath,constants.O_RDONLY|constants.O_NOFOLLOW);
+      try{
+        const stat=await handle.stat();
+        if(!stat.isFile()||stat.size!==audioJob.prepared.audio.sizeBytes){
+          throw new Error('Prepared audio source changed after validation');
+        }
+        const linked=await attachVerifiedPreparedAudio(db,bearer,
+          audioJob.prepared,root,handle.createReadStream({autoClose:false}));
+        process.stdout.write(JSON.stringify(linked)+String.fromCharCode(10));
+      }finally{await handle.close();}
+      return;
+    }
     if(command==='dry-run'){
       const report=await previewVerifiedSingleBookImport(db,input);
       process.stdout.write(JSON.stringify(report) + String.fromCharCode(10));

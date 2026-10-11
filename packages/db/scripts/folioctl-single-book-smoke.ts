@@ -62,8 +62,8 @@ async function main(){
     }
     return result;
   };
-  const cliRun=(command:string,env:NodeJS.ProcessEnv)=>JSON.parse(
-    execFileSync(process.execPath,[cli,command,manifestPath],
+  const cliRun=(command:string,env:NodeJS.ProcessEnv,extra:string[]=[])=>JSON.parse(
+    execFileSync(process.execPath,[cli,command,manifestPath,...extra],
       {encoding:'utf8',env,maxBuffer:2*1024*1024}));
   try{
     mkdirSync(join(folder,'content'));
@@ -159,6 +159,65 @@ async function main(){
     await deniedAsync(()=>readVerifiedAdminPreparedText(
       db,session.sessionToken,sourceScope,vault),
       'Tampered source inode unexpectedly released protected bytes');
+    // #16: same imported draft, a second manifest that adds one PREPARED
+    // audio file (without changing the already-approved text identity).
+    const voice=Buffer.from('OggS Synthetic Folio audio fixture only; not playable', 'utf8');
+    const audioPath=join(folder,'content/voice.ogg');
+    writeFileSync(audioPath,voice);
+    const audioManifest={...manifest,files:[
+      ...manifest.files,{path:'content/voice.ogg',kind:'audio',
+        sha256:createHash('sha256').update(voice).digest('hex'),
+        sizeBytes:voice.length},
+    ]};
+    writeFileSync(manifestPath,JSON.stringify(audioManifest));
+    check(block.includeAudio===true,
+      'New imported text source cannot anchor prepared voice segment');
+    denied(()=>cliRun('attach-audio',mainEnvironment(url,vault),['8000']),
+      'Audio attachment accepted missing verified administrator');
+    denied(()=>cliRun('attach-audio',mainEnvironment(url,vault,guestSession.sessionToken),['8000']),
+      'Audio attachment accepted user without audio:replace MFA permission');
+    const stagedBefore=await pool.query<{total:string}>(
+      'select count(*)::text as total from audio_variants');
+    const tamperedAudio=Buffer.from(voice);
+    tamperedAudio[12]=(tamperedAudio[12]??0)^1;
+    writeFileSync(audioPath,tamperedAudio);
+    denied(()=>cliRun('attach-audio',env,['8000']),
+      'Prepared audio with same size but wrong SHA-256 was attached');
+    writeFileSync(audioPath,voice);
+    const attached=cliRun('attach-audio',env,['8000']);
+    check(attached.workId===applied.workId&&
+      attached.revisionId===applied.revisionId&&
+      attached.audioStatus==='pending_verify'&&
+      attached.variantStatus==='draft'&&
+      attached.publication==='draft',
+      'Prepared audio was not safely associated with the imported draft');
+    const [audioAsset]=await db.select().from(schema.mediaAssets)
+      .where(eq(schema.mediaAssets.id,attached.assetId)).limit(1);
+    const [audioVariant]=await db.select().from(schema.audioVariants)
+      .where(eq(schema.audioVariants.id,attached.variantId)).limit(1);
+    const [segment]=await db.select().from(schema.audioSegments)
+      .where(eq(schema.audioSegments.variantId,attached.variantId)).limit(1);
+    check(audioAsset?.ownerScope==='catalog'&&audioAsset.ownerUserId===null&&
+      audioAsset.status==='pending_verify'&&audioAsset.mime==='audio/ogg'&&
+      audioAsset.sha256===audioManifest.files[1]?.sha256&&
+      audioVariant?.contentRevisionId===applied.revisionId&&
+      audioVariant.status==='draft'&&segment?.assetId===audioAsset.id&&
+      segment.textSha256===manifest.files[0]?.sha256&&
+      segment.endMs===8000&&
+      readFileSync(join(vault,'quarantine','catalog',audioAsset.storageKey+'.blob'))
+        .equals(voice),
+      'Private owner, stored prepared audio SHA, draft variant or chapter link missing');
+    const stagedAfter=await pool.query<{total:string}>(
+      'select count(*)::text as total from audio_variants');
+    check(Number(stagedAfter.rows[0]?.total)===Number(stagedBefore.rows[0]?.total)+1,
+      'Prepared audio variant not created exactly once');
+    denied(()=>cliRun('attach-audio',env,['8000']),
+      'Repeated attachment overwrote previously staged manual audio');
+    const [unpublished]=await db.select().from(schema.works)
+      .where(eq(schema.works.id,applied.workId)).limit(1);
+    check(unpublished?.publicationStatus==='draft',
+      'Audio attachment published an unreviewed work');
+    console.log('PREPARED AUDIO PASS: MFA, original text identity, 0600 catalog scope, SHA, draft voice variant, unauthorized/duplicate/bad SHA denial; no TTS or public playback.');
     console.log('PASS: read-only dry-run, denied unauthenticated apply, verified single private draft, repeat noop, checksum/identity reject, unpublished rights.');
   }finally{
     await pool.end();
