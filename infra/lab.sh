@@ -21,6 +21,7 @@ case "${1:-help}" in
   health) "${COMPOSE[@]}" ps; "${COMPOSE[@]}" exec -T postgres pg_isready -U folio_lab -d folio_lab; curl -fsS "http://127.0.0.1:${FOLIO_API_PORT:-3310}/v1/ready" ;;
   migrate) pnpm --filter @folio/db db:migrate ;;
   smoke) pnpm --filter @folio/db db:smoke ;;
+  backup-restore-smoke) bash "$ROOT/infra/backup-restore-smoke.sh" ;;
   api-smoke) pnpm --filter @folio/server exec tsx scripts/check-readiness.ts ;;
   device-sessions-http-smoke)
     DATABASE_URL="postgresql://folio_lab:${FOLIO_DB_PASSWORD}@127.0.0.1:${FOLIO_DB_PORT}/folio_test" pnpm --filter @folio/server device-sessions:http-smoke ;;
