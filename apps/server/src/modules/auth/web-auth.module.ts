@@ -3,12 +3,13 @@ import {
   Module,NotFoundException,OnModuleDestroy,Post,Req,Res,
   ServiceUnavailableException,UnauthorizedException,
 } from '@nestjs/common';
-import {ApiBody,ApiNoContentResponse,ApiOperation,ApiTags} from '@nestjs/swagger';
+import {ApiAcceptedResponse,ApiBody,ApiNoContentResponse,ApiOperation,ApiTags} from '@nestjs/swagger';
 import {
   authenticateUserSession,createFolioDb,revokeVerifiedDeviceSession,
-  signInVerifiedAccount,
+  signInVerifiedAccount,registerOrRenewPendingAccount,verifyAccountEmail,
 } from '@folio/db';
-import {webLoginRequestSchema} from '@folio/contracts';
+import {webLoginRequestSchema,webRegisterRequestSchema,webVerifyEmailRequestSchema} from '@folio/contracts';
+import {dispatchVerificationMail,requireVerificationMailConfig} from './verification-mail.js';
 import {enforceTrustedSocketAuthAttempt} from '../../common/trusted-auth-admission.js';
 import {
   assertSafeWebCsrfBootstrap,assertSafeWebLoginRequest,clearWebSessionCookie,
@@ -54,10 +55,26 @@ class WebAuthDb implements OnModuleDestroy {
   verify(bearer:string){
     return authenticateUserSession(this.db(),bearer);
   }
-  async admit(request:IncomingWebRequest,email:string){
+  async admit(request:IncomingWebRequest,email:string,action:'login'|'register'='login'){
     await enforceTrustedSocketAuthAttempt(
-      this.db(),request,{action:'login',email},process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX,
+      this.db(),request,{action,email},process.env.FOLIO_AUTH_ABUSE_HMAC_KEY_HEX,
     );
+  }
+  async register(email:string,password:string){
+    try{return await registerOrRenewPendingAccount(this.db(),email,password);}
+    catch{throw new ServiceUnavailableException('Registration unavailable');}
+  }
+  async verifyEmail(token:string){
+    try{await verifyAccountEmail(this.db(),token);}
+    catch(error){
+      if(error instanceof Error&&[
+        'Invalid or expired authentication challenge',
+        'Email is already verified or unavailable',
+      ].includes(error.message)){
+        throw new UnauthorizedException('Invalid or expired verification code');
+      }
+      throw new ServiceUnavailableException('Email verification unavailable');
+    }
   }
   async login(email:string,password:string,requestId:string){
     try{
@@ -97,6 +114,46 @@ class WebAuthDb implements OnModuleDestroy {
 @Controller('v1/auth/web')
 export class WebAuthController {
   constructor(@Inject(WebAuthDb) private readonly store:WebAuthDb){}
+
+  @Post('register')
+  @HttpCode(202)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Opt-in HTTPS signup; send one-use email challenge, never return token'})
+  @ApiBody({schema:{type:'object',additionalProperties:false,
+    required:['email','password'],
+    properties:{email:{type:'string',format:'email',maxLength:254},
+      password:{type:'string',minLength:12,maxLength:128}}}})
+  @ApiAcceptedResponse({description:'Generic acceptance, regardless of existing account'})
+  async register(@Req() request:IncomingWebRequest,@Body() rawBody:unknown):Promise<void>{
+    requireExplicitDirectTlsOptIn();
+    assertSafeWebLoginRequest(request,policy());
+    const input=webRegisterRequestSchema.safeParse(rawBody);
+    if(!input.success)throw new BadRequestException('Invalid registration request');
+    let mailConfig:ReturnType<typeof requireVerificationMailConfig>;
+    try{mailConfig=requireVerificationMailConfig(process.env);}
+    catch{throw new ServiceUnavailableException('Registration unavailable');}
+    await this.store.admit(request,input.data.email,'register');
+    const pending=await this.store.register(input.data.email,input.data.password);
+    if(pending){
+      try{await dispatchVerificationMail(input.data.email,pending.verificationToken,mailConfig);}
+      catch{throw new ServiceUnavailableException('Registration unavailable');}
+    }
+  }
+
+  @Post('verify-email')
+  @HttpCode(204)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Activate account using single-use emailed code over direct HTTPS'})
+  @ApiBody({schema:{type:'object',additionalProperties:false,required:['token'],
+    properties:{token:{type:'string',minLength:43,maxLength:43}}}})
+  @ApiNoContentResponse()
+  async verifyEmail(@Req() request:IncomingWebRequest,@Body() rawBody:unknown):Promise<void>{
+    requireExplicitDirectTlsOptIn();
+    assertSafeWebLoginRequest(request,policy());
+    const input=webVerifyEmailRequestSchema.safeParse(rawBody);
+    if(!input.success)throw new BadRequestException('Invalid verification request');
+    await this.store.verifyEmail(input.data.token);
+  }
 
   @Post('login')
   @HttpCode(204)
