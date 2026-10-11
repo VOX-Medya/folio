@@ -14,6 +14,8 @@ import {
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogRelationRemoveSchema,
+  adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
+  adminWorkMatchResultSchema,adminWorkMatchPageSchema,adminWorkMatchQuerySchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
 
@@ -388,5 +390,44 @@ describe('versioned optional catalog relation unlink contract',()=>{
       {expectedVersion:3,rightsApproved:true},
       {expectedVersion:3,removeSourceText:true},
     ])expect(adminCatalogRelationRemoveSchema.safeParse(value).success).toBe(false);
+  });
+});
+
+describe('draft canonical work identity reviewer DTO boundary',()=>{
+  it('accepts only explicit canonical pair proposal and two safe review decisions',()=>{
+    const other='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+    expect(adminWorkMatchProposeSchema.parse({candidateWorkId:other}))
+      .toEqual({candidateWorkId:other});
+    for(const bad of [
+      {},{candidateWorkId:'not-a-uuid'},
+      {candidateWorkId:other,publish:true},
+      {candidateWorkId:other,mergeInto:id},
+    ])expect(adminWorkMatchProposeSchema.safeParse(bad).success).toBe(false);
+    const allowed={expectedVersion:0,decision:'distinct',rationale:'Editorial review confirms separate identities.'};
+    expect(adminWorkMatchDecisionSchema.safeParse(allowed).success).toBe(true);
+    expect(adminWorkMatchDecisionSchema.safeParse({...allowed,decision:'deferred'}).success).toBe(true);
+    for(const bad of [
+      {...allowed,decision:'merge'},{...allowed,decision:'approved'},
+      {...allowed,expectedVersion:-1},{...allowed,rationale:'ok'},
+      {...allowed,userId:id},{...allowed,rightsApproved:true},
+      {...allowed,allowImport:true},{...allowed,publicationStatus:'published'},
+    ])expect(adminWorkMatchDecisionSchema.safeParse(bad).success).toBe(false);
+  });
+  it('strictly projects reviewer state, cursor and no secret actor/data',()=>{
+    const peer='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+    const result={id,workId:id,candidateWorkId:peer,status:'pending',reviewVersion:0,changed:true};
+    expect(adminWorkMatchResultSchema.parse(result)).toEqual(result);
+    expect(adminWorkMatchResultSchema.safeParse({...result,reviewedBy:id}).success).toBe(false);
+    const page={items:[{
+      id,workId:id,candidateWorkId:peer,peerWorkId:peer,
+      peerTitle:'Another verified draft',status:'pending',
+      evidenceKind:'shared_source_sha256',reviewVersion:0,snapshotCurrent:true,
+    }],nextCursor:null};
+    expect(adminWorkMatchPageSchema.parse(page)).toEqual(page);
+    expect(adminWorkMatchPageSchema.safeParse({...page,items:[{...page.items[0],sourceText:'PRIVATE'}]}).success).toBe(false);
+    expect(adminWorkMatchPageSchema.safeParse({...page,items:[{...page.items[0],reviewerEmail:'secret'}]}).success).toBe(false);
+    expect(adminWorkMatchQuerySchema.safeParse({cursor:id}).success).toBe(true);
+    expect(adminWorkMatchQuerySchema.safeParse({cursor:'broken'}).success).toBe(false);
+    expect(adminWorkMatchQuerySchema.safeParse({userId:id}).success).toBe(false);
   });
 });

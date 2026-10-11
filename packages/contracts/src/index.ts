@@ -290,6 +290,39 @@ export const adminCatalogWorkAuthorAppendedSchema=z.object({
   metadataVersion:metadataVersionSchema,
 }).strict();
 
+/** Administrative work identity evidence ledger. A decision is NOT a
+ * canonical merge, import approval, rights grant or publication. */
+export const adminWorkMatchProposeSchema=z.object({
+  candidateWorkId:z.uuid(),
+}).strict();
+export const adminWorkMatchDecisionSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  decision:z.enum(['distinct','deferred']),
+  rationale:z.string().trim().min(24).max(1200),
+}).strict();
+const workMatchStatus=z.enum(['pending','distinct','deferred']);
+const workMatchEvidence=z.enum(['shared_source_sha256','same_title','manual']);
+export const adminWorkMatchResultSchema=z.object({
+  id:z.uuid(),workId:z.uuid(),candidateWorkId:z.uuid(),
+  status:workMatchStatus,reviewVersion:metadataVersionSchema,changed:z.boolean(),
+}).strict();
+export const adminWorkMatchQuerySchema=z.object({
+  cursor:z.uuid().optional(),
+}).strict();
+export const adminWorkMatchPageSchema=z.object({
+  items:z.array(z.object({
+    id:z.uuid(),workId:z.uuid(),candidateWorkId:z.uuid(),
+    peerWorkId:z.uuid(),peerTitle:z.string().min(1).max(600),
+    status:workMatchStatus,evidenceKind:workMatchEvidence,
+    reviewVersion:metadataVersionSchema,snapshotCurrent:z.boolean(),
+  }).strict()).max(20),
+  nextCursor:z.uuid().nullable(),
+}).strict();
+export type AdminWorkMatchPropose=z.infer<typeof adminWorkMatchProposeSchema>;
+export type AdminWorkMatchDecision=z.infer<typeof adminWorkMatchDecisionSchema>;
+export type AdminWorkMatchResult=z.infer<typeof adminWorkMatchResultSchema>;
+export type AdminWorkMatchPage=z.infer<typeof adminWorkMatchPageSchema>;
+
 /** HTTP draft creation acknowledges opaque canonical IDs only.
  * No arbitrary publication status, owner or raw text may be returned. */
 export const adminCatalogAuthorCreatedSchema=z.object({

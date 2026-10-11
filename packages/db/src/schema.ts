@@ -518,3 +518,35 @@ export const jobCompletionReceipts = pgTable('job_completion_receipts', {
   firstJobId: uuid('first_job_id').notNull(),
   completedAt: timestamp('completed_at', {withTimezone: true}).notNull().defaultNow(),
 }, t => [primaryKey({columns: [t.queueName, t.operationKey]})]);
+
+/** Editor review of a canonical pair, not an import merge or publication grant. */
+export const canonicalWorkMatchReviews=pgTable('canonical_work_match_reviews',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  workId:uuid('work_id').notNull().references(()=>works.id,{onDelete:'restrict'}),
+  candidateWorkId:uuid('candidate_work_id').notNull().references(()=>works.id,{onDelete:'restrict'}),
+  workVersion:integer('work_version').notNull(),
+  candidateVersion:integer('candidate_version').notNull(),
+  evidenceKind:varchar('evidence_kind',{length:32}).notNull(),
+  evidenceDigest:varchar('evidence_digest',{length:64}).notNull(),
+  status:varchar('status',{length:24}).notNull().default('pending'),
+  reviewVersion:integer('review_version').notNull().default(0),
+  proposedBy:uuid('proposed_by').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  reviewedBy:uuid('reviewed_by').references(()=>userAccounts.id,{onDelete:'restrict'}),
+  rationale:text('rationale'),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('canonical_work_match_pair_unique').on(t.workId,t.candidateWorkId),
+  index('canonical_work_match_peer_idx').on(t.candidateWorkId,t.id),
+  index('canonical_work_match_work_idx').on(t.workId,t.id),
+  check('canonical_work_match_order_ck',sql`${t.workId}<${t.candidateWorkId}`),
+  check('canonical_work_match_versions_ck',sql`${t.workVersion}>=0 AND ${t.candidateVersion}>=0 AND ${t.reviewVersion}>=0`),
+  check('canonical_work_match_status_ck',sql`${t.status} IN ('pending','distinct','deferred')`),
+  check('canonical_work_match_evidence_ck',sql`${t.evidenceKind} IN ('shared_source_sha256','same_title','manual') AND ${t.evidenceDigest} ~ '^[0-9a-f]{64}$'`),
+  check('canonical_work_match_decision_ck',sql`(
+    (${t.status}='pending' AND ${t.reviewedBy} IS NULL AND ${t.rationale} IS NULL) OR
+    (${t.status}<>'pending' AND ${t.reviewedBy} IS NOT NULL AND
+      ${t.rationale} IS NOT NULL AND length(${t.rationale}) BETWEEN 24 AND 1200 AND
+      ${t.reviewedBy}<>${t.proposedBy})
+  )`),
+]);

@@ -11,6 +11,9 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogRelationRemoveSchema,
+  adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
+  adminWorkMatchQuerySchema,adminWorkMatchPageSchema,
+  adminWorkMatchResultSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
@@ -22,6 +25,7 @@ import type {
   CanonicalWorkMetadataPatch,AdminCatalogEditionAppend,
   AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
   AdminCatalogEditionMetadataPatch,AdminCatalogRevisionDiff,
+  AdminWorkMatchPropose,AdminWorkMatchDecision,
   AdminCatalogRevisionList,AdminCatalogRightsLedger,
 } from '@folio/contracts';
 import {AdminMfaClientError,bootstrapAdminWebCsrf} from './admin-mfa-client.js';
@@ -251,6 +255,41 @@ export async function removeAdminWorkAuthor(
     'DELETE',200,parsed.data,
   );
   return parse(raw,value=>adminCatalogWorkAuthorAppendedSchema.parse(value));
+}
+
+/** Only a live administrator may review existing DRAFT canonical work pairs.
+ * Review statuses NEVER authorize import, merge, rights or public access. */
+export async function listAdminWorkMatchReviews(workId:string,cursor?:string){
+  const validated=adminWorkMatchQuerySchema.safeParse({
+    ...(cursor===undefined?{}:{cursor}),
+  });
+  if(!validated.success)throw new CatalogClientError('invalid');
+  const query=validated.data.cursor?'?cursor='+encodeURIComponent(validated.data.cursor):'';
+  const result=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/match-reviews'+query,'GET',200,
+  );
+  return parse(result,value=>adminWorkMatchPageSchema.parse(value));
+}
+export async function proposeAdminWorkMatchReview(workId:string,input:AdminWorkMatchPropose){
+  const parsed=adminWorkMatchProposeSchema.safeParse(input);
+  if(!parsed.success||parsed.data.candidateWorkId===workId){
+    throw new CatalogClientError('invalid');
+  }
+  const result=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/match-reviews','POST',201,parsed.data,
+  );
+  return parse(result,value=>adminWorkMatchResultSchema.parse(value));
+}
+export async function decideAdminWorkMatchReview(
+  workId:string,reviewId:string,input:AdminWorkMatchDecision,
+){
+  const parsed=adminWorkMatchDecisionSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const result=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/match-reviews/'+checkedId(reviewId),
+    'PATCH',200,parsed.data,
+  );
+  return parse(result,value=>adminWorkMatchResultSchema.parse(value));
 }
 
 /** Only versioned bibliographic metadata of a DRAFT edition is editable.

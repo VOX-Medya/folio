@@ -3154,6 +3154,350 @@
           "admin-catalog"
         ]
       }
+    },
+    "/v1/admin/catalog/works/{workId}/match-reviews": {
+      "get": {
+        "operationId": "AdminCatalogController_listMatchReviews",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 20,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "workId",
+                          "candidateWorkId",
+                          "peerWorkId",
+                          "peerTitle",
+                          "status",
+                          "evidenceKind",
+                          "reviewVersion",
+                          "snapshotCurrent"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "workId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "candidateWorkId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "peerWorkId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "peerTitle": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 600
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "distinct",
+                              "deferred"
+                            ]
+                          },
+                          "evidenceKind": {
+                            "type": "string",
+                            "enum": [
+                              "shared_source_sha256",
+                              "same_title",
+                              "manual"
+                            ]
+                          },
+                          "reviewVersion": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "snapshotCurrent": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Verified MFA catalog:read; paginated work identity review evidence only, no private text",
+        "tags": [
+          "admin-catalog"
+        ]
+      },
+      "post": {
+        "operationId": "AdminCatalogController_proposeMatchReview",
+        "parameters": [
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "candidateWorkId"
+                ],
+                "properties": {
+                  "candidateWorkId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "workId",
+                    "candidateWorkId",
+                    "status",
+                    "reviewVersion",
+                    "changed"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "candidateWorkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "distinct",
+                        "deferred"
+                      ]
+                    },
+                    "reviewVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA catalog:edit; propose an audited DRAFT-work identity comparison; NO automatic merge",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
+    "/v1/admin/catalog/works/{workId}/match-reviews/{reviewId}": {
+      "patch": {
+        "operationId": "AdminCatalogController_decideMatchReview",
+        "parameters": [
+          {
+            "name": "reviewId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion",
+                  "decision",
+                  "rationale"
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "distinct",
+                      "deferred"
+                    ]
+                  },
+                  "rationale": {
+                    "type": "string",
+                    "minLength": 24,
+                    "maxLength": 1200
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "workId",
+                    "candidateWorkId",
+                    "status",
+                    "reviewVersion",
+                    "changed"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "candidateWorkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "distinct",
+                        "deferred"
+                      ]
+                    },
+                    "reviewVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Different MFA-verified catalog editor records distinct/deferred evidence ONLY; no merge/publish/import bypass",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
     }
   },
   "info": {

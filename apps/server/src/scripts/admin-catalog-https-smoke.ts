@@ -104,20 +104,26 @@ async function main():Promise<void>{
     // All grants and factor rows are synthetic and restricted to folio_test.
     // Production has no initial administrator provisioning endpoint.
     const editor=await account(),moderator=await account(),guest=await account(),
-      viewer=await account();
+      viewer=await account(),reviewerA=await account(),reviewerB=await account();
     await db.insert(schema.adminRoleMemberships).values([
       {userId:editor.userId,role:'editor',grantedBy:guest.userId},
       {userId:moderator.userId,role:'moderator',grantedBy:guest.userId},
       {userId:viewer.userId,role:'read-only',grantedBy:guest.userId},
+      {userId:reviewerA.userId,role:'editor',grantedBy:guest.userId},
+      {userId:reviewerB.userId,role:'editor',grantedBy:guest.userId},
     ]);
     const native=await signInVerifiedAccount(db,editor.email,password,'android-lab');
     const web=await signInVerifiedAccount(db,editor.email,password,'web-lab');
     const moderatorSession=await signInVerifiedAccount(db,moderator.email,password,'review-lab');
     const guestSession=await signInVerifiedAccount(db,guest.email,password,'guest-lab');
     const viewerSession=await signInVerifiedAccount(db,viewer.email,password,'viewer-lab');
+    const reviewerSessionA=await signInVerifiedAccount(db,reviewerA.email,password,'independent-review-a');
+    const reviewerSessionB=await signInVerifiedAccount(db,reviewerB.email,password,'independent-review-b');
     await mfa(native.sessionId,editor.userId);
     await mfa(moderatorSession.sessionId,moderator.userId);
     await mfa(viewerSession.sessionId,viewer.userId);
+    await mfa(reviewerSessionA.sessionId,reviewerA.userId);
+    await mfa(reviewerSessionB.sessionId,reviewerB.userId);
     const suffix=randomUUID().slice(0,8);
     const author=await createCanonicalAuthor(db,editor.userId,{
       canonicalName:'Folio Canonical Writer '+suffix,
@@ -812,6 +818,149 @@ async function main():Promise<void>{
       ...cookie,'x-folio-csrf':'A'.repeat(43),
     },{expectedVersion:2,firstPublicationYear:1880})).status===403,
       'Forged Web CSRF value edited canonical metadata');
+    // #12 editorial identity evidence is a two-editor REVIEW, never a merge.
+    const matchPath=root+'/works/'+first.id+'/match-reviews';
+    const candidate={candidateWorkId:second.id};
+    const reviewerBearerA={authorization:'Bearer '+reviewerSessionA.sessionToken};
+    const reviewerBearerB={authorization:'Bearer '+reviewerSessionB.sessionToken};
+    const readonlyBearer={authorization:'Bearer '+viewerSession.sessionToken};
+    check((await post(port,matchPath,cookie,candidate)).status===403,
+      'Web identity-review proposal bypassed HMAC-CSRF');
+    check((await post(port,matchPath,{
+      ...secureCookie,origin:'https://hostile.example',
+    },candidate)).status===403,'Cross-origin session proposed a privileged identity review');
+    check((await post(port,matchPath,readonlyBearer,candidate)).status===403,
+      'Read-only role proposed canonical match adjudication');
+    check((await post(port,matchPath,secureCookie,{
+      ...candidate,autoMerge:true,
+    })).status===400,'Match proposal accepted automatic canonical merge claim');
+    check((await post(port,matchPath,secureCookie,{
+      candidateWorkId:first.id,
+    })).status===400,'Same canonical work compared with itself');
+    const matchOpened=await post(port,matchPath,{
+      ...secureCookie,'x-admin-role':'superadmin','x-user-id':guest.userId,
+      'x-request-id':'forged-review-request',
+    },candidate);
+    check(matchOpened.status===201&&
+      matchOpened.headers['x-request-id']!=='forged-review-request',
+      'MFA cookie could not propose a strictly scoped review');
+    const openedReview=JSON.parse(matchOpened.body) as {
+      id:string;workId:string;candidateWorkId:string;
+      reviewVersion:number;status:string;changed:boolean;
+    };
+    check(openedReview.changed&&openedReview.reviewVersion===0&&
+      openedReview.status==='pending'&&
+      [openedReview.workId,openedReview.candidateWorkId].includes(first.id)&&
+      [openedReview.workId,openedReview.candidateWorkId].includes(second.id),
+      'Proposed review omitted immutable canonical pair');
+    const reversedProposal=await post(port,root+'/works/'+second.id+'/match-reviews',
+      bearer,{candidateWorkId:first.id});
+    check(reversedProposal.status===201&&
+      JSON.parse(reversedProposal.body).id===openedReview.id&&
+      JSON.parse(reversedProposal.body).changed===false,
+      'Reversed canonical pair produced another reviewer ticket or audit');
+    const reviewerRead=await call(true,port,matchPath,readonlyBearer);
+    const reviewPage=JSON.parse(reviewerRead.body) as {
+      items:Array<{id:string;status:string;peerWorkId:string;evidenceKind:string;
+        snapshotCurrent:boolean;reviewVersion:number}>;
+      nextCursor:string|null;
+    };
+    check(reviewerRead.status===200&&reviewPage.items.length===1&&
+      reviewPage.items[0]?.id===openedReview.id&&
+      reviewPage.items[0]?.peerWorkId===second.id&&
+      reviewPage.items[0]?.evidenceKind==='manual'&&
+      reviewPage.items[0]?.snapshotCurrent===true&&
+      reviewPage.nextCursor===null,
+      'Read-only MFA catalog editor could not inspect bounded, private candidate metadata');
+    check((await call(true,port,matchPath+'?userId='+guest.userId,bearer)).status===400,
+      'Review list accepted a user selector');
+    const reviewDecisionPath=matchPath+'/'+openedReview.id;
+    const verdict={expectedVersion:0,decision:'distinct',
+      rationale:'Independent editorial check confirms two distinct synthetic canonical works.'};
+    check((await patch(port,reviewDecisionPath,bearer,verdict)).status===403,
+      'Review proposer was able to approve their own candidate identity');
+    check((await patch(port,reviewDecisionPath,readonlyBearer,verdict)).status===403,
+      'Read-only MFA role could decide a privileged editorial review');
+    check((await patch(port,reviewDecisionPath,reviewerBearerA,{
+      ...verdict,decision:'merge',
+    })).status===400,'Reviewer could force canonical work merge');
+    check((await patch(port,reviewDecisionPath,reviewerBearerA,{
+      ...verdict,approveRights:true,
+    })).status===400,'Reviewer could smuggle territorial rights approval');
+    const adjudications=await Promise.all([
+      patch(port,reviewDecisionPath,reviewerBearerA,verdict),
+      patch(port,reviewDecisionPath,reviewerBearerB,verdict),
+    ]);
+    check(adjudications.map(row=>row.status).sort().join(',')==='200,409',
+      'Competing independent editors both committed identity review');
+    const chosen=adjudications.find(row=>row.status===200)!;
+    check(JSON.parse(chosen.body).status==='distinct'&&
+      JSON.parse(chosen.body).reviewVersion===1,
+      'Independent editorial review status/version was not persisted');
+    check((await patch(port,reviewDecisionPath,reviewerBearerA,verdict)).status===409,
+      'A repeated verdict created a second decision');
+    const persistedRows=await pool.query<{
+      status:string;review_version:number;proposed_by:string;reviewed_by:string|null;
+    }>('SELECT status,review_version,proposed_by,reviewed_by FROM canonical_work_match_reviews WHERE id=$1::uuid',
+      [openedReview.id]);
+    const persisted=persistedRows.rows[0];
+    check(persisted?.status==='distinct'&&persisted.review_version===1&&
+      persisted.proposed_by===editor.userId&&
+      [reviewerA.userId,reviewerB.userId].includes(persisted.reviewed_by??'')&&
+      persisted.reviewed_by!==persisted.proposed_by,
+      'A proposer, impostor, or concurrent second editor overwrote the reviewer');
+    const editorialAudits=await pool.query<{
+      action:string;actor_id:string;request_id:string;
+    }>('SELECT action,actor_id,request_id FROM audit_events WHERE entity_id=$1::uuid AND entity_type=$2 ORDER BY created_at',
+      [openedReview.id,'canonical_work_match_review']);
+    check(editorialAudits.rows.length===2&&
+      editorialAudits.rows.some(row=>row.action==='catalog.work.match_review.proposed'&&
+        row.actor_id===editor.userId&&
+        row.request_id===matchOpened.headers['x-request-id'])&&
+      editorialAudits.rows.some(row=>row.action==='catalog.work.match_review.decided'&&
+        [reviewerA.userId,reviewerB.userId].includes(row.actor_id)),
+      'Editorial match review was not independently authenticated and audited once');
+
+    // Work metadata changed AFTER proposal: only an explicit re-proposal can
+    // bind new evidence; the original decision must not survive silently.
+    const changedCandidate=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'Stale Match '+suffix,originalLanguage:'tr',
+      authors:[{authorId:author.id}],
+    });
+    const staleReviewPath=root+'/works/'+first.id+'/match-reviews';
+    const staleOpened=await post(port,staleReviewPath,bearer,{
+      candidateWorkId:changedCandidate.id,
+    });
+    check(staleOpened.status===201,'Cannot propose future stale metadata fixture');
+    const staleReviewId=JSON.parse(staleOpened.body).id as string;
+    const updatedCandidate=await patch(port,root+'/works/'+changedCandidate.id,
+      reviewerBearerA,{expectedVersion:0,firstPublicationYear:1911});
+    check(updatedCandidate.status===200,'Synthetic candidate version could not change');
+    check((await patch(port,staleReviewPath+'/'+staleReviewId,reviewerBearerB,{
+      expectedVersion:0,decision:'distinct',
+      rationale:'Stale candidate metadata was not rechecked before deciding.',
+    })).status===409,'Changed work metadata permitted stale review decision');
+    const refreshed=await post(port,staleReviewPath,bearer,{
+      candidateWorkId:changedCandidate.id,
+    });
+    check(refreshed.status===201&&JSON.parse(refreshed.body).changed===true&&
+      JSON.parse(refreshed.body).reviewVersion===1,
+      'Stale review could not be explicitly refreshed for independent adjudication');
+    const deferred=await patch(port,staleReviewPath+'/'+staleReviewId,reviewerBearerB,{
+      expectedVersion:1,decision:'deferred',
+      rationale:'Insufficient independent evidence for matching revised metadata.',
+    });
+    check(deferred.status===200&&JSON.parse(deferred.body).status==='deferred'&&
+      JSON.parse(deferred.body).reviewVersion===2,
+      'Refreshed human-review decision was not properly versioned');
+    const originalPair=await pool.query<{
+      id:string;publication_status:string;metadata_version:number;
+    }>('SELECT id,publication_status,metadata_version FROM works WHERE id = ANY($1::uuid[])',
+      [[first.id,second.id]]);
+    check(originalPair.rows.length===2&&
+      originalPair.rows.every(row=>row.publication_status==='draft'&&row.metadata_version===0),
+      'Review mutated canonical work metadata or silently published/merged works');
+    console.log('CANONICAL WORK MATCH REVIEW PASS: two independent MFA editors, 201/200/400/403/409, reversible-pair idempotency, stale refresh and no canonical merge/publish.');
     const cookiePatch=await patch(port,workPath,{
       ...secureCookie,'x-request-id':'forged-browser-update',
     },{expectedVersion:2,firstPublicationYear:1880});
@@ -1516,6 +1665,9 @@ async function main():Promise<void>{
       !!spec.paths[root+'/works/{workId}/titles']?.post&&
       !!spec.paths[root+'/works/{workId}/authors']?.post&&
       !!spec.paths[root+'/works/{workId}/authors/{authorId}']?.delete&&
+      !!spec.paths[root+'/works/{workId}/match-reviews']?.get&&
+      !!spec.paths[root+'/works/{workId}/match-reviews']?.post&&
+      !!spec.paths[root+'/works/{workId}/match-reviews/{reviewId}']?.patch&&
       !!spec.paths[root+'/works/{workId}/titles/{titleId}']?.delete&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
@@ -1536,6 +1688,8 @@ async function main():Promise<void>{
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='off';
     check((await post(port,createRoot,bearer,draftAuthor)).status===404,
       'Independent admin write flag failed to turn off mutation');
+    check((await post(port,matchPath,bearer,candidate)).status===404,
+      'Independent write flag enabled match review proposal');
     check((await post(port,editionsPath,bearer,{
       expectedVersion:4,language:'tr',label:'Unavailable',
     })).status===404,

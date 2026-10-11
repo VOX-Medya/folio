@@ -4,6 +4,7 @@ import {
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
   removeAdminWorkTitle,removeAdminWorkAuthor,
+  listAdminWorkMatchReviews,proposeAdminWorkMatchReview,decideAdminWorkMatchReview,
   patchAdminEdition,getAdminRevisionDiff,getAdminRevisionList,
   getAdminRightsLedger,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
@@ -542,5 +543,76 @@ describe('safe draft relation unlink client',()=>{
       expectedVersion:6,rightsApproved:true,
     } as never)).rejects.toMatchObject({kind:'invalid'});
     expect(f).toHaveBeenCalledTimes(6);
+  });
+});
+
+describe('authenticated independent identity review client',()=>{
+  it('keeps list private and requires ephemeral HMAC-CSRF for proposal and decision',async()=>{
+    const reviewId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+    const peerId='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+    const page={items:[{
+      id:reviewId,workId,candidateWorkId:peerId,peerWorkId:peerId,
+      peerTitle:'Second work',status:'pending',
+      evidenceKind:'same_title',reviewVersion:0,snapshotCurrent:true,
+    }],nextCursor:null};
+    const calls:Array<{path:string;method:string;body:unknown;csrf:string|undefined}>=[];
+    const f=vi.fn(async(path:string,options:RequestInit)=>{
+      if(path==='/v1/auth/web/csrf')return bootstrap();
+      calls.push({path,method:options.method??'',body:options.body
+        ?JSON.parse(String(options.body)) as unknown:null,
+        csrf:(options.headers as Record<string,string>)?.['x-folio-csrf']});
+      if(options.method==='GET')return json(page);
+      if(options.method==='POST')return json({
+        id:reviewId,workId,candidateWorkId:peerId,status:'pending',reviewVersion:0,changed:true,
+      },201);
+      if(options.method==='PATCH')return json({
+        id:reviewId,workId,candidateWorkId:peerId,status:'deferred',reviewVersion:1,changed:true,
+      });
+      throw Error('unexpected');
+    });
+    vi.stubGlobal('fetch',f);
+    expect(await listAdminWorkMatchReviews(workId)).toEqual(page);
+    expect(await proposeAdminWorkMatchReview(workId,{candidateWorkId:peerId}))
+      .toMatchObject({id:reviewId,status:'pending'});
+    expect(await decideAdminWorkMatchReview(workId,reviewId,{
+      expectedVersion:0,decision:'deferred',
+      rationale:'Separate editorial review requests more evidence.',
+    })).toMatchObject({reviewVersion:1,status:'deferred'});
+    expect(calls.map(row=>row.method)).toEqual(['GET','POST','PATCH']);
+    expect(calls.slice(1).map(row=>row.csrf)).toEqual(['B'.repeat(43),'B'.repeat(43)]);
+    expect(calls[1]?.body).toEqual({candidateWorkId:peerId});
+    expect(calls[2]?.body).toMatchObject({expectedVersion:0,decision:'deferred'});
+    for(const [index,record] of f.mock.calls.entries()){
+      if(index===1||index===3){
+        expect(record[1]).toMatchObject({
+          mode:'same-origin',credentials:'same-origin',redirect:'error',cache:'no-store',
+        });
+        expect(record[1].headers).not.toHaveProperty('authorization');
+      }
+    }
+  });
+  it('rejects merge/rights claims and never blind retries after 409',async()=>{
+    const peer='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+    const f=vi.fn().mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'CONFLICT'}},409));
+    vi.stubGlobal('fetch',f);
+    await expect(proposeAdminWorkMatchReview(workId,{candidateWorkId:workId}))
+      .rejects.toMatchObject({kind:'invalid'});
+    await expect(decideAdminWorkMatchReview(workId,peer,{
+      expectedVersion:0,decision:'merge',rationale:'Cannot merge imported and canonical records.',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(decideAdminWorkMatchReview(workId,peer,{
+      expectedVersion:0,decision:'distinct',
+      rationale:'Must remain two different editorial works.',
+      allowImport:true,
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(decideAdminWorkMatchReview(workId,peer,{
+      expectedVersion:0,decision:'deferred',
+      rationale:'The evidence is too weak to decide the identity.',
+    })).rejects.toMatchObject({kind:'conflict'});
+    expect(f).toHaveBeenCalledTimes(2);
+    vi.stubGlobal('window',{location:{protocol:'http:'}});
+    await expect(listAdminWorkMatchReviews(workId)).rejects.toMatchObject({kind:'secure-https'});
+    expect(f).toHaveBeenCalledTimes(2);
   });
 });

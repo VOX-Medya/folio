@@ -18,6 +18,8 @@ import {
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
+  proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,
+  listVerifiedAdminWorkMatchReviews,
 } from '@folio/db';
 import {
   adminCatalogAuthorCreatedSchema,adminCatalogAuthorDetailSchema,
@@ -32,6 +34,9 @@ import {
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogRelationRemoveSchema,
+  adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
+  adminWorkMatchQuerySchema,adminWorkMatchResultSchema,
+  adminWorkMatchPageSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
@@ -96,12 +101,19 @@ export class AdminCatalogDb implements OnModuleDestroy {
         error.message==='Verified administrator MFA permission required'){
         throw new ForbiddenException('Current administrator MFA permission required');
       }
+      if(error instanceof Error&&error.message==='Verified independent catalog reviewer required'){
+        throw new ForbiddenException('An independently authenticated catalog editor must review');
+      }
+      if(error instanceof Error&&error.message==='Cannot compare a canonical work to itself'){
+        throw new BadRequestException('Select two different canonical works');
+      }
       if(error instanceof Error&&[
         'Canonical metadata version conflict',
         'Published canonical work is immutable via draft editor',
         'Published canonical edition is immutable via draft editor',
         'Canonical original title cannot be unlinked',
         'Last canonical author link cannot be removed',
+        'Canonical work match review is stale or unavailable',
       ].includes(error.message)){
         throw new ConflictException('Canonical metadata changed or is no longer editable');
       }
@@ -185,6 +197,18 @@ export class AdminCatalogDb implements OnModuleDestroy {
   removeAuthor(bearer:string,workId:string,authorId:string,input:unknown,requestId:string){
     return this.authorized(()=>
       removeVerifiedAdminWorkAuthor(this.db(),bearer,workId,authorId,input,requestId));
+  }
+  listMatchReviews(bearer:string,workId:string,input:unknown){
+    return this.authorized(()=>
+      listVerifiedAdminWorkMatchReviews(this.db(),bearer,workId,input));
+  }
+  proposeMatchReview(bearer:string,workId:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      proposeVerifiedAdminWorkMatchReview(this.db(),bearer,workId,input,requestId));
+  }
+  decideMatchReview(bearer:string,workId:string,reviewId:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      decideVerifiedAdminWorkMatchReview(this.db(),bearer,workId,reviewId,input,requestId));
   }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
@@ -578,6 +602,46 @@ const appendAuthorBodyApi={
     authorId:detailUuidApi,
     contribution:{type:'string',enum:['author','co-author','editor'],default:'author'},
     sortOrder:{type:'integer',minimum:0,maximum:10000,default:0},
+  },
+};
+const matchReviewProposeApi={
+  type:'object',additionalProperties:false,required:['candidateWorkId'],
+  properties:{candidateWorkId:detailUuidApi},
+};
+const matchReviewDecisionApi={
+  type:'object',additionalProperties:false,
+  required:['expectedVersion','decision','rationale'],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    decision:{type:'string',enum:['distinct','deferred']},
+    rationale:{type:'string',minLength:24,maxLength:1200},
+  },
+};
+const matchReviewResultApi={
+  type:'object',additionalProperties:false,
+  required:['id','workId','candidateWorkId','status','reviewVersion','changed'],
+  properties:{
+    id:detailUuidApi,workId:detailUuidApi,candidateWorkId:detailUuidApi,
+    status:{type:'string',enum:['pending','distinct','deferred']},
+    reviewVersion:{type:'integer',minimum:0},changed:{type:'boolean'},
+  },
+};
+const matchReviewPageApi={
+  type:'object',additionalProperties:false,required:['items','nextCursor'],
+  properties:{
+    items:{type:'array',maxItems:20,items:{
+      type:'object',additionalProperties:false,
+      required:['id','workId','candidateWorkId','peerWorkId','peerTitle',
+        'status','evidenceKind','reviewVersion','snapshotCurrent'],
+      properties:{
+        id:detailUuidApi,workId:detailUuidApi,candidateWorkId:detailUuidApi,
+        peerWorkId:detailUuidApi,peerTitle:{type:'string',minLength:1,maxLength:600},
+        status:{type:'string',enum:['pending','distinct','deferred']},
+        evidenceKind:{type:'string',enum:['shared_source_sha256','same_title','manual']},
+        reviewVersion:{type:'integer',minimum:0},snapshotCurrent:{type:'boolean'},
+      },
+    }},
+    nextCursor:{type:'string',format:'uuid',nullable:true},
   },
 };
 const removeRelationBodyApi={
@@ -1009,6 +1073,73 @@ export class AdminCatalogController {
       token,workId.data,authorId.data,parsed.data,this.trace(request));
     if(!removed)throw new NotFoundException('Draft work-author relation not found');
     return adminCatalogWorkAuthorAppendedSchema.parse(removed);
+  }
+
+  @Get('works/:workId/match-reviews')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified MFA catalog:read; paginated work identity review evidence only, no private text'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiQuery({name:'cursor',required:false,type:String,format:'uuid'})
+  @ApiOkResponse({schema:matchReviewPageApi})
+  async listMatchReviews(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,@Query() raw:Record<string,unknown>){
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const query=adminWorkMatchQuerySchema.safeParse(raw);
+    if(!workId.success||!query.success){
+      throw new BadRequestException('Invalid match review page parameters');
+    }
+    const token=await this.bearer(request);
+    const page=await this.store.listMatchReviews(token,workId.data,query.data);
+    if(!page)throw new NotFoundException('Canonical review work not found');
+    return adminWorkMatchPageSchema.parse(page);
+  }
+
+  @Post('works/:workId/match-reviews')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA catalog:edit; propose an audited DRAFT-work identity comparison; NO automatic merge'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiBody({schema:matchReviewProposeApi})
+  @ApiCreatedResponse({schema:matchReviewResultApi})
+  async proposeMatchReview(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,@Query() rawQuery:Record<string,unknown>,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(rawQuery);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      input=adminWorkMatchProposeSchema.safeParse(raw);
+    if(!workId.success||!input.success||workId.data===input.data?.candidateWorkId){
+      throw new BadRequestException('Invalid canonical match candidate');
+    }
+    const token=await this.bearer(request);
+    const result=await this.store.proposeMatchReview(
+      token,workId.data,input.data,this.trace(request));
+    if(!result)throw new NotFoundException('Canonical work candidate not found');
+    return adminWorkMatchResultSchema.parse(result);
+  }
+
+  @Patch('works/:workId/match-reviews/:reviewId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Different MFA-verified catalog editor records distinct/deferred evidence ONLY; no merge/publish/import bypass'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'reviewId',type:String,format:'uuid'})
+  @ApiBody({schema:matchReviewDecisionApi})
+  @ApiOkResponse({schema:matchReviewResultApi})
+  async decideMatchReview(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,@Param('reviewId') rawReviewId:string,
+    @Query() rawQuery:Record<string,unknown>,@Body() raw:unknown){
+    this.rejectWriteQuery(rawQuery);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      reviewId=adminCatalogIdSchema.safeParse(rawReviewId),
+      input=adminWorkMatchDecisionSchema.safeParse(raw);
+    if(!workId.success||!reviewId.success||!input.success){
+      throw new BadRequestException('Invalid independent match review decision');
+    }
+    const token=await this.bearer(request);
+    const result=await this.store.decideMatchReview(
+      token,workId.data,reviewId.data,input.data,this.trace(request));
+    if(!result)throw new NotFoundException('Canonical match review not found');
+    return adminWorkMatchResultSchema.parse(result);
   }
 
   @Post('authors')

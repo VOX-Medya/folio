@@ -5,6 +5,7 @@ import {AdminEditionMetadataEditor} from './AdminEditionMetadataEditor.js';
 import {AdminRevisionDiffPanel} from './AdminRevisionDiffPanel.js';
 import {AdminFolioCoverPreview} from './AdminFolioCoverPreview.js';
 import {AdminRightsLedgerPanel} from './AdminRightsLedgerPanel.js';
+import {AdminWorkMatchReviews} from './AdminWorkMatchReviews.js';
 import {
   authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
@@ -45,6 +46,7 @@ const copy={
     aliases:'Takma adlar',external:'Kaynak kimlikleri',titles:'Dil başlıkları',
     editions:'Baskılar',contributors:'Katkıda bulunanlar',identifiers:'Tanımlayıcılar',
     editEdition:'Taslak baskıyı düzenle',reviewRevision:'Revizyon farkları',viewRights:'Hak kayıtları',
+    viewMatches:'Eser kimlik incelemeleri',
     notAvailable:'Kayıtlı bilgi yok',name:'Kanonik yazar adı',sortName:'Sıralama adı',
     create:'Yeni taslak oluştur',createAction:'Taslağı kaydet',
     edit:'Metadata düzenle',save:'Sürüm kontrolüyle kaydet',cancel:'Vazgeç',
@@ -78,6 +80,7 @@ const copy={
     aliases:'Aliases',external:'Source identifiers',titles:'Language titles',
     editions:'Editions',contributors:'Contributors',identifiers:'Identifiers',
     editEdition:'Edit draft edition',reviewRevision:'Revision differences',viewRights:'Rights ledger',
+    viewMatches:'Work identity reviews',
     notAvailable:'No stored information',name:'Canonical author name',sortName:'Sort name',
     create:'Create new draft',createAction:'Save draft',
     edit:'Edit metadata',save:'Save with version check',cancel:'Cancel',
@@ -136,6 +139,7 @@ export function AdminCatalogPanel({kind,language,theme}:{
   const [editingEditionId,setEditingEditionId]=useState<string|null>(null);
   const [reviewEditionId,setReviewEditionId]=useState<string|null>(null);
   const [showRights,setShowRights]=useState(false);
+  const [showMatchReviews,setShowMatchReviews]=useState(false);
   const [creating,setCreating]=useState(false);
   const [busy,setBusy]=useState(false);
   const [stale,setStale]=useState(false);
@@ -470,6 +474,10 @@ export function AdminCatalogPanel({kind,language,theme}:{
                 onClick={()=>setReviewEditionId(current=>current===edition.id?null:edition.id)}>
                 {w.reviewRevision}</button>
             </li>)}</ul>}
+          {detail.value.work.publicationStatus==='draft'&&
+            <button type="button" className="folio-catalog-secondary"
+              aria-expanded={showMatchReviews} disabled={!online||busy||editing||!!editingEditionId}
+              onClick={()=>setShowMatchReviews(current=>!current)}>{w.viewMatches}</button>}
           <button type="button" className="folio-catalog-secondary"
             aria-expanded={showRights} disabled={!online||busy||editing||!!editingEditionId}
             onClick={()=>setShowRights(current=>!current)}>{w.viewRights}</button>
@@ -566,6 +574,11 @@ export function AdminCatalogPanel({kind,language,theme}:{
           </div>
         </form>}
       </section>}
+      {showMatchReviews&&detail?.kind==='works'&&
+        detail.value.work.publicationStatus==='draft'&&
+        <AdminWorkMatchReviews key={detail.value.work.id}
+          workId={detail.value.work.id} language={language}
+          online={online&&!busy}/>}
       {showRights&&detail?.kind==='works'&&
         <AdminRightsLedgerPanel key={detail.value.work.id}
           workId={detail.value.work.id} language={language}
