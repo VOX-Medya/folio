@@ -7,10 +7,15 @@ import {fileURLToPath} from 'node:url';
 import {eq} from 'drizzle-orm';
 import {
   createFolioDb,registerPendingAccount,verifyAccountEmail,signInVerifiedAccount,schema,
+  readVerifiedAdminPreparedText,
 } from '../src/index.js';
 
 function check(value:unknown,message:string):asserts value {
   if(!value)throw new Error(message);
+}
+async function deniedAsync(action:()=>Promise<unknown>,message:string){
+  try{await action();}catch{return;}
+  throw new Error(message);
 }
 function denied(action:()=>unknown,message:string){
   try{action();}catch{return;}
@@ -113,6 +118,23 @@ async function main(){
       asset.status==='pending_verify'&&rights.length===0,'Imported source, owner, block or rights boundary incorrect');
     check(readFileSync(join(vault,'quarantine','catalog',asset.storageKey+'.blob'),'utf8')===source,
       'Catalog asset not durably stored in private quarantine');
+    const sourceScope={workId:applied.workId,
+      editionId:applied.editionId,revisionId:applied.revisionId};
+    const previewText=await readVerifiedAdminPreparedText(
+      db,session.sessionToken,sourceScope,vault);
+    check(previewText?.sourceText===source&&previewText.sha256===manifest.files[0]?.sha256&&
+      previewText.sizeBytes===Buffer.byteLength(source),
+      'MFA admin cannot read exact private imported source bytes');
+    check(await readVerifiedAdminPreparedText(db,session.sessionToken,
+      {...sourceScope,workId:randomUUID()},vault)===null,
+      'Foreign work ID exposed draft source');
+    const guestEmail='folioctl-guest-'+randomUUID()+'@example.com';
+    const guest=await registerPendingAccount(db,guestEmail,password);
+    await verifyAccountEmail(db,guest.verificationToken);
+    const guestSession=await signInVerifiedAccount(db,guestEmail,password,'folioctl-guest');
+    await deniedAsync(()=>readVerifiedAdminPreparedText(
+      db,guestSession.sessionToken,sourceScope,vault),
+      'Unprivileged guest read private editorial source');
     const after=await counts();
     check(after[0]===before[0]+1&&after[1]===before[1]+1&&after[2]===before[2]+1&&
       after[3]===before[3]+1&&after[4]===before[4]+1&&after[5]===before[5]+1&&
@@ -131,6 +153,12 @@ async function main(){
     check(conflict.action==='conflict','Reused package UUID with changed manifest was not flagged');
     denied(()=>cliRun('apply',env),'Reused package identity silently mutated canonical work');
     check(JSON.stringify(after)===JSON.stringify(await counts()),'Rejected package modified DB');
+    const sourcePath=join(vault,'quarantine','catalog',asset.storageKey+'.blob');
+    writeFileSync(sourcePath,Buffer.from(source).map((byte,index)=>
+      index===0?byte^1:byte));
+    await deniedAsync(()=>readVerifiedAdminPreparedText(
+      db,session.sessionToken,sourceScope,vault),
+      'Tampered source inode unexpectedly released protected bytes');
     console.log('PASS: read-only dry-run, denied unauthenticated apply, verified single private draft, repeat noop, checksum/identity reject, unpublished rights.');
   }finally{
     await pool.end();
