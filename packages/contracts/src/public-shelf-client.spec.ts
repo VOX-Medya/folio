@@ -7,8 +7,7 @@ const item={id,title:'Synthetic work',authors:['Synthetic author'],
   revisionId:'33333333-3333-4333-8333-333333333333',audioAvailable:false};
 describe('MVP public book search and verified owner shelf requests',()=>{
   it('uses credential-free HTTPS public title search with strict result shape',async()=>{
-    const fetcher=vi.fn(async()=>new Response(JSON.stringify({items:[item]}),{status:200}))
-      as unknown as typeof fetch;
+    const fetcher=vi.fn(async()=>new Response(JSON.stringify({items:[item]}),{status:200})) as unknown as typeof fetch;
     const result=await searchPublicCatalog('https://folio.example',{q:'Synthetic',limit:10},{fetcher});
     expect(result.items[0]?.id).toBe(id);
     const args=vi.mocked(fetcher).mock.calls[0]!;
@@ -18,8 +17,7 @@ describe('MVP public book search and verified owner shelf requests',()=>{
     await expect(searchPublicCatalog('https://folio.example',{q:'',userId:id},{fetcher})).rejects.toThrow();
   });
   it('does not accept arbitrary response fields or unauthorized shelf reads',async()=>{
-    const fetcher=vi.fn(async()=>new Response(JSON.stringify({items:[{...item,ownerId:id}]}),{status:200}))
-      as unknown as typeof fetch;
+    const fetcher=vi.fn(async()=>new Response(JSON.stringify({items:[{...item,ownerId:id}]}),{status:200})) as unknown as typeof fetch;
     await expect(searchPublicCatalog('https://folio.example',{q:'book'},{fetcher}))
       .rejects.toThrow();
     const unauthorized=vi.fn(async()=>new Response('',{status:401})) as unknown as typeof fetch;
