@@ -75,6 +75,62 @@ export async function registerPendingAccount(db:AuthDb,rawEmail:string,rawPasswo
   });
 }
 
+/**
+ * PUBLIC SIGNUP SERVICE INPUT, INTERNAL TOKEN OUTPUT. Existing pending accounts
+ * can retry delivery with the SAME password without exposing their existence.
+ * Active/mismatched accounts return null. Every attempt is rate-limited at HTTP.
+ */
+export async function registerOrRenewPendingAccount(
+  db:AuthDb,rawEmail:string,rawPassword:string,
+):Promise<{verificationToken:string}|null>{
+  const email=emailSchema.parse(rawEmail);
+  const password=passwordSchema.parse(rawPassword);
+  const renew=async():Promise<{verificationToken:string}|null>=>{
+    const [account]=await db.select().from(schema.userAccounts)
+      .where(eq(schema.userAccounts.normalizedEmail,email)).limit(1);
+    const [credential]=account?await db.select().from(schema.passwordCredentials)
+      .where(eq(schema.passwordCredentials.userId,account.id)).limit(1):[];
+    // Keep unknown email, active account and wrong-password paths on a slow
+    // password hash, with identical HTTP status and no resend indication.
+    const matched=await validatePassword(password,credential?.passwordSalt??'0'.repeat(32),
+      credential?.passwordDigest??'0'.repeat(128));
+    if(!account||account.status!=='pending_email'||!matched||!credential)return null;
+    return db.transaction(async tx=>{
+      const [current]=await tx.select().from(schema.userAccounts)
+        .where(eq(schema.userAccounts.id,account.id)).limit(1).for('update');
+      const [nowCredential]=await tx.select().from(schema.passwordCredentials)
+        .where(eq(schema.passwordCredentials.userId,account.id)).limit(1);
+      if(!current||current.status!=='pending_email'||!nowCredential||
+        credential.passwordDigest!==nowCredential.passwordDigest||
+        credential.passwordSalt!==nowCredential.passwordSalt)return null;
+      await tx.update(schema.authChallenges).set({consumedAt:new Date()})
+        .where(and(eq(schema.authChallenges.userId,account.id),
+          eq(schema.authChallenges.purpose,'verify_email'),
+          isNull(schema.authChallenges.consumedAt)));
+      const verificationToken=await createChallenge(tx,account.id,'verify_email',
+        new Date(Date.now()+challengeTtlMs));
+      await tx.insert(schema.auditEvents).values({
+        actorId:account.id,action:'auth.email.verification_renewed',
+        entityType:'user_account',entityId:account.id,
+        afterJson:{purpose:'verify_email'}, // no raw token, email or password
+      });
+      return {verificationToken};
+    });
+  };
+  const [existing]=await db.select({id:schema.userAccounts.id})
+    .from(schema.userAccounts).where(eq(schema.userAccounts.normalizedEmail,email)).limit(1);
+  if(existing)return renew();
+  try{
+    const pending=await registerPendingAccount(db,email,password);
+    return {verificationToken:pending.verificationToken};
+  }catch(error){
+    // Another signup can win the unique email constraint during this request.
+    // Only that specific race is safe to retry. Never swallow DB outages.
+    if(!(error&&typeof error==='object'&&'code' in error&&error.code==='23505'))throw error;
+    return renew();
+  }
+}
+
 async function consumeChallenge(db:AuthDb,secret:string,purpose:Purpose,
   mutate:(tx:Parameters<Parameters<AuthDb['transaction']>[0]>[0],userId:string)=>Promise<void>){
   const digest=tokenHash(rawToken(secret));
