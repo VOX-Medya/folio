@@ -22,6 +22,8 @@ import {
   adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListSchema,adminCatalogRightsLedgerSchema,
   adminContentChapterResponseSchema,
+  adminRightsClaimCreatedSchema,adminRightsReviewedSchema,
+  adminRightsDecisionResultSchema,
   adminCatalogWorkAuthorAppendedSchema,
   adminImportCandidateResultSchema,adminImportCandidatePageSchema,
 } from '@folio/contracts';
@@ -110,13 +112,15 @@ async function main():Promise<void>{
     // All grants and factor rows are synthetic and restricted to folio_test.
     // Production has no initial administrator provisioning endpoint.
     const editor=await account(),moderator=await account(),guest=await account(),
-      viewer=await account(),reviewerA=await account(),reviewerB=await account();
+      viewer=await account(),reviewerA=await account(),reviewerB=await account(),
+      rightsReviewer=await account();
     await db.insert(schema.adminRoleMemberships).values([
       {userId:editor.userId,role:'editor',grantedBy:guest.userId},
       {userId:moderator.userId,role:'moderator',grantedBy:guest.userId},
       {userId:viewer.userId,role:'read-only',grantedBy:guest.userId},
       {userId:reviewerA.userId,role:'editor',grantedBy:guest.userId},
       {userId:reviewerB.userId,role:'editor',grantedBy:guest.userId},
+      {userId:rightsReviewer.userId,role:'rights',grantedBy:guest.userId},
     ]);
     const native=await signInVerifiedAccount(db,editor.email,password,'android-lab');
     const web=await signInVerifiedAccount(db,editor.email,password,'web-lab');
@@ -125,11 +129,13 @@ async function main():Promise<void>{
     const viewerSession=await signInVerifiedAccount(db,viewer.email,password,'viewer-lab');
     const reviewerSessionA=await signInVerifiedAccount(db,reviewerA.email,password,'independent-review-a');
     const reviewerSessionB=await signInVerifiedAccount(db,reviewerB.email,password,'independent-review-b');
+    const rightsSession=await signInVerifiedAccount(db,rightsReviewer.email,password,'rights-review-lab');
     await mfa(native.sessionId,editor.userId);
     await mfa(moderatorSession.sessionId,moderator.userId);
     await mfa(viewerSession.sessionId,viewer.userId);
     await mfa(reviewerSessionA.sessionId,reviewerA.userId);
     await mfa(reviewerSessionB.sessionId,reviewerB.userId);
+    await mfa(rightsSession.sessionId,rightsReviewer.userId);
     const suffix=randomUUID().slice(0,8);
     const author=await createCanonicalAuthor(db,editor.userId,{
       canonicalName:'Folio Canonical Writer '+suffix,
@@ -2002,6 +2008,132 @@ async function main():Promise<void>{
       !rawRights.includes(native.sessionToken),
       'Rights claim metadata returned raw legal evidence or reviewer secret');
     console.log('ADMIN RIGHTS LEDGER HTTPS PASS: rights:read MFA not catalog-only, UUID cursor, pending/no publish and no evidence leaks.');
+
+
+    // #14: PENDING claims -> rights:review MFA -> territory/action grant.
+    // Only synthetic Folio-only data; this is NOT a real legal approval.
+    const rightsSubmitPath=root+'/works/'+linkedWorkId+'/rights';
+    const rightsDecisionPath=rightsSubmitPath+'/decision';
+    const rightsBearer={authorization:'Bearer '+rightsSession.sessionToken};
+    const rightsQuery=(territory:string,action:string)=>
+      rightsDecisionPath+'?editionId='+createdEdition.id+
+      '&revisionId='+changedContent.revision.id+
+      '&territory='+territory+'&action='+action;
+    const baseClaim={
+      workId:linkedWorkId,
+      evidence:'Folio-only synthetic rights evidence for admin HTTPS '+suffix,
+      licenseKind:'synthetic-lab',territories:['TR'],
+      displayAllowed:true,translationAllowed:false,
+      audioAllowed:false,sharingAllowed:false,
+    };
+    check((await post(port,rightsSubmitPath,{},baseClaim)).status===401,
+      'Anonymous rights submission was allowed');
+    check((await post(port,rightsSubmitPath,readonlyEditionBearer,
+      baseClaim)).status===403,'Read-only catalog role submitted legal claim');
+    check((await post(port,rightsSubmitPath,bearer,{
+      ...baseClaim,workId:randomUUID(),
+    })).status===400,'Rights submission crossed work boundary');
+    check((await post(port,rightsSubmitPath,bearer,{
+      ...baseClaim,evidence:'tiny',
+    })).status===400,'Invalid rights evidence accepted');
+    const createdRightIds:string[]=[];
+    for(const part of [
+      {},
+      {editionId:createdEdition.id},
+      {editionId:createdEdition.id,revisionId:changedContent.revision.id},
+    ]){
+      const created=await post(port,rightsSubmitPath,bearer,{
+        ...baseClaim,...part,
+      });
+      check(created.status===201&&
+        created.headers['cache-control']==='private, no-store',
+        'Verified editor cannot submit PENDING scoped rights');
+      const item=adminRightsClaimCreatedSchema.parse(JSON.parse(created.body));
+      check(item.reviewStatus==='pending','Rights claim created approved without review');
+      createdRightIds.push(item.id);
+    }
+    const pendingDecision=await call(true,port,rightsQuery('TR','display'),bearer);
+    check(pendingDecision.status===200&&
+      adminRightsDecisionResultSchema.parse(JSON.parse(pendingDecision.body))
+        .reason==='unreviewed',
+      'Unreviewed synthetic claims permitted public display decision');
+    check((await call(true,port,rightsQuery('TR','display'),
+      readonlyEditionBearer)).status===403,
+      'Read-only catalog actor bypassed rights:read role');
+    check((await call(true,port,rightsQuery('TUR','display'),bearer)).status===400,
+      'Invalid country code was accepted by decision API');
+    check((await call(true,port,rightsQuery('TR','display')+'&ownerId='+
+      editor.userId,bearer)).status===400,'Untrusted rights query was accepted');
+    check((await call(false,plainAddress.port,rightsQuery('TR','display'),
+      bearer)).status!==200,'Plain HTTP exposed private rights decisions');
+    const rationale='Reviewed for isolated synthetic Folio HTTPS test only.';
+    for(const id of createdRightIds){
+      const url=rightsSubmitPath+'/'+id;
+      check((await patch(port,url,bearer,{
+        decision:'approved',reason:rationale,
+      })).status===403,'Catalog editor illegally approved rights');
+      check((await patch(port,url,rightsBearer,{
+        decision:'approved',reason:'short',
+      })).status===400,'Malformed rights review rationale was accepted');
+      const approved=await patch(port,url,rightsBearer,{
+        decision:'approved',reason:rationale,
+      });
+      check(approved.status===200&&
+        adminRightsReviewedSchema.parse(JSON.parse(approved.body))
+          .reviewStatus==='approved',
+        'Current rights:review MFA did not approve evidence');
+    }
+    const accepted=adminRightsDecisionResultSchema.parse(JSON.parse(
+      (await call(true,port,rightsQuery('TR','display'),bearer)).body));
+    check(accepted.allowed&&accepted.reason==='approved',
+      'Approved work/edition/revision TR display rights still denied');
+    const outside=adminRightsDecisionResultSchema.parse(JSON.parse(
+      (await call(true,port,rightsQuery('US','display'),bearer)).body));
+    check(!outside.allowed&&outside.reason==='territory',
+      'Cross-territory rights were mistakenly accepted');
+    const audioDenied=adminRightsDecisionResultSchema.parse(JSON.parse(
+      (await call(true,port,rightsQuery('TR','audio'),bearer)).body));
+    check(!audioDenied.allowed&&audioDenied.reason==='prohibited',
+      'Display approval wrongly granted audio rights');
+    check((await patch(port,rightsSubmitPath+'/'+createdRightIds[2],
+      rightsBearer,{decision:'approved',reason:rationale})).status===200,
+      'Repeat approved claim unexpectedly failed');
+    const withdrawn=await patch(port,rightsSubmitPath+'/'+createdRightIds[2],
+      rightsBearer,{decision:'withdrawn',reason:rationale});
+    check(withdrawn.status===200&&
+      adminRightsReviewedSchema.parse(JSON.parse(withdrawn.body))
+        .reviewStatus==='withdrawn',
+      'Rights reviewer could not withdraw prior approval');
+    const afterWithdraw=adminRightsDecisionResultSchema.parse(JSON.parse(
+      (await call(true,port,rightsQuery('TR','display'),bearer)).body));
+    check(!afterWithdraw.allowed&&afterWithdraw.reason==='unreviewed',
+      'Withdrawn rights still approved for public display');
+    check((await patch(port,rightsSubmitPath+'/'+createdRightIds[2],
+      rightsBearer,{decision:'approved',reason:rationale})).status===409,
+      'Withdrawn rights could be silently restored');
+    check((await patch(port,root+'/works/'+randomUUID()+
+      '/rights/'+createdRightIds[0],rightsBearer,{
+        decision:'approved',reason:rationale,
+      })).status===404,'Foreign work ID allowed rights decision update');
+    const auditedRights=await pool.query<{
+      action:string;actor_id:string;request_id:string;
+      before_json:unknown;after_json:unknown;
+    }>('SELECT action,actor_id,request_id,before_json,after_json '+
+      'FROM audit_events WHERE entity_type=$1 AND entity_id=$2::uuid '+
+      'ORDER BY created_at',
+      ['rights_record',createdRightIds[2]]);
+    check(auditedRights.rows.some(row=>
+      row.action==='rights.evidence.submit'&&
+      row.actor_id===editor.userId&&!!row.request_id)&&
+      auditedRights.rows.some(row=>
+      row.action==='rights.review.approved'&&
+      row.actor_id===rightsReviewer.userId&&
+      !!row.before_json&&!!row.after_json&&!!row.request_id)&&
+      auditedRights.rows.some(row=>
+      row.action==='rights.review.withdrawn'&&
+      row.actor_id===rightsReviewer.userId&&!!row.request_id),
+      'Rights claim/review/withdraw lacked actual actor or before-after audit');
+    console.log('ADMIN RIGHTS DECISION HTTPS PASS: pending deny, MFA editor submit, rights reviewer approval/withdrawal, TR permit/US deny/audio deny, 401/403/400/409 and audit.');
 
     // A verified revision picker must reveal only bounded ID/parent metadata.
     // Each page revalidates role+same-device MFA in the same DB snapshot.
