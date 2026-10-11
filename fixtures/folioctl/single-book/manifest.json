@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0.0",
+  "packageId": "11111111-1111-4111-8111-111111111118",
+  "book": {
+    "title": "Synthetic Folio Package",
+    "language": "en",
+    "authors": [
+      "Folio Fixture Author"
+    ],
+    "editionLabel": "Prepared English Edition"
+  },
+  "files": [
+    {
+      "path": "content/source.txt",
+      "kind": "text",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "sizeBytes": 3
+    }
+  ]
+}
