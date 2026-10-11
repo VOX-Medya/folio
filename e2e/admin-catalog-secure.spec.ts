@@ -861,7 +861,7 @@ test('HTTPS Paperbound match reviewer requires explicit decision, blocks stale r
       await route.fulfill(respond({items:proposed?[{
         id:reviewId,workId,candidateWorkId:peer,peerWorkId:peer,
         peerTitle:'Karşılaştırılan Taslak',status:finalStatus,
-        evidenceKind:'same_title',reviewVersion:version,snapshotCurrent:true,
+        evidenceKind:'shared_isbn',reviewVersion:version,snapshotCurrent:true,
       }]:[],nextCursor:null}));
     }else if(request.method()==='POST'&&path===reviewsPath){
       const body=request.postDataJSON() as Record<string,unknown>;
@@ -903,6 +903,7 @@ test('HTTPS Paperbound match reviewer requires explicit decision, blocks stale r
   await review.getByRole('button',{name:'İnceleme kaydı aç'}).click();
   await expect(review).toContainText('Karşılaştırılan Taslak');
   await expect(review).toContainText('Bekliyor');
+  await expect(review).toContainText('Aynı kayıtlı ISBN (kimlik kanıtı değil)');
   await review.getByRole('button',{name:'Kararı incele: Karşılaştırılan Taslak'}).click();
   await review.getByRole('combobox',{name:'İnceleme kararı'}).selectOption('distinct');
   await review.getByRole('textbox',{name:/Gerekçeli editoryal açıklama/})
@@ -928,6 +929,7 @@ test('HTTPS Paperbound match reviewer requires explicit decision, blocks stale r
   expect(width).toBeLessThanOrEqual(1);
   await page.getByRole('button',{name:'EN',exact:true}).click();
   await expect(review).toContainText('Work identity review');
+  await expect(review).toContainText('Matching stored ISBN (not proof of identity)');
 });
 
 test('incoming package claim UX stays private, versioned and explicitly unverified',async({page})=>{
