@@ -56,7 +56,7 @@ export {reservePrivateUploadQuota,commitPrivateQuarantinedUpload,releasePrivateU
 export {searchCanonicalWorksForAdmin,searchCanonicalAuthorsForAdmin,searchVerifiedAdminWorks,searchVerifiedAdminAuthors} from './catalog-search.js';
 
 // Internal verified email/session foundation. No public auth routes until anti-abuse, secure cookie and MFA gates.
-export {registerPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,resetAccountPassword,signInVerifiedAccount,authenticateUserSession,revokeUserSession,revokeAllUserSessions,MAX_ACTIVE_DEVICE_SESSIONS} from './auth.js';
+export {registerPendingAccount,registerOrRenewPendingAccount,verifyAccountEmail,issuePasswordResetChallenge,resetAccountPassword,signInVerifiedAccount,authenticateUserSession,revokeUserSession,revokeAllUserSessions,MAX_ACTIVE_DEVICE_SESSIONS} from './auth.js';
 
 // Authenticated-only per-user onboarding preference/version synchronization.
 export {getVerifiedUserOnboarding,updateVerifiedUserOnboarding} from './onboarding.js';
