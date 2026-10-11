@@ -148,6 +148,13 @@
       "when": 1791621000000,
       "tag": "0020_import_candidate_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791622000000,
+      "tag": "0021_user_shelf_items",
+      "breakpoints": true
     }
   ]
 }
