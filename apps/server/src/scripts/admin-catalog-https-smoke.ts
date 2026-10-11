@@ -817,18 +817,18 @@ async function main():Promise<void>{
       titles:[{language:'en',title:liveAlternate,kind:'alternate'}],
       editions:[{language:'en',label:liveEditionLabel}],
     });
-    const editionRows=await pool.query<{id:string}>(
+    const liveEditionRows=await pool.query<{id:string}>(
       'SELECT id FROM editions WHERE work_id=$1::uuid AND label=$2',
       [liveWork.id,liveEditionLabel],
     );
-    check(editionRows.rows.length===1,'Isolated live-browser edition missing');
-    const liveEditionId=editionRows.rows[0]!.id;
+    check(liveEditionRows.rows.length===1,'Isolated live-browser edition missing');
+    const liveEditionId=liveEditionRows.rows[0]!.id;
     liveProxy=createHttpsServer(
       {key:readFileSync(key),cert:readFileSync(cert)},
       (request,response)=>{
         const target=request.url?.startsWith('/v1/')?'api':'vite';
         const targetPort=target==='api'?port:4173;
-        const headers={...request.headers,
+        const headers:IncomingHttpHeaders={...request.headers,
           host:'127.0.0.1:'+targetPort};
         // Untrusted forwarded-* transport metadata cannot change
         // security policy. The true upstream is another direct TLS socket.
