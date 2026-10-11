@@ -424,6 +424,81 @@ async function main():Promise<void>{
     },'DELETE')).status===204,'Owner-scoped idempotent removal was not allowed');
     check(shelfListSchema.parse(JSON.parse((await call(true,port,shelfUrl,guestBearer)).body))
       .items.length===1,'Second account removed first account shelf item');
+    // #31: One actual Expo Chrome -> same-origin HTTPS -> Nest/PG path.
+    // The extra proxy and Expo dev server run only inside this synthetic
+    // Folio test fixture. They are never production ingress or persistent.
+    let shelfProxy:HttpsServer|undefined;
+    const previousShelfOrigin=process.env.FOLIO_WEB_AUTH_ORIGIN;
+    const previousShelfMode=process.env.FOLIO_WEB_AUTH_MODE;
+    const previousShelfCsrf=process.env.FOLIO_WEB_CSRF_KEY_HEX;
+    try{
+      shelfProxy=createHttpsServer({key:readFileSync(key),cert:readFileSync(cert)},
+        (request,response)=>{
+          const api=request.url?.startsWith('/v1/')??false;
+          const targetPort=api?port:4174;
+          const headers:IncomingHttpHeaders={...request.headers,host:'127.0.0.1:'+targetPort};
+          delete headers['x-forwarded-proto'];
+          delete headers['x-forwarded-host'];
+          delete headers['x-forwarded-for'];
+          const upstream=(api?httpsRequest:httpRequest)({
+            host:'127.0.0.1',port:targetPort,path:request.url??'/',
+            method:request.method,headers,
+            ...(api?{rejectUnauthorized:false}:{}),
+          },incoming=>{
+            response.writeHead(incoming.statusCode??502,incoming.headers);
+            incoming.pipe(response);
+          });
+          upstream.on('error',()=>{
+            if(!response.headersSent)response.writeHead(502);
+            response.end();
+          });
+          request.pipe(upstream);
+        },
+      );
+      await new Promise<void>((done,reject)=>{
+        shelfProxy!.once('error',reject);
+        shelfProxy!.listen(0,'127.0.0.1',()=>done());
+      });
+      const address=shelfProxy.address() as AddressInfo;
+      check(address?.port>0,'Synthetic shelf browser proxy unavailable');
+      const shelfOrigin='https://127.0.0.1:'+address.port;
+      process.env.FOLIO_WEB_AUTH_MODE='direct-tls-only';
+      process.env.FOLIO_WEB_AUTH_ORIGIN=shelfOrigin;
+      process.env.FOLIO_WEB_CSRF_KEY_HEX=randomBytes(32).toString('hex');
+      await new Promise<void>((done,reject)=>{
+        const browser=spawn('pnpm',[
+          'exec','playwright','test','--config','playwright.catalog.config.ts',
+        ],{
+          cwd:resolve(process.cwd(),'../..'),
+          env:{...process.env,
+            FOLIO_LIVE_SHELF_ORIGIN:shelfOrigin,
+            FOLIO_LIVE_SHELF_WORK_ID:privateWork.id,
+            FOLIO_LIVE_SHELF_TITLE:privateWork.originalTitle,
+            FOLIO_LIVE_SHELF_OWNER_TOKEN:guestSession.sessionToken,
+            FOLIO_LIVE_SHELF_OTHER_TOKEN:reviewerSessionA.sessionToken,
+          },
+          stdio:'inherit',
+        });
+        browser.once('error',reject);
+        browser.once('exit',(code,signal)=>{
+          if(code===0)done();
+          else reject(Error('Real Expo/HTTPS/Folio shelf browser smoke failed, status='+
+            String(code??signal)));
+        });
+      });
+      console.log('PUBLIC SHELF LIVE CHROME PASS: Expo title search, CSRF owner save, isolated shelf and reader route.');
+    }finally{
+      if(previousShelfOrigin===undefined)delete process.env.FOLIO_WEB_AUTH_ORIGIN;
+      else process.env.FOLIO_WEB_AUTH_ORIGIN=previousShelfOrigin;
+      if(previousShelfMode===undefined)delete process.env.FOLIO_WEB_AUTH_MODE;
+      else process.env.FOLIO_WEB_AUTH_MODE=previousShelfMode;
+      if(previousShelfCsrf===undefined)delete process.env.FOLIO_WEB_CSRF_KEY_HEX;
+      else process.env.FOLIO_WEB_CSRF_KEY_HEX=previousShelfCsrf;
+      if(shelfProxy){
+        shelfProxy.closeAllConnections();
+        await new Promise<void>(done=>shelfProxy!.close(()=>done()));
+      }
+    }
     check((await call(true,port,publicBookPath+'?territory=US')).status===400,
       'Browser was allowed to override server-owned rights territory');
     check((await call(false,plainAddress.port,publicBookPath,{
