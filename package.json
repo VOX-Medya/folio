@@ -9,10 +9,11 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --if-present test && node --test tools/ci/folioctl.test.mjs",
     "build": "pnpm -r --if-present build",
     "check": "pnpm lint && pnpm --filter @folio/contracts build && pnpm --filter @folio/db build && pnpm typecheck && pnpm test && pnpm build && pnpm design:check && pnpm --filter @folio/server openapi:check && pnpm metro:security-check && pnpm dependency:hardening-check",
     "e2e": "playwright test",
+    "folioctl": "node tools/folioctl.mjs",
     "design:check": "node tools/design/generate-screen-matrix.mjs --check",
     "mobile:export": "pnpm --filter @folio/mobile exec expo export --platform all && node tools/ci/check-expo-exports.mjs",
     "ci:contract-test": "node --test tools/ci/*.test.mjs tools/design/*.test.mjs tools/security/*.test.mjs",
