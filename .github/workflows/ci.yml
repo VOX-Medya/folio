@@ -5,6 +5,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
+    inputs:
+      validation:
+        description: "Development feedback profile: fast or full regression"
+        required: true
+        type: choice
+        default: full
+        options:
+          - full
+          - fast
   schedule:
     - cron: '17 3 * * *'
 permissions:
@@ -40,8 +49,9 @@ jobs:
 
   full-regression:
     name: full-regression
-    # Heavy checks stay intact. Run on main, nightly, manual, or explicit PR label.
-    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+    # Heavy checks run on main/nightly, manual full, or ci:full PRs.
+    # Manual fast feedback is development-only, not release evidence.
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.validation == 'full') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -133,7 +143,7 @@ jobs:
 
   clamav-native-protocol:
     name: ClamAV stdin protocol (synthetic signatures only; not a release gate)
-    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.validation == 'full') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
