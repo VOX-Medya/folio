@@ -370,8 +370,8 @@ async function main():Promise<void>{
       'Published content was still accessible through draft-source preview');
     check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
       'A second publication was accepted without editorial review');
-    const withdrawn=await post(port,publicationPath,bearer,publicationCommand('withdraw'));
-    check(withdrawn.status===200&&JSON.parse(withdrawn.body).status==='withdrawn',
+    const publicationWithdrawal=await post(port,publicationPath,bearer,publicationCommand('withdraw'));
+    check(publicationWithdrawal.status===200&&JSON.parse(publicationWithdrawal.body).status==='withdrawn',
       'Authenticated reviewer could not withdraw a published revision');
     const stateAfter=await pool.query<{work_status:string;edition_status:string;revision_status:string}>(
       'SELECT w.publication_status AS work_status,e.status AS edition_status,r.status AS revision_status '+
