@@ -59,7 +59,7 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await expect(page.getByTestId('folio-reader-current-theme-dark')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await page.setViewportSize({width:1024,height:768});
-    await expect(page.getByTestId('folio-layout-desktop')).toBeVisible();
+    await expect(page.getByTestId('folio-layout-desktop').filter({visible:true}).first()).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(1024);
   }finally{
     await first.close();
