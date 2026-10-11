@@ -6,7 +6,7 @@ const text='<script>window.folioOwned=1</script>';
 const data={workId:'11111111-1111-4111-8111-111111111111',revisionId,
   title:'Synthetic book',language:'tr',chapters:[{
     id:'22222222-2222-4222-8222-222222222222',heading:'Chapter 1',
-    blocks:[{id:'44444444-4444-4444-8444-444444444444',kind:'paragraph',text}],
+    blocks:[{id:'44444444-4444-4444-8444-444444444444',kind:'paragraph',text,includeRsvp:true}],
   }]};
 describe('bounded published reader HTTPS transport',()=>{
   it('loads exact revision as literal text with no session credentials or redirect',async()=>{

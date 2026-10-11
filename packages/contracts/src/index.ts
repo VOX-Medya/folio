@@ -794,6 +794,7 @@ export const publishedReaderTextSchema=z.object({
     id:z.uuid(),heading:z.string().max(500),
     blocks:z.array(z.object({
       id:z.uuid(),kind:z.string().min(1).max(32),text:z.string().max(30000),
+      includeRsvp:z.boolean(),
     }).strict()).min(1).max(4000),
   }).strict()).min(1).max(80),
 }).strict();

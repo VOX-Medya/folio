@@ -117,9 +117,10 @@ export class PublishedCatalogController {
         properties:{
           id:{type:'string',format:'uuid'},heading:{type:'string'},
           blocks:{type:'array',items:{
-            type:'object',additionalProperties:false,required:['id','kind','text'],
+            type:'object',additionalProperties:false,required:['id','kind','text','includeRsvp'],
             properties:{
               id:{type:'string',format:'uuid'},kind:{type:'string'},text:{type:'string'},
+              includeRsvp:{type:'boolean'},
             },
           }},
         },
