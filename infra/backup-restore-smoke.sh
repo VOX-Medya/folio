@@ -62,7 +62,9 @@ docker run -d --rm --name "$restore" --network none \
   -v "$restore_pg:/var/lib/postgresql/data" postgres:17-alpine >/dev/null
 ready=false
 for _ in $(seq 1 40); do
-  if docker exec "$restore" pg_isready -U folio_lab -d folio_test >/dev/null 2>&1; then
+  # pg_isready can report "accepting connections" before initdb creates
+  # POSTGRES_DB; require a real query to the target database instead.
+  if [[ "$(docker exec "$restore" psql -U folio_lab -d folio_test -Atqc 'SELECT 1' 2>/dev/null || true)" == "1" ]]; then
     ready=true;break
   fi
   sleep 1
