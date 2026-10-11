@@ -770,8 +770,14 @@ export const webLoginRequestSchema=z.object({
   password:z.string().min(12).max(128).refine(value=>!value.includes('\0')),
 }).strict();
 
+/** Public signup only; token is dispatched server-side and never in the response. */
+export const webRegisterRequestSchema=webLoginRequestSchema;
+export const webVerifyEmailRequestSchema=z.object({
+  token:z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+}).strict();
+
 // Browser-only same-origin HttpOnly cookie client, distinct from native bearer.
-export {loginWebSession,fetchWebSessionCsrf,logoutWebSession,fetchWebDeviceSessions,revokeWebDeviceSession,fetchWebOnboarding,updateWebOnboarding,WebSessionHttpError} from './web-session-client.js';
+export {registerWebAccount,verifyWebAccountEmail,loginWebSession,fetchWebSessionCsrf,logoutWebSession,fetchWebDeviceSessions,revokeWebDeviceSession,fetchWebOnboarding,updateWebOnboarding,WebSessionHttpError} from './web-session-client.js';
 export type {WebSessionClientRequest} from './web-session-client.js';
 
 /** Public catalog metadata: no source text, raw storage references or rights evidence. */
