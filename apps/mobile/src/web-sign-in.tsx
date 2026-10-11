@@ -10,6 +10,7 @@ import type {FolioLocale} from './shell-data';
 import {WebOnboardingPanel} from './web-onboarding';
 import {OwnProfilePanel} from './own-profile';
 import {WebFriendshipPanel} from './web-friendship';
+import {WebRegistrationPanel} from './web-registration';
 
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 type Phase='checking'|'signedOut'|'signedIn'|'busy'|'unavailable';
@@ -239,6 +240,7 @@ export function WebSignInPanel({locale,colors,onLocaleSaved}:{locale:FolioLocale
         </Text>
       </Pressable>
     </>}
+    {phase==='signedOut'&&origin&&<WebRegistrationPanel origin={origin} locale={locale} colors={colors}/>}
     {phase==='signedIn'&&<>
       <Text testID="folio-web-session-verified"
         style={{fontSize:14,lineHeight:22,color:colors.ink}}>
