@@ -1,6 +1,6 @@
 import {
   BadRequestException,Body,ConflictException,Controller,Get,Header,Inject,Injectable,
-  Module,OnModuleDestroy,Patch,Post,Query,Req,ServiceUnavailableException,
+  HttpCode,Module,OnModuleDestroy,Patch,Post,Query,Req,ServiceUnavailableException,
   UnauthorizedException,UseGuards,
 } from '@nestjs/common';
 import {ApiBearerAuth,ApiBody,ApiOkResponse,ApiOperation,ApiSecurity,ApiTags} from '@nestjs/swagger';
@@ -98,6 +98,7 @@ export class OwnProfileController{
     catch(e){return this.mapError(e);}
   }
   @Post('deletion-request')
+  @HttpCode(200)
   @Header('Cache-Control','private, no-store')
   @ApiOperation({summary:'Request account deletion; does not immediately erase account'})
   @ApiBody({schema:{type:'object',additionalProperties:false,required:['confirm'],
