@@ -20,7 +20,7 @@ import {
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
   submitVerifiedAdminRightsEvidence,reviewVerifiedAdminRightsEvidence,
-  getVerifiedAdminRightsDecision,
+  getVerifiedAdminRightsDecision,getVerifiedAdminRightsEvidence,
   getVerifiedAdminContentChapter,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
   proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,
@@ -53,7 +53,7 @@ import {
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
   rightsRecordCreateSchema,rightsDecisionQuerySchema,adminRightsReviewInputSchema,
   adminRightsClaimCreatedSchema,adminRightsReviewedSchema,
-  adminRightsDecisionResultSchema,
+  adminRightsDecisionResultSchema,adminRightsEvidenceSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -201,6 +201,10 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   rightsDecision(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminRightsDecision(this.db(),bearer,input));
+  }
+  rightsEvidence(bearer:string,workId:string,recordId:string){
+    return this.authorized(()=>
+      getVerifiedAdminRightsEvidence(this.db(),bearer,workId,recordId));
   }
   authorDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
@@ -437,6 +441,31 @@ const rightsReviewResultApi={
     reviewStatus:{type:'string',enum:['approved','rejected','withdrawn']},
   },
 };
+
+const rightsEvidenceResultApi={
+  type:'object',additionalProperties:false,
+  required:['id','workId','editionId','revisionId','evidence','sourceUrl',
+    'licenseKind','territories','claims','reviewStatus','expiresAt'],
+  properties:{
+    id:detailUuidApi,workId:detailUuidApi,
+    editionId:{...detailUuidApi,nullable:true},
+    revisionId:{...detailUuidApi,nullable:true},
+    evidence:{type:'string',minLength:12},
+    sourceUrl:{type:'string',format:'uri',nullable:true},
+    licenseKind:{type:'string',minLength:2},
+    territories:{type:'array',items:{type:'string',pattern:'^[A-Z]{2}$'}},
+    claims:{type:'object',additionalProperties:false,
+      required:['display','translation','audio','sharing'],
+      properties:{
+        display:{type:'boolean'},translation:{type:'boolean'},
+        audio:{type:'boolean'},sharing:{type:'boolean'},
+      },
+    },
+    reviewStatus:{type:'string',enum:['pending','approved','rejected','withdrawn']},
+    expiresAt:{type:'string',format:'date-time',nullable:true},
+  },
+};
+
 const rightsDecisionResultApi={
   type:'object',additionalProperties:false,required:['allowed','reason'],
   properties:{
@@ -1056,6 +1085,31 @@ export class AdminCatalogController {
     const bearer=await this.bearer(request);
     return adminRightsDecisionResultSchema.parse(
       await this.store.rightsDecision(bearer,input.data));
+  }
+
+
+  /** Legal evidence is exposed only to rights:review, never ordinary catalog roles. */
+  @Get('works/:workId/rights/:recordId/evidence')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified MFA rights:review reads private evidence for manual human decision'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'recordId',type:String,format:'uuid'})
+  @ApiOkResponse({schema:rightsEvidenceResultApi})
+  async rightsEvidence(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Param('recordId') rawRecordId:string,
+    @Query() query:Record<string,unknown>){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      recordId=adminCatalogIdSchema.safeParse(rawRecordId);
+    if(!workId.success||!recordId.success){
+      throw new BadRequestException('Invalid private rights evidence scope');
+    }
+    const bearer=await this.bearer(request);
+    const result=await this.store.rightsEvidence(
+      bearer,workId.data,recordId.data);
+    if(!result)throw new NotFoundException('Rights evidence not found');
+    return adminRightsEvidenceSchema.parse(result);
   }
 
   @Get('works/:workId/rights')
