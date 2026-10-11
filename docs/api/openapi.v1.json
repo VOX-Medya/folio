@@ -1652,6 +1652,147 @@
         ]
       }
     },
+    "/v1/admin/catalog/works/{workId}/rights/{recordId}/evidence": {
+      "get": {
+        "operationId": "AdminCatalogController_rightsEvidence",
+        "parameters": [
+          {
+            "name": "recordId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "workId",
+                    "editionId",
+                    "revisionId",
+                    "evidence",
+                    "sourceUrl",
+                    "licenseKind",
+                    "territories",
+                    "claims",
+                    "reviewStatus",
+                    "expiresAt"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "workId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "editionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "revisionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "evidence": {
+                      "type": "string",
+                      "minLength": 12
+                    },
+                    "sourceUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "licenseKind": {
+                      "type": "string",
+                      "minLength": 2
+                    },
+                    "territories": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{2}$"
+                      }
+                    },
+                    "claims": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "display",
+                        "translation",
+                        "audio",
+                        "sharing"
+                      ],
+                      "properties": {
+                        "display": {
+                          "type": "boolean"
+                        },
+                        "translation": {
+                          "type": "boolean"
+                        },
+                        "audio": {
+                          "type": "boolean"
+                        },
+                        "sharing": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "reviewStatus": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "approved",
+                        "rejected",
+                        "withdrawn"
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Verified MFA rights:review reads private evidence for manual human decision",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
     "/v1/admin/catalog/works/{workId}/editions/{editionId}/revisions/{revisionId}/chapters/{chapterId}": {
       "get": {
         "operationId": "AdminCatalogController_contentChapter",
