@@ -91,13 +91,17 @@ jobs:
           bash infra/lab.sh onboarding-smoke
           bash infra/lab.sh onboarding-http-smoke
           bash infra/lab.sh device-sessions-http-smoke
+      - name: Require six live catalog visual samples
+        run: |
+          count="$(find artifacts/live-catalog-visual -maxdepth 1 -type f -name 'live-catalog-*-dark-*.png' | wc -l)"
+          test "$count" -eq 6
       - name: Preserve synthetic live catalog responsive screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: folio-catalog-live-visual-${{ github.run_id }}
-          path: test-results/**/*.png
-          if-no-files-found: ignore
+          path: artifacts/live-catalog-visual/*.png
+          if-no-files-found: error
           retention-days: 7
       - name: Stop isolated Folio CI laboratory
         if: always()
