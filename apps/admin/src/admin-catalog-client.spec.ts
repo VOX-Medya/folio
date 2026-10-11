@@ -624,7 +624,6 @@ describe('incoming package claim client refuses unsafe work import automation',(
   const incomingWorkId='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
   const input={packageId:authorId,manifestChecksum:'e'.repeat(64),
     incomingWorkId,incomingTitle:'Eser',incomingLanguage:'tr' as const};
-  const base='/v1/admin/catalog/works/'+workId+'/import-reviews';
   const record={id:caseId,candidateWorkId:workId,packageId:authorId,
     incomingWorkId,incomingTitle:'Eser',incomingLanguage:'tr',
     status:'pending',evidenceKind:'claimed_title',
