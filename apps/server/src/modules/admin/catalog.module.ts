@@ -979,6 +979,85 @@ export class AdminCatalogController {
    * all relationship SELECTs. Unknown UUIDs are distinguishable only after
    * current catalog:read, account, device and MFA checks have passed.
    */
+
+  /** A verified catalog editor can only submit a PENDING claim. */
+  @Post('works/:workId/rights')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Create PENDING scoped rights evidence after MFA/RBAC; never publish'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiBody({schema:rightsClaimInputApi})
+  @ApiCreatedResponse({schema:rightsClaimResultApi})
+  async submitRights(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Query() query:Record<string,unknown>,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const id=adminCatalogIdSchema.safeParse(rawWorkId);
+    const input=rightsRecordCreateSchema.safeParse(raw);
+    if(!id.success||!input.success||input.data.workId!==id.data){
+      throw new BadRequestException('Invalid rights evidence or work scope');
+    }
+    const bearer=await this.bearer(request);
+    const record=await this.store.submitRights(
+      bearer,input.data,this.trace(request));
+    return adminRightsClaimCreatedSchema.parse({
+      id:record.id,reviewStatus:record.reviewStatus,
+    });
+  }
+
+  /** Only rights:review can approve/reject/withdraw; every change is audited. */
+  @Patch('works/:workId/rights/:recordId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Live rights:review MFA decision with actor and requestId audit'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'recordId',type:String,format:'uuid'})
+  @ApiBody({schema:rightsReviewInputApi})
+  @ApiOkResponse({schema:rightsReviewResultApi})
+  async reviewRights(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Param('recordId') rawRecordId:string,
+    @Query() query:Record<string,unknown>,@Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      recordId=adminCatalogIdSchema.safeParse(rawRecordId),
+      input=adminRightsReviewInputSchema.safeParse(raw);
+    if(!workId.success||!recordId.success||!input.success){
+      throw new BadRequestException('Invalid rights decision');
+    }
+    const bearer=await this.bearer(request);
+    const record=await this.store.reviewRights(
+      bearer,workId.data,recordId.data,input.data,this.trace(request));
+    if(!record)throw new NotFoundException('Rights record not found');
+    return adminRightsReviewedSchema.parse({
+      id:record.id,reviewStatus:record.reviewStatus,
+    });
+  }
+
+  /** Preview the default-DENY rights gate. Does not serve chapter/source bytes. */
+  @Get('works/:workId/rights/decision')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA rights:read check for edition/revision/territory/action; not publication'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiQuery({name:'editionId',type:String,format:'uuid',required:true})
+  @ApiQuery({name:'revisionId',type:String,format:'uuid',required:true})
+  @ApiQuery({name:'territory',type:String,required:true})
+  @ApiQuery({name:'action',type:String,required:true,enum:['display','translation','audio','sharing']})
+  @ApiOkResponse({schema:rightsDecisionResultApi})
+  async rightsDecision(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,@Query() query:Record<string,unknown>){
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId);
+    const input=rightsDecisionQuerySchema.safeParse({
+      ...query,workId:rawWorkId,
+    });
+    if(!workId.success||!input.success){
+      throw new BadRequestException('Invalid rights decision scope');
+    }
+    const bearer=await this.bearer(request);
+    return adminRightsDecisionResultSchema.parse(
+      await this.store.rightsDecision(bearer,input.data));
+  }
+
   @Get('works/:workId/rights')
   @Header('Cache-Control','private, no-store')
   @ApiOperation({summary:'Verified rights:read MFA/RBAC metadata-only rights claims; not publication'})
