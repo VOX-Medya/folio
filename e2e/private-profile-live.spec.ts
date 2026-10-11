@@ -22,6 +22,14 @@ test('verified owner private profile, CAS conflict, other-user isolation and del
     await page.getByTestId('folio-profile-display-name').fill(identifier);
     await page.getByTestId('folio-profile-save').click();
     await expect(page.getByTestId('folio-profile-display-name')).toHaveValue(identifier);
+    // The controlled input changes before the HTTPS PATCH commits. Wait for
+    // server-confirmed persistence, not the already-updated input value.
+    await expect.poll(async()=>page.evaluate(async()=>{
+      const response=await fetch('/v1/me/profile',{credentials:'same-origin'});
+      if(!response.ok)return '';
+      const data=await response.json();
+      return data.displayName as string;
+    }),{timeout:10000}).toBe(identifier);
     const own=await page.evaluate(async()=>{
       const response=await fetch('/v1/me/profile',{credentials:'same-origin'});
       return {status:response.status,data:await response.json()};
