@@ -1284,13 +1284,17 @@ async function main():Promise<void>{
       '(entity_type=$3 AND entity_id=$4::uuid) ORDER BY created_at',
       ['work',relationWork.id,'edition',empty.id],
     );
-    for(const action of [
-      'work.title.metadata.update','work.author.metadata.update','edition.empty_draft.remove',
-    ]){
+    const auditExpectations=[
+      ['work.title.metadata.update',1+(races[1]?.status===200?1:0)],
+      ['work.author.metadata.update',1+(races[0]?.status===200?1:0)],
+      ['edition.empty_draft.remove',1],
+    ] as const;
+    for(const [action,expectedCount] of auditExpectations){
       const events=relationAudit.rows.filter(row=>row.action===action);
-      check(events.length===1&&events[0]?.actor_id===editor.userId&&
-        !!events[0].request_id&&!!events[0].before_json&&!!events[0].after_json,
-        'Missing one correlated before/after audit for '+action);
+      check(events.length===expectedCount&&events.every(row=>
+        row.actor_id===editor.userId&&!!row.request_id&&
+        !!row.before_json&&!!row.after_json),
+        'Incorrect correlated before/after audit count for '+action);
     }
     const protectedRefs=await pool.query<{id:string}>(
       'SELECT id FROM content_revisions WHERE edition_id=$1::uuid',
