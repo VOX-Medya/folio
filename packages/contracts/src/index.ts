@@ -867,5 +867,5 @@ export const ownDeletionResultSchema=z.object({requested:z.literal(true)}).stric
 export type OwnProfileUpdate=z.infer<typeof ownProfileUpdateSchema>;
 export {fetchOwnWebProfile,updateOwnWebProfile,requestOwnWebDeletion} from './own-profile-client.js';
 
-export {friendInviteCodeSchema,friendshipActionSchema,friendInviteRedeemSchema,friendInviteIssueSchema,friendshipEntrySchema,friendshipListSchema} from './friendship.js';
-export type {FriendshipAction,FriendshipList} from './friendship.js';
+export {friendInviteCodeSchema,friendInviteIssueSchema,friendInviteIssuedSchema,friendInviteRedeemSchema,friendRequestResultSchema,friendshipActionSchema,friendshipDecisionResultSchema,friendshipEntrySchema,friendshipListSchema} from './friendship.js';
+export type {FriendInviteIssued,FriendRequestResult,FriendshipAction,FriendshipDecisionResult,FriendshipList} from './friendship.js';
