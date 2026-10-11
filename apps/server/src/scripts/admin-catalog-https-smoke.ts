@@ -926,8 +926,14 @@ async function main():Promise<void>{
       {action:'work.author.metadata.update',actor:editor.userId,count:1},
       {action:'edition.empty_draft.remove',actor:editor.userId,count:1},
     ];
-    check(liveAudit.rows.length===5,
-      'Real-browser test wrote unexpected audits or replayed stale 409');
+    // Initial DB fixture already has a separate work.create audit. Do not
+    // confuse that trusted seed event with the five browser HTTP mutations.
+    const browserAuditWrites=liveAudit.rows.filter(row=>[
+      'work.metadata.update','work.title.metadata.update',
+      'work.author.metadata.update','edition.empty_draft.remove',
+    ].includes(row.action));
+    check(browserAuditWrites.length===5,
+      'Real-browser test wrote unexpected mutation audits or replayed stale 409');
     for(const expected of expectedLive){
       const events=liveAudit.rows.filter(row=>
         row.action===expected.action&&row.actor_id===expected.actor);
