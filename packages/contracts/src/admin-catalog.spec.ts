@@ -428,6 +428,12 @@ describe('draft canonical work identity reviewer DTO boundary',()=>{
       evidenceKind:'shared_source_sha256',reviewVersion:0,snapshotCurrent:true,
     }],nextCursor:null};
     expect(adminWorkMatchPageSchema.parse(page)).toEqual(page);
+    expect(adminWorkMatchPageSchema.parse({
+      ...page,items:[{...page.items[0],evidenceKind:'shared_isbn'}],
+    }).items[0]?.evidenceKind).toBe('shared_isbn');
+    expect(adminWorkMatchPageSchema.safeParse({
+      ...page,items:[{...page.items[0],evidenceKind:'auto_merge_allowed'}],
+    }).success).toBe(false);
     expect(adminWorkMatchPageSchema.safeParse({...page,items:[{...page.items[0],sourceText:'PRIVATE'}]}).success).toBe(false);
     expect(adminWorkMatchPageSchema.safeParse({...page,items:[{...page.items[0],reviewerEmail:'secret'}]}).success).toBe(false);
     expect(adminWorkMatchQuerySchema.safeParse({cursor:id}).success).toBe(true);
