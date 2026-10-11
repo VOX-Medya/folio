@@ -1,4 +1,6 @@
 import {test,expect} from '@playwright/test';
+import {mkdir} from 'node:fs/promises';
+import {join} from 'node:path';
 
 /** This file is ONLY launched inside the Folio-only PostgreSQL/direct-TLS
  * catalog smoke. No API mocks, no stubbed database, no seeded permissions
@@ -137,6 +139,8 @@ test('real browser -> same-origin direct TLS Nest -> Folio PostgreSQL, conflict/
       .toBeLessThanOrEqual(1);
     await page.getByRole('button',{name:'EN',exact:true}).click();
     await expect(detail).toContainText('Metadata version: 5');
+    const visualDir=join(process.cwd(),'artifacts','live-catalog-visual');
+    await mkdir(visualDir,{recursive:true});
     // Live visual/responsive evidence: the same authenticated browser remains
     // backed by real HTTPS and PostgreSQL across breakpoints and color schemes.
     // These captures contain synthetic catalogue data only, never session IDs.
@@ -157,10 +161,10 @@ test('real browser -> same-origin direct TLS Nest -> Folio PostgreSQL, conflict/
           expect(overflow,`${language}/${colorScheme}/${width}px document overflow`)
             .toBeLessThanOrEqual(1);
           if(colorScheme==='dark'&&[320,768,1440].includes(width)){
-            await test.info().attach(
-              `live-catalog-${language}-dark-${width}`,{
-                body:await page.screenshot({fullPage:true}),contentType:'image/png',
-              });
+            const name=`live-catalog-${language}-dark-${width}`;
+            const path=join(visualDir,name+'.png');
+            await page.screenshot({path,fullPage:true});
+            await test.info().attach(name,{path,contentType:'image/png'});
           }
         }
       }
