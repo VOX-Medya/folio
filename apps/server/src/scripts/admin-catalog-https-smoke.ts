@@ -388,6 +388,7 @@ async function main():Promise<void>{
       readerData.chapters.length===2&&
       readerData.chapters[0]?.heading==='Prepared text'&&
       readerData.chapters[0]?.blocks[0]?.text===chapterOneText&&
+      readerData.chapters[0]?.blocks[0]?.includeRsvp===true&&
       readerData.chapters[1]?.blocks[0]?.text===chapterTwoText&&
       !readerResponse.body.includes(stagedEditorial.key)&&
       !readerResponse.body.includes(privateVault),

@@ -175,6 +175,7 @@ export async function getPublishedReaderText(
       id:schema.contentBlocks.blockId,chapterId:schema.contentBlocks.chapterId,
       ordinal:schema.contentBlocks.ordinal,kind:schema.contentBlocks.kind,
       text:schema.contentBlocks.sourceText,sha256:schema.contentBlocks.textSha256,
+      includeRsvp:schema.contentBlocks.includeRsvp,
     }).from(schema.contentBlocks).where(and(
       eq(schema.contentBlocks.revisionId,revisionId),eq(schema.contentBlocks.includeNormal,true),
     )).orderBy(asc(schema.contentBlocks.chapterId),asc(schema.contentBlocks.ordinal))
@@ -187,7 +188,7 @@ export async function getPublishedReaderText(
       chapters:chapters.map(ch=>({
         id:ch.id,heading:ch.heading,
         blocks:blocks.filter(b=>b.chapterId===ch.id).map(b=>({
-          id:b.id,kind:b.kind,text:b.text,
+          id:b.id,kind:b.kind,text:b.text,includeRsvp:b.includeRsvp,
         })),
       })).filter(ch=>ch.blocks.length>0),
     };

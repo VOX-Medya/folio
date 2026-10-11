@@ -5397,7 +5397,8 @@
                               "required": [
                                 "id",
                                 "kind",
-                                "text"
+                                "text",
+                                "includeRsvp"
                               ],
                               "properties": {
                                 "id": {
@@ -5409,6 +5410,9 @@
                                 },
                                 "text": {
                                   "type": "string"
+                                },
+                                "includeRsvp": {
+                                  "type": "boolean"
                                 }
                               }
                             }
