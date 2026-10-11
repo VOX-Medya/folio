@@ -26,7 +26,7 @@ import {
   adminRightsDecisionResultSchema,adminRightsEvidenceSchema,
   adminCatalogWorkAuthorAppendedSchema,
   adminImportCandidateResultSchema,adminImportCandidatePageSchema,
-  publishedBookDetailSchema,
+  publishedBookDetailSchema,publishedCatalogSearchPageSchema,shelfListSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
@@ -367,6 +367,63 @@ async function main():Promise<void>{
       !publicBook.body.includes(stagedEditorial.key)&&
       !publicBook.body.includes('Synthetic publication approval scope'),
       'Public book response leaked source/rights or mismatched author/edition');
+    // #31: real title/author search and private-user shelf on the published fixture.
+    const searchUrl='/v1/catalog/search?q='+encodeURIComponent(privateWork.originalTitle);
+    const publishedSearch=await call(true,port,searchUrl);
+    check(publishedSearch.status===200&&
+      publishedCatalogSearchPageSchema.parse(JSON.parse(publishedSearch.body))
+        .items.some(item=>item.id===privateWork.id),
+      'Public published work title was not searchable');
+    const authorSearch=await call(true,port,
+      '/v1/catalog/search?q='+encodeURIComponent(privateAuthor.canonicalName));
+    check(authorSearch.status===200&&
+      publishedCatalogSearchPageSchema.parse(JSON.parse(authorSearch.body))
+        .items.some(item=>item.id===privateWork.id),
+      'Public approved author search did not include published work');
+    check((await call(true,port,'/v1/catalog/search?q=%25%25%25&limit=500')).status===400,
+      'Invalid public search bypassed query boundaries');
+    const shelfUrl='/v1/me/shelf';
+    const ownShelfUrl=shelfUrl+'/'+privateWork.id;
+    const guestBearer={authorization:'Bearer '+guestSession.sessionToken};
+    check((await call(true,port,shelfUrl)).status===401,
+      'Unauthenticated caller received a personal book shelf');
+    const beforeShelf=await call(true,port,shelfUrl,guestBearer);
+    check(beforeShelf.status===200&&
+      shelfListSchema.parse(JSON.parse(beforeShelf.body)).items.length===0,
+      'Unmodified verified account did not start with an empty shelf');
+    const saveShelf=await call(true,port,ownShelfUrl,guestBearer,'PUT',{status:'to-read'});
+    check(saveShelf.status===200&&JSON.parse(saveShelf.body).saved===true,
+      'Verified account could not add approved published book to personal shelf');
+    const savedShelf=await call(true,port,shelfUrl,guestBearer);
+    const saved=shelfListSchema.parse(JSON.parse(savedShelf.body));
+    check(savedShelf.status===200&&saved.items.length===1&&
+      saved.items[0]?.id===privateWork.id&&saved.items[0]?.status==='to-read'&&
+      saved.items[0]?.revisionId===editorialRevision.id,
+      'Owner shelf did not retain exact published work and reader revision');
+    check((await call(true,port,shelfUrl,{
+      authorization:'Bearer '+reviewerSessionA.sessionToken,
+    })).status===200,
+      'Second account could not view its own empty shelf');
+    const otherShelf=await call(true,port,shelfUrl,{
+      authorization:'Bearer '+reviewerSessionA.sessionToken,
+    });
+    check(shelfListSchema.parse(JSON.parse(otherShelf.body)).items.length===0,
+      'Owner shelf content leaked across accounts');
+    check((await call(true,port,ownShelfUrl,guestBearer,'PUT',{status:'unverified'})).status===400,
+      'Invalid owner shelf status was accepted');
+    check((await call(true,port,shelfUrl+'/'+randomUUID(),guestBearer,'PUT',
+      {status:'to-read'})).status===404,
+      'Nonexistent public work was added to shelf');
+    const secondSave=await call(true,port,ownShelfUrl,guestBearer,'PUT',{status:'reading'});
+    check(secondSave.status===200&&shelfListSchema.parse(
+      JSON.parse((await call(true,port,shelfUrl,guestBearer)).body)
+    ).items[0]?.status==='reading','Shelf reading state did not update');
+    // The second account may remove only its own row, never another owner's row.
+    check((await call(true,port,ownShelfUrl,{
+      authorization:'Bearer '+reviewerSessionA.sessionToken,
+    },'DELETE')).status===204,'Owner-scoped idempotent removal was not allowed');
+    check(shelfListSchema.parse(JSON.parse((await call(true,port,shelfUrl,guestBearer)).body))
+      .items.length===1,'Second account removed first account shelf item');
     check((await call(true,port,publicBookPath+'?territory=US')).status===400,
       'Browser was allowed to override server-owned rights territory');
     check((await call(false,plainAddress.port,publicBookPath,{
@@ -411,6 +468,12 @@ async function main():Promise<void>{
       'Authenticated reviewer could not withdraw a published revision');
     check((await call(true,port,publicBookPath)).status===404,
       'Withdrawn work metadata remained publicly accessible');
+    check(publishedCatalogSearchPageSchema.parse(JSON.parse(
+      (await call(true,port,searchUrl)).body,
+    )).items.length===0,'Withdrawn work appeared in public search');
+    check(shelfListSchema.parse(JSON.parse(
+      (await call(true,port,shelfUrl,guestBearer)).body,
+    )).items.length===0,'Withdrawn work remained on visible private shelf');
     const stateAfter=await pool.query<{work_status:string;edition_status:string;revision_status:string}>(
       'SELECT w.publication_status AS work_status,e.status AS edition_status,r.status AS revision_status '+
       'FROM works w JOIN editions e ON e.work_id=w.id JOIN content_revisions r ON r.edition_id=e.id '+
