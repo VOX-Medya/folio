@@ -470,12 +470,17 @@ export const userOnboarding=pgTable('user_onboarding',{
   stage:varchar('stage',{length:24}).notNull().default('welcome'),
   locale:varchar('locale',{length:2}).notNull().default('tr'),
   interests:jsonb('interests').$type<string[]>().notNull().default([]),
+  displayName:text('display_name').notNull().default(''),
+  visibility:varchar('visibility',{length:12}).notNull().default('private'),
+  deletionRequestedAt:timestamp('deletion_requested_at',{withTimezone:true}),
   version:integer('version').notNull().default(0),
   updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
 },t=>[
   check('user_onboarding_stage_ck',sql`${t.stage} in ('welcome','language','interests','complete')`),
   check('user_onboarding_locale_ck',sql`${t.locale} in ('tr','en')`),
   check('user_onboarding_version_ck',sql`${t.version}>=0`),
+  check('user_onboarding_visibility_ck',sql`${t.visibility} in ('private','friends')`),
+  check('user_onboarding_display_name_ck',sql`length(${t.displayName})<=80`),
 ]);
 
 /** Every replacement is a distinct complete variant, so old listener cursors remain valid. */
