@@ -82,6 +82,29 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Başlat');
     await page.getByTestId('folio-reader-mode-normal').click();
     await expect(page.getByTestId('folio-reader-chapter-body')).toBeVisible();
+    // #35: genuine HTTPS Opus media from the approved Folio vault, no fixture-mocked player.
+    await page.getByTestId('folio-reader-mode-audio').click();
+    const audio=page.getByTestId('folio-audio-element');
+    await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).duration))
+      .toBeGreaterThan(5);
+    await page.getByTestId('folio-audio-play').click();
+    await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).paused))
+      .toBe(false);
+    await page.getByTestId('folio-audio-speed').click();
+    await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).playbackRate))
+      .toBe(1.25);
+    await page.getByTestId('folio-audio-forward').click();
+    await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).currentTime))
+      .toBeGreaterThan(5);
+    await page.getByTestId('folio-audio-play').click();
+    await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).paused))
+      .toBe(true);
+    await page.getByTestId('folio-audio-next-chapter').click();
+    await expect(page.getByTestId('folio-reader-chapter-title'))
+      .toHaveText('Additional plaintext');
+    await expect(page.getByTestId('folio-audio-error')).toBeVisible();
+    await page.getByTestId('folio-reader-mode-normal').click();
+    await expect(page.getByTestId('folio-reader-chapter-body')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await page.setViewportSize({width:1024,height:768});
     await expect(page.getByTestId('folio-layout-desktop').filter({visible:true}).first()).toBeVisible();
