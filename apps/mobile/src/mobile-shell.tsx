@@ -11,6 +11,8 @@ import {mobileSections,readingRouteCopy,screenCopy,validReadingRouteId} from './
 import type {FolioLocale,MobileSection,ReadingRouteKind} from './shell-data';
 import {WebSignInPanel} from './web-sign-in';
 import {PublishedBookPanel} from './published-book';
+import {PublicCatalogSearchPanel} from './public-search';
+import {OwnedShelfPanel} from './owned-shelf';
 
 interface Settings {locale:FolioLocale;setLocale:(next:FolioLocale)=>void;}
 const SettingsContext=createContext<Settings|undefined>(undefined);
@@ -189,6 +191,10 @@ export function MobileShell({section,route}:{section:MobileSection;route?:{kind:
                 </View>
                 : section==='profile'
                 ? <WebSignInPanel locale={locale} colors={colors} onLocaleSaved={setLocale}/>
+                : section==='catalog'
+                ? <PublicCatalogSearchPanel locale={locale} colors={colors}/>
+                : section==='library'
+                ? <OwnedShelfPanel locale={locale} colors={colors}/>
                 : <View style={{backgroundColor:colors.surface,borderColor:colors.line,
                     borderWidth:1,borderRadius:18,padding:20,gap:10}}>
                   <Text style={{fontSize:16,fontWeight:'700',color:colors.ink}}>
