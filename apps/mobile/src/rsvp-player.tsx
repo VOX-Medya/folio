@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {Platform,Pressable,Text,View} from 'react-native';
 import {paperbound} from '@folio/ui-tokens';
 import type {PublishedReaderText} from '@folio/contracts';
@@ -25,16 +25,22 @@ const copy={
   },
 } as const;
 
-/** #34: local word cursor only. Persistent owner position is #36. */
-export function RsvpPlayer({blocks,locale,colors}:{
+/** #36: report RSVP word movement without pushing per-tick network requests. */
+export function RsvpPlayer({blocks,locale,colors,initialWordIndex=0,onCursorChange}:{
   blocks:Blocks;locale:FolioLocale;colors:Palette;
+  initialWordIndex?:number;onCursorChange?:(wordIndex:number)=>void;
 }){
   const t=copy[locale];
   const words=useMemo(()=>tokenizeRsvpWords(blocks),[blocks]);
   const [wpm,setWpm]=useState(250);
   const [groupSize,setGroupSize]=useState(1);
-  const [cursor,setCursor]=useState(0);
+  const [cursor,setCursor]=useState(initialWordIndex);
   const [playing,setPlaying]=useState(false);
+  // Parent renders while the cursor changes; only movement, not callback identity,
+  // should report a new position (otherwise the two components update forever).
+  const report=useRef(onCursorChange);
+  useEffect(()=>{report.current=onCursorChange;},[onCursorChange]);
+  useEffect(()=>{report.current?.(cursor);},[cursor]);
   const lastStart=words.length?Math.floor((words.length-1)/groupSize)*groupSize:0;
   useEffect(()=>{
     if(!playing||!words.length)return;

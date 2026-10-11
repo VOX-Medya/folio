@@ -5,7 +5,7 @@ import type {FolioLocale} from './shell-data';
 
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 type Props={origin:string;revisionId:string;chapterId:string;locale:FolioLocale;
-  colors:Palette;hasNext:boolean;onNext:()=>void};
+  colors:Palette;hasNext:boolean;onNext:()=>void;initialPositionMs?:number;onPositionChange?:(ms:number)=>void};
 const copy={
   tr:{unavailable:'Bu bölüm için onaylı ses bulunamadı veya erişim izni kaldırıldı.',
     play:'Oynat',pause:'Duraklat',back:'10 saniye geri',forward:'10 saniye ileri',
@@ -22,7 +22,7 @@ function readableTime(value:number):string{
 }
 
 /** #35 Browser audio: direct, same-origin HTTPS; no bearer, key or signed URL. */
-export function PreparedAudioPlayer({origin,revisionId,chapterId,locale,colors,hasNext,onNext}:Props){
+export function PreparedAudioPlayer({origin,revisionId,chapterId,locale,colors,hasNext,onNext,initialPositionMs=0,onPositionChange}:Props){
   const media=useRef<HTMLAudioElement>(null);
   const [playing,setPlaying]=useState(false);
   const [position,setPosition]=useState(0);
@@ -47,6 +47,7 @@ export function PreparedAudioPlayer({origin,revisionId,chapterId,locale,colors,h
     if(!audio||!Number.isFinite(audio.duration))return;
     audio.currentTime=Math.max(0,Math.min(audio.duration,audio.currentTime+offset));
     setPosition(audio.currentTime);
+    onPositionChange?.(Math.round(audio.currentTime*1000));
   };
   const changeRate=()=>{
     const next=rate===1?1.25:rate===1.25?1.5:rate===1.5?0.75:1;
@@ -59,8 +60,14 @@ export function PreparedAudioPlayer({origin,revisionId,chapterId,locale,colors,h
       onLoadedMetadata={event=>{
         setMissing(false);
         setDuration(event.currentTarget.duration);
+        if(initialPositionMs>0&&Number.isFinite(event.currentTarget.duration)){
+          event.currentTarget.currentTime=Math.min(event.currentTarget.duration,initialPositionMs/1000);
+        }
       }}
-      onTimeUpdate={event=>setPosition(event.currentTarget.currentTime)}
+      onTimeUpdate={event=>{
+        setPosition(event.currentTarget.currentTime);
+        onPositionChange?.(Math.round(event.currentTarget.currentTime*1000));
+      }}
       onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)}
       onEnded={()=>{setPlaying(false);if(hasNext)onNext();}}
       onError={()=>{setMissing(true);setPlaying(false);}}/>

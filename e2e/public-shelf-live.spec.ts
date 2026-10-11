@@ -52,6 +52,34 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Additional plaintext');
     await expect(page.getByTestId('folio-reader-chapter-body'))
       .toContainText('<script>window.__folioReaderInjected=true;</script>');
+    // #36: server cursor survives browser reload and never appears for another account.
+    await page.getByTestId('folio-reader-save-progress').click();
+    await expect(page.getByTestId('folio-reader-progress-status')).toHaveText('Konum kaydedildi.');
+    const revisionId=page.url().split('/').at(-1)!;
+    const unrelated=await otherPage.evaluate(async id=>{
+      const response=await fetch('/v1/me/progress/'+id,{credentials:'same-origin'});
+      return {status:response.status,data:await response.json()};
+    },revisionId);
+    expect(unrelated.status).toBe(200);
+    expect(unrelated.data).toEqual({progress:null});
+    const conflict=await page.evaluate(async id=>{
+      const current=await fetch('/v1/me/progress/'+id,{credentials:'same-origin'});
+      const {progress}=await current.json();
+      const proof=await fetch('/v1/auth/web/csrf',{credentials:'same-origin'});
+      const csrf=proof.headers.get('x-folio-csrf')!;
+      const response=await fetch('/v1/me/progress/'+id,{
+        method:'PUT',credentials:'same-origin',
+        headers:{'content-type':'application/json','x-folio-csrf':csrf},
+        body:JSON.stringify({expectedVersion:0,
+          chapterId:progress.chapterId,blockId:progress.blockId,
+          tokenOffset:0,audioPositionMs:null,mode:'normal'}),
+      });
+      return response.status;
+    },revisionId);
+    expect(conflict).toBe(409);
+    await page.reload();
+    await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Additional plaintext');
+
     expect(await page.evaluate(()=>Object.prototype.hasOwnProperty.call(
       window,'__folioReaderInjected'))).toBe(false);
     await page.getByTestId('folio-reader-font-increase').click();
@@ -80,6 +108,11 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Duraklat');
     await page.keyboard.press('Space');
     await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Başlat');
+    // RSVP cursor can be persisted independently from normal page position.
+    await page.getByTestId('folio-reader-save-progress').click();
+    await expect(page.getByTestId('folio-reader-progress-status')).toHaveText('Konum kaydedildi.');
+    await page.reload();
+    await expect(page.getByTestId('folio-rsvp-player')).toBeVisible();
     await page.getByTestId('folio-reader-mode-normal').click();
     await expect(page.getByTestId('folio-reader-chapter-body')).toBeVisible();
     // #35: genuine HTTPS Opus media from the approved Folio vault, no fixture-mocked player.
@@ -99,6 +132,13 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await page.getByTestId('folio-audio-play').click();
     await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).paused))
       .toBe(true);
+    await page.getByTestId('folio-reader-save-progress').click();
+    await expect(page.getByTestId('folio-reader-progress-status')).toHaveText('Konum kaydedildi.');
+    await page.reload();
+    await expect(page.getByTestId('folio-audio-player')).toBeVisible();
+    const restored=page.getByTestId('folio-audio-element');
+    await expect.poll(async()=>restored.evaluate(el=>(el as HTMLAudioElement).currentTime))
+      .toBeGreaterThan(5);
     await page.getByTestId('folio-audio-next-chapter').click();
     await expect(page.getByTestId('folio-reader-chapter-title'))
       .toHaveText('Additional plaintext');
