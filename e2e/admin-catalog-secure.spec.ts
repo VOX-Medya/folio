@@ -832,3 +832,100 @@ test('HTTPS draft relation unlink requires two-step review, version reload, MFA 
   expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth))
     .toBeLessThanOrEqual(1);
 });
+
+test('HTTPS Paperbound match reviewer requires explicit decision, blocks stale retry and never merges works',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const peer='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+  const reviewId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+  const reviewsPath='/v1/admin/catalog/works/'+workId+'/match-reviews';
+  let version=0,proposed=false,conflict=true,finalStatus='pending';
+  const writes:Array<{method:string;body:Record<string,unknown>;csrf:string|undefined}>=[];
+  await page.route('**/v1/**',async route=>{
+    const request=route.request(),path=new URL(request.url()).pathname;
+    if(path==='/v1/auth/web/csrf'){
+      await route.fulfill({status:204,headers:{'x-folio-csrf':'M'.repeat(43)}});
+    }else if(path==='/v1/admin/catalog/works'&&request.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:'Taslak Eser',
+        originalLanguage:'tr',publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(path==='/v1/admin/catalog/works/'+workId&&request.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Taslak Eser',originalLanguage:'tr',
+          firstPublicationYear:null,publicationStatus:'draft',metadataVersion:0},
+        authors:[{id:authorId,name:'Asıl Yazar',role:'author',sortOrder:0}],
+        titles:[{id:authorId,language:'tr',title:'Taslak Eser',kind:'original'}],
+        editions:[],
+      }));
+    }else if(path===reviewsPath&&request.method()==='GET'){
+      await route.fulfill(respond({items:proposed?[{
+        id:reviewId,workId,candidateWorkId:peer,peerWorkId:peer,
+        peerTitle:'Karşılaştırılan Taslak',status:finalStatus,
+        evidenceKind:'same_title',reviewVersion:version,snapshotCurrent:true,
+      }]:[],nextCursor:null}));
+    }else if(request.method()==='POST'&&path===reviewsPath){
+      const body=request.postDataJSON() as Record<string,unknown>;
+      writes.push({method:request.method(),body,csrf:request.headers()['x-folio-csrf']});
+      expect(request.headers()['authorization']).toBeUndefined();
+      expect(request.headers()['x-user-id']).toBeUndefined();
+      expect(body).toEqual({candidateWorkId:peer});
+      proposed=true;
+      await route.fulfill(respond({
+        id:reviewId,workId,candidateWorkId:peer,
+        status:'pending',reviewVersion:0,changed:true,
+      },201));
+    }else if(request.method()==='PATCH'&&path===reviewsPath+'/'+reviewId){
+      const body=request.postDataJSON() as Record<string,unknown>;
+      writes.push({method:request.method(),body,csrf:request.headers()['x-folio-csrf']});
+      expect(body).not.toHaveProperty('autoMerge');
+      expect(body).not.toHaveProperty('rightsApproved');
+      if(conflict){
+        conflict=false;version=1;
+        await route.fulfill(respond({error:{code:'CONFLICT'}},409));
+      }else{
+        expect(body).toMatchObject({expectedVersion:1,decision:'distinct'});
+        version=2;finalStatus='distinct';
+        await route.fulfill(respond({
+          id:reviewId,workId,candidateWorkId:peer,status:'distinct',
+          reviewVersion:2,changed:true,
+        }));
+      }
+    }else await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Taslak');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Taslak Eser/}).click();
+  await page.getByRole('button',{name:'Eser kimlik incelemeleri'}).click();
+  const review=page.getByTestId('admin-work-match-reviews');
+  await expect(review).toContainText('Bu eser için henüz inceleme kaydı yok.');
+  await review.getByRole('textbox',{name:'Diğer kanonik eser UUID'}).fill(peer);
+  await review.getByRole('button',{name:'İnceleme kaydı aç'}).click();
+  await expect(review).toContainText('Karşılaştırılan Taslak');
+  await expect(review).toContainText('Bekliyor');
+  await review.getByRole('button',{name:'Kararı incele: Karşılaştırılan Taslak'}).click();
+  await review.getByRole('combobox',{name:'İnceleme kararı'}).selectOption('distinct');
+  await review.getByRole('textbox',{name:/Gerekçeli editoryal açıklama/})
+    .fill('Bağımsız editörün kanıt karşılaştırması iki ayrı eseri doğruluyor.');
+  await review.getByRole('button',{name:'Kararı açıkça kaydet'}).click();
+  await expect(review.getByRole('alert')).toContainText('Başka bir yönetici');
+  expect(writes).toHaveLength(2);
+  await expect(review.getByRole('button',{name:'Kararı açıkça kaydet'})).toBeDisabled();
+  await review.getByRole('button',{name:'İncelemeleri sunucudan yenile'}).click();
+  await expect(review).toContainText('İnceleme sürümü: 1');
+  expect(writes).toHaveLength(2); // stale event never resubmits PATCH
+  await review.getByRole('button',{name:'Kararı incele: Karşılaştırılan Taslak'}).click();
+  await review.getByRole('combobox',{name:'İnceleme kararı'}).selectOption('distinct');
+  await review.getByRole('textbox',{name:/Gerekçeli editoryal açıklama/})
+    .fill('Bağımsız editör tarafından ikinci sürüm belgeleri karşılaştırıldı.');
+  await review.getByRole('button',{name:'Kararı açıkça kaydet'}).click();
+  await expect(review).toContainText('Farklı eser');
+  await expect(review.getByRole('button',{name:/Kararı incele/})).toHaveCount(0);
+  expect(writes).toHaveLength(3);
+  expect(writes.map(row=>row.csrf)).toEqual(Array(3).fill('M'.repeat(43)));
+  await expect(page.getByTestId('admin-catalog-detail')).toContainText('Taslak Eser');
+  const width=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
+  expect(width).toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(review).toContainText('Work identity review');
+});
