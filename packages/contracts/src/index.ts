@@ -866,3 +866,22 @@ export const ownDeletionRequestSchema=z.object({confirm:z.literal(true)}).strict
 export const ownDeletionResultSchema=z.object({requested:z.literal(true)}).strict();
 export type OwnProfileUpdate=z.infer<typeof ownProfileUpdateSchema>;
 export {fetchOwnWebProfile,updateOwnWebProfile,requestOwnWebDeletion} from './own-profile-client.js';
+
+/** #40: invite codes are the only way to initiate relationships; no user lookup. */
+export const friendInviteCodeSchema=z.object({
+  code:z.string().regex(/^[A-Za-z0-9_-]{32}$/),
+}).strict();
+export const friendRequestInputSchema=z.object({
+  code:z.string().trim().regex(/^[A-Za-z0-9_-]{32}$/),
+}).strict();
+export const friendOperationResultSchema=z.object({
+  state:z.enum(['pending','accepted','blocked']),
+}).strict();
+export const friendListSchema=z.object({
+  items:z.array(z.object({
+    peerId:z.uuid(),state:z.enum(['incoming','outgoing','accepted','blocked']),
+  }).strict()).max(100),
+}).strict();
+export type FriendList=z.infer<typeof friendListSchema>;
+export {fetchOwnFriends,rotateOwnFriendInvite,sendOwnFriendRequest,acceptOwnFriend,blockOwnFriend}
+  from './friend-client.js';
