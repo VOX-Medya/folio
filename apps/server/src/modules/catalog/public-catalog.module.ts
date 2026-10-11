@@ -1,11 +1,12 @@
 import {
-  BadRequestException,Controller,Get,Header,Inject,Injectable,Module,
-  NotFoundException,OnModuleDestroy,Param,Query,Req,ServiceUnavailableException,
+  BadRequestException,Controller,Get,Header,HttpException,Inject,Injectable,Module,
+  NotFoundException,OnModuleDestroy,Param,Query,Req,Res,ServiceUnavailableException,
 } from '@nestjs/common';
 import {ApiOkResponse,ApiOperation,ApiParam,ApiQuery,ApiTags} from '@nestjs/swagger';
-import {createFolioDb,getPublishedBookDetail,getPublishedReaderText,searchPublishedCatalog} from '@folio/db';
+import {createFolioDb,getPublishedBookDetail,getPublishedReaderText,getAuthorizedPublishedAudio,LocalStorageAdapter,searchPublishedCatalog} from '@folio/db';
 import {publishedBookDetailSchema,publishedReaderTextSchema,publishedCatalogSearchQuerySchema,publishedCatalogSearchPageSchema} from '@folio/contracts';
 import type {PublishedBookDetail,PublishedReaderText,PublishedCatalogSearchPage} from '@folio/contracts';
+import {approvedAudioRange} from './audio-range.js';
 
 @Injectable()
 class PublishedCatalogDb implements OnModuleDestroy {
@@ -24,6 +25,11 @@ class PublishedCatalogDb implements OnModuleDestroy {
     if(!this.connection)throw new ServiceUnavailableException('Catalog database unavailable');
     try{return await getPublishedReaderText(this.connection.db,revisionId,territory);}
     catch{throw new ServiceUnavailableException('Reader database unavailable');}
+  }
+  async audio(revisionId:string,chapterId:string,territory:string){
+    if(!this.connection)throw new ServiceUnavailableException('Audio database unavailable');
+    try{return await getAuthorizedPublishedAudio(this.connection.db,revisionId,chapterId,territory);}
+    catch{throw new ServiceUnavailableException('Audio database unavailable');}
   }
   async onModuleDestroy(){await this.connection?.pool.end();}
 }
@@ -100,6 +106,69 @@ export class PublishedCatalogController {
     if(!query.success)throw new BadRequestException('Invalid book search');
     const result=await this.catalog.search(query.data,territory);
     return publishedCatalogSearchPageSchema.parse(result);
+  }
+
+  @Get('audio/:revisionId/:chapterId')
+  @Header('Cache-Control','no-store')
+  @ApiOperation({summary:'Approved prepared audio bytes with current display and audio territory rights'})
+  @ApiParam({name:'revisionId',type:'string',format:'uuid'})
+  @ApiParam({name:'chapterId',type:'string',format:'uuid'})
+  @ApiOkResponse({description:'Bounded audio bytes (HTTP Range supported)',content:{
+    'audio/ogg':{schema:{type:'string',format:'binary'}},
+    'audio/mp4':{schema:{type:'string',format:'binary'}},
+  }})
+  async audio(
+    @Param('revisionId') rawRevisionId:string,@Param('chapterId') rawChapterId:string,
+    @Query() rawQuery:Record<string,unknown>,
+    @Req() request:{socket?:{encrypted?:boolean};headers?:{range?:string|string[]}},
+    @Res() response:{
+      status(status:number):{send(data:Buffer):void};
+      setHeader(name:string,value:string):void;
+    },
+  ):Promise<void>{
+    if(request.socket?.encrypted!==true){
+      throw new ServiceUnavailableException('Secure audio required');
+    }
+    const territory=process.env.FOLIO_PUBLIC_CATALOG_TERRITORY;
+    if(!territory||!/^[A-Z]{2}$/.test(territory)){
+      throw new NotFoundException('Published audio is not enabled');
+    }
+    if(!publishedReaderTextSchema.shape.revisionId.safeParse(rawRevisionId).success||
+       !publishedReaderTextSchema.shape.revisionId.safeParse(rawChapterId).success||
+       Object.keys(rawQuery??{}).length){
+      throw new BadRequestException('Invalid audio chapter link');
+    }
+    const descriptor=await this.catalog.audio(rawRevisionId,rawChapterId,territory);
+    if(!descriptor)throw new NotFoundException('Published audio not found');
+    const root=process.env.FOLIO_PRIVATE_STORAGE_ROOT;
+    if(!root||!root.startsWith('/')){
+      throw new ServiceUnavailableException('Private audio storage unavailable');
+    }
+    let bytes:Buffer;
+    try{
+      bytes=await (await LocalStorageAdapter.create(root))
+        .readVerifiedCatalogAudio(descriptor.asset);
+    }catch{
+      throw new ServiceUnavailableException('Published audio integrity unavailable');
+    }
+    let span:{start:number;end:number}|null;
+    try{
+      span=approvedAudioRange(request.headers?.range,bytes.length);
+    }catch{
+      throw new HttpException('Invalid audio byte range',416);
+    }
+    response.setHeader('Content-Type',descriptor.mime);
+    response.setHeader('X-Content-Type-Options','nosniff');
+    response.setHeader('Content-Disposition','inline');
+    response.setHeader('Accept-Ranges','bytes');
+    response.setHeader('Cache-Control','no-store');
+    response.setHeader('Content-Length',String(span?span.end-span.start+1:bytes.length));
+    if(span){
+      response.setHeader('Content-Range',
+        'bytes '+String(span.start)+'-'+String(span.end)+'/'+String(bytes.length));
+    }
+    response.status(span?206:200).send(
+      span?bytes.subarray(span.start,span.end+1):bytes);
   }
 
   @Get('reader/:revisionId')
