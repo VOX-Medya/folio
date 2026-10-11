@@ -1,6 +1,5 @@
 import {createHash,randomBytes} from 'node:crypto';
 import {and,desc,eq,gt,or} from 'drizzle-orm';
-import {z} from 'zod';
 import {
   friendInviteCodeSchema,friendshipActionSchema,friendshipListSchema,
 } from '@folio/contracts';
@@ -10,7 +9,6 @@ import {withOwner} from './owned-shelf.js';
 import * as schema from './schema.js';
 
 type Database=ReturnType<typeof createFolioDb>['db'];
-const uuid=z.uuid();
 const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const sevenDays=7*24*60*60*1000;
 const digest=(code:string)=>createHash('sha256').update(code,'ascii').digest('hex');
