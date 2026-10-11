@@ -3382,7 +3382,7 @@
         "operationId": "AdminCatalogController_decideMatchReview",
         "parameters": [
           {
-            "name": "workId",
+            "name": "reviewId",
             "required": true,
             "in": "path",
             "schema": {
@@ -3391,7 +3391,7 @@
             }
           },
           {
-            "name": "reviewId",
+            "name": "workId",
             "required": true,
             "in": "path",
             "schema": {
