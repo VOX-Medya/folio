@@ -9,7 +9,11 @@ export function approvedAudioRange(value:unknown,sizeBytes:number):
   let start=0,end=sizeBytes-1;
   if(match[1]){
     start=Number(match[1]);
-    if(match[2])end=Math.min(Number(match[2]),end);
+    if(match[2]){
+      const requestedEnd=Number(match[2]);
+      if(!Number.isSafeInteger(requestedEnd))throw new Error('Invalid audio range');
+      end=Math.min(requestedEnd,end);
+    }
   }else{
     const suffix=Number(match[2]);
     if(!Number.isSafeInteger(suffix)||suffix<1)throw new Error('Invalid audio range');
