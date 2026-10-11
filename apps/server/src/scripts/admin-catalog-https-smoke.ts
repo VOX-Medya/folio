@@ -35,6 +35,7 @@ import {
   previewPreparedCatalogImport,stagePreparedCatalogImport,LocalStorageAdapter,
 } from '@folio/db';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
+import {syntheticSilentOggOpus} from './synthetic-opus.js';
 
 type Wire={status:number;headers:IncomingHttpHeaders;body:string};
 function check(value:unknown,message:string):asserts value{
@@ -326,12 +327,7 @@ async function main():Promise<void>{
     // #35: REAL generated playable synthetic voice bytes are staged under
     // private catalog 0600 quarantine before rights review and publication.
     // This is never a third-party literary work or a production license claim.
-    const syntheticAudioFile=join(temp,'prepared-ci-voice.ogg');
-    execFileSync('ffmpeg',['-nostdin','-hide_banner','-loglevel','error',
-      '-f','lavfi','-i','sine=frequency=440:duration=12',
-      '-c:a','libopus','-b:a','24k','-f','ogg',syntheticAudioFile],
-    {stdio:'ignore',timeout:30_000});
-    const syntheticAudioBytes=readFileSync(syntheticAudioFile);
+    const syntheticAudioBytes=syntheticSilentOggOpus(12);
     const syntheticAudioSha=createHash('sha256').update(syntheticAudioBytes).digest('hex');
     const preparedAudioStorage=await LocalStorageAdapter.create(privateVault);
     const stagedAudio=await preparedAudioStorage.stage({
@@ -348,7 +344,7 @@ async function main():Promise<void>{
     check(!!preparedAudioAsset,'Synthetic prepared voice asset not staged');
     const [preparedAudioVariant]=await db.insert(schema.audioVariants).values({
       contentRevisionId:editorialRevision.id,language:'tr',
-      voiceId:'prepared.manual',sourceLabel:'CI-generated sine tone',
+      voiceId:'prepared.manual',sourceLabel:'CI-generated silent Ogg Opus',
       codec:'opus',variantVersion:1,status:'draft',createdBy:editor.userId,
     }).returning();
     check(!!preparedAudioVariant,'Synthetic prepared voice variant not created');
