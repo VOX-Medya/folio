@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import {execFileSync,spawn} from 'node:child_process';
-import {randomBytes,randomUUID} from 'node:crypto';
-import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
+import {randomBytes,randomUUID,createHash} from 'node:crypto';
+import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {createServer as createHttpsServer,request as httpsRequest} from 'node:https';
 import type {Server as HttpsServer} from 'node:https';
 import type {AddressInfo} from 'node:net';
@@ -31,7 +31,7 @@ import {
   createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
   createFolioDb,registerPendingAccount,submitRightsEvidence,
   schema,signInVerifiedAccount,verifyAccountEmail,
-  previewPreparedCatalogImport,stagePreparedCatalogImport,
+  previewPreparedCatalogImport,stagePreparedCatalogImport,LocalStorageAdapter,
 } from '@folio/db';
 import {ApiExceptionFilter,AppModule,createOpenApiDocument} from '../main.js';
 
@@ -86,7 +86,7 @@ async function main():Promise<void>{
   }
   const names=[
     'FOLIO_ADMIN_CATALOG_HTTP_MODE','FOLIO_ADMIN_CATALOG_WRITE_MODE',
-    'FOLIO_WEB_AUTH_MODE',
+    'FOLIO_WEB_AUTH_MODE','FOLIO_PRIVATE_STORAGE_ROOT',
     'FOLIO_WEB_AUTH_ORIGIN','FOLIO_WEB_CSRF_KEY_HEX',
   ];
   const original=Object.fromEntries(names.map(name=>[name,process.env[name]]));
@@ -176,6 +176,51 @@ async function main():Promise<void>{
     if(!address||typeof address==='string')throw Error('No HTTPS lab port');
     const port=address.port,root='/v1/admin/catalog';
     const bearer={authorization:'Bearer '+native.sessionToken};
+    // A synthetic folioctl-style private source, with real DB provenance.
+    // No approved rights or public media state is minted by this fixture.
+    const privateVault=join(temp,'private-vault');
+    process.env.FOLIO_PRIVATE_STORAGE_ROOT=privateVault;
+    const editorialBytes=Buffer.from('Synthetic unpublished Folio source '+suffix,'utf8');
+    const editorialSha=createHash('sha256').update(editorialBytes).digest('hex');
+    const stagedEditorial=await (await LocalStorageAdapter.create(privateVault)).stage({
+      owner:{scope:'catalog',ownerUserId:null},
+      source:(async function*(){yield editorialBytes;})(),
+      declaredSha256:editorialSha,declaredMime:'text/plain',maxBytes:1024,
+    });
+    const [editorialAsset]=await db.insert(schema.mediaAssets).values({
+      ownerScope:'catalog',ownerUserId:null,storageKey:stagedEditorial.key,
+      sha256:editorialSha,sizeBytes:editorialBytes.length,mime:'text/plain',
+      status:'pending_verify',
+    }).returning();
+    check(!!editorialAsset,'Synthetic catalog asset missing');
+    // Independent catalog identity: do not modify existing browser fixture
+    // works whose expected edition lists are asserted below.
+    const privateAuthor=await createCanonicalAuthor(db,editor.userId,{
+      canonicalName:'Private Source Author '+suffix,
+    });
+    const privateWork=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'Private Source Proof '+suffix,originalLanguage:'tr',
+      authors:[{authorId:privateAuthor.id}],
+    });
+    const [editorialEdition]=await db.insert(schema.editions).values({
+      workId:privateWork.id,language:'tr',label:'Private preview edition',status:'draft',
+    }).returning();
+    check(!!editorialEdition,'Synthetic edition missing');
+    const [editorialProvenance]=await db.insert(schema.sourceProvenance).values({
+      sourceName:'Synthetic CI editorial source',
+      sourceSnapshot:{mediaAssetId:editorialAsset.id,sourceSha256:editorialSha},
+    }).returning();
+    check(!!editorialProvenance,'Synthetic source provenance missing');
+    const [editorialRevision]=await db.insert(schema.contentRevisions).values({
+      editionId:editorialEdition.id,language:'tr',
+      rawArtifactKey:'quarantine/catalog/'+stagedEditorial.key+'.blob',
+      rawSha256:editorialSha,normalizedSha256:editorialSha,
+      parserVersion:'folioctl-plain-text-v1',provenanceId:editorialProvenance.id,
+      status:'draft',createdBy:editor.userId,
+    }).returning();
+    check(!!editorialRevision,'Synthetic revision missing');
+    const editorialRoute='/v1/admin/catalog/works/'+privateWork.id+
+      '/editions/'+editorialEdition.id+'/revisions/'+editorialRevision.id+'/source';
     const search=root+'/works?q='+encodeURIComponent('Folio Editorial '+suffix)+'&limit=1';
     const off=await call(true,port,search,bearer);
     check(off.status===404&&off.headers['cache-control']==='private, no-store',
@@ -189,6 +234,38 @@ async function main():Promise<void>{
     check((await call(true,port,search,bearer)).status===404,
       'Non-contract flag enabled private admin catalog');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='direct-tls-only';
+    const editorialResponse=await call(true,port,editorialRoute,bearer);
+    check(editorialResponse.status===200&&
+      editorialResponse.headers['cache-control']==='private, no-store'&&
+      editorialResponse.headers['x-content-type-options']==='nosniff',
+      'Verified MFA editor cannot read protected synthetic Folio source');
+    const editorialData=JSON.parse(editorialResponse.body);
+    check(editorialData.sourceText===editorialBytes.toString('utf8')&&
+      editorialData.sha256===editorialSha&&
+      editorialData.sizeBytes===editorialBytes.length&&
+      !editorialResponse.body.includes(stagedEditorial.key)&&
+      !editorialResponse.body.includes(privateVault),
+      'Admin editorial source digest or filesystem secrecy mismatch');
+    check((await call(true,port,editorialRoute,{
+      authorization:'Bearer '+guestSession.sessionToken,
+    })).status===403,'Unprivileged signed-in user opened private source');
+    check((await call(true,port,editorialRoute)).status===401,
+      'Anonymous requester opened editorial private source');
+    check((await call(false,plainAddress.port,editorialRoute,bearer)).status===503,
+      'Plain HTTP bypassed protected Folio source endpoint');
+    check((await call(true,port,editorialRoute+'?owner='+editor.userId,bearer)).status===400,
+      'Client-controlled owner hint accepted on protected source route');
+    check((await call(true,port,editorialRoute.replace(privateWork.id,second.id),bearer))
+      .status===404,'Different catalog work scope opened same source');
+    const editablePath=join(privateVault,'quarantine','catalog',
+      stagedEditorial.key+'.blob');
+    const mutatedBytes=Buffer.from(editorialBytes);
+    mutatedBytes[0]=mutatedBytes[0]!^1;
+    writeFileSync(editablePath,mutatedBytes);
+    check((await call(true,port,editorialRoute,bearer)).status===503,
+      'Same-size disk tampering delivered source content');
+    writeFileSync(editablePath,editorialBytes);
+    console.log('PRIVATE SOURCE HTTPS PASS: MFA, real Folio DB, non-public 0600 bytes, owner scope, SHA mismatch denial.');
     const createRoot=root+'/authors';
     const draftAuthor={canonicalName:'Native Writer '+suffix,
       aliases:[{name:'Native Alias '+suffix}],

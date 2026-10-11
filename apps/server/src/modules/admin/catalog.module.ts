@@ -21,7 +21,7 @@ import {
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
   submitVerifiedAdminRightsEvidence,reviewVerifiedAdminRightsEvidence,
   getVerifiedAdminRightsDecision,getVerifiedAdminRightsEvidence,
-  getVerifiedAdminContentChapter,
+  getVerifiedAdminContentChapter,readVerifiedAdminPreparedText,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
   proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,
   listVerifiedAdminWorkMatchReviews,
@@ -184,6 +184,10 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   contentChapter(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminContentChapter(this.db(),bearer,input));
+  }
+  preparedSource(bearer:string,input:unknown){
+    return this.authorized(()=>readVerifiedAdminPreparedText(
+      this.db(),bearer,input,process.env.FOLIO_PRIVATE_STORAGE_ROOT??''));
   }
   revisionList(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminEditionRevisions(this.db(),bearer,input));
@@ -930,6 +934,17 @@ const workCreatedApi={
   },
 };
 
+const preparedSourceApi={
+  type:'object',additionalProperties:false,
+  required:['revisionId','sha256','sizeBytes','sourceText'],
+  properties:{
+    revisionId:{type:'string',format:'uuid'},
+    sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},
+    sizeBytes:{type:'integer',minimum:1,maximum:1048576},
+    sourceText:{type:'string',minLength:1},
+  },
+};
+
 @ApiTags('admin-catalog')
 @ApiBearerAuth('folioSession')
 @ApiSecurity('folioWebSession')
@@ -1240,6 +1255,34 @@ export class AdminCatalogController {
     const details=await this.store.workDetail(token,parsed.data);
     if(!details)throw new NotFoundException('Canonical work not found');
     return adminCatalogWorkDetailSchema.parse(details);
+  }
+
+  /**
+   * Confidential editorial preview of a folioctl-imported DRAFT. No user
+   * search, public bytes, filesystem paths or implicit rights approvals.
+   */
+  @Get('works/:workId/editions/:editionId/revisions/:revisionId/source')
+  @Header('Cache-Control','private, no-store')
+  @Header('X-Content-Type-Options','nosniff')
+  @ApiOperation({summary:'Direct HTTPS + live MFA catalog:read; SHA-256-verified draft source only, never public'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiParam({name:'revisionId',type:String,format:'uuid'})
+  @ApiOkResponse({schema:preparedSourceApi})
+  async preparedSource(@Req() request:CatalogRequest,
+    @Param('workId') workId:string,@Param('editionId') editionId:string,
+    @Param('revisionId') revisionId:string,
+    @Query() query:Record<string,unknown>){
+    this.rejectWriteQuery(query);
+    const ids=[workId,editionId,revisionId]
+      .map(value=>adminCatalogIdSchema.safeParse(value));
+    if(ids.some(result=>!result.success)){
+      throw new BadRequestException('Invalid editorial source scope');
+    }
+    const token=await this.bearer(request);
+    const data=await this.store.preparedSource(token,{workId,editionId,revisionId});
+    if(!data)throw new NotFoundException('Editorial source unavailable');
+    return data;
   }
 
   @Get('authors/:authorId')

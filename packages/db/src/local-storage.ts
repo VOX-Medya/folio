@@ -532,6 +532,49 @@ export class LocalStorageAdapter implements StorageAdapter {
     }finally{await handle.close();}
   }
 
+  /**
+   * Private editorial preview for an ALREADY DB-authorized, catalog-owned plain
+   * text import. This is NOT a public reader, verified-media promotion or a
+   * generic private-user download. The caller must first check MFA/RBAC and
+   * the exact work/edition/revision/asset relationship in PostgreSQL.
+   */
+  async readAdminCatalogQuarantinedText(record:QuarantinedBlob):Promise<string>{
+    const owner=ownerSchema.parse(record);
+    requireBlobKey(record.key);
+    requireSha256(record.sha256);
+    ensureLimit(record.sizeBytes);
+    if(owner.scope!=='catalog'||record.status!=='pending_verify'||
+       record.mime!=='text/plain'||record.sizeBytes>1024*1024){
+      throw new Error('Unsupported editorial source preview');
+    }
+    const dir=await this.ensurePrivateDirectories(this.ownerSegments(owner));
+    const filename=join(dir,record.key+'.blob');
+    const handle=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try{
+      const before=await handle.stat();
+      const safe=(s:typeof before)=>s.isFile()&&s.nlink===1&&
+        s.size===record.sizeBytes&&(s.mode&0o777)===0o600&&
+        (typeof process.getuid!=='function'||s.uid===process.getuid());
+      if(!safe(before))throw new Error('Unsafe editorial source inode');
+      const bytes=await handle.readFile();
+      if(bytes.length!==record.sizeBytes||
+         createHash('sha256').update(bytes).digest('hex')!==record.sha256){
+        throw new Error('Editorial source digest mismatch');
+      }
+      const after=await handle.stat(),pathState=await lstat(filename);
+      if(!safe(after)||!pathState.isFile()||pathState.isSymbolicLink()||
+         after.ino!==before.ino||after.dev!==before.dev||
+         after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||
+         pathState.ino!==before.ino||pathState.dev!==before.dev||
+         pathState.mtimeMs!==before.mtimeMs||pathState.ctimeMs!==before.ctimeMs){
+        throw new Error('Editorial source inode changed during preview');
+      }
+      const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+      if(text.includes('\0'))throw new Error('Unsafe editorial source text');
+      return text;
+    }finally{await handle.close();}
+  }
+
   async inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>{
     const owner=ownerSchema.parse(record);
     requireBlobKey(record.key);
