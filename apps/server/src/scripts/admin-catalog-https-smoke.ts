@@ -193,8 +193,17 @@ async function main():Promise<void>{
       status:'pending_verify',
     }).returning();
     check(!!editorialAsset,'Synthetic catalog asset missing');
+    // Independent catalog identity: do not modify existing browser fixture
+    // works whose expected edition lists are asserted below.
+    const privateAuthor=await createCanonicalAuthor(db,editor.userId,{
+      canonicalName:'Private Source Author '+suffix,
+    });
+    const privateWork=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'Private Source Proof '+suffix,originalLanguage:'tr',
+      authors:[{authorId:privateAuthor.id}],
+    });
     const [editorialEdition]=await db.insert(schema.editions).values({
-      workId:first.id,language:'tr',label:'Private preview edition',status:'draft',
+      workId:privateWork.id,language:'tr',label:'Private preview edition',status:'draft',
     }).returning();
     check(!!editorialEdition,'Synthetic edition missing');
     const [editorialProvenance]=await db.insert(schema.sourceProvenance).values({
@@ -210,7 +219,7 @@ async function main():Promise<void>{
       status:'draft',createdBy:editor.userId,
     }).returning();
     check(!!editorialRevision,'Synthetic revision missing');
-    const editorialRoute='/v1/admin/catalog/works/'+first.id+
+    const editorialRoute='/v1/admin/catalog/works/'+privateWork.id+
       '/editions/'+editorialEdition.id+'/revisions/'+editorialRevision.id+'/source';
     const search=root+'/works?q='+encodeURIComponent('Folio Editorial '+suffix)+'&limit=1';
     const off=await call(true,port,search,bearer);
@@ -246,7 +255,7 @@ async function main():Promise<void>{
       'Plain HTTP bypassed protected Folio source endpoint');
     check((await call(true,port,editorialRoute+'?owner='+editor.userId,bearer)).status===400,
       'Client-controlled owner hint accepted on protected source route');
-    check((await call(true,port,editorialRoute.replace(first.id,second.id),bearer))
+    check((await call(true,port,editorialRoute.replace(privateWork.id,second.id),bearer))
       .status===404,'Different catalog work scope opened same source');
     const editablePath=join(privateVault,'quarantine','catalog',
       stagedEditorial.key+'.blob');
