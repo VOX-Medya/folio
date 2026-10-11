@@ -19,6 +19,8 @@ import {
   removeVerifiedAdminEmptyDraftEdition,
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
+  submitVerifiedAdminRightsEvidence,reviewVerifiedAdminRightsEvidence,
+  getVerifiedAdminRightsDecision,
   getVerifiedAdminContentChapter,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
   proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,
@@ -49,6 +51,9 @@ import {
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminContentChapterResponseSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
+  rightsRecordCreateSchema,rightsDecisionQuerySchema,adminRightsReviewInputSchema,
+  adminRightsClaimCreatedSchema,adminRightsReviewedSchema,
+  adminRightsDecisionResultSchema,
 } from '@folio/contracts';
 import {
   VERIFIED_SESSION_LOOKUP,VerifiedSelfSessionGuard,
@@ -118,6 +123,17 @@ export class AdminCatalogDb implements OnModuleDestroy {
         throw new BadRequestException('Select two different canonical works');
       }
       if(error instanceof Error&&[
+        'Rights work scope does not exist',
+      ].includes(error.message)){
+        throw new NotFoundException('Rights work not found');
+      }
+      if(error instanceof Error&&[
+        'Rights edition belongs to another work',
+        'Rights revision belongs to another edition',
+      ].includes(error.message)){
+        throw new BadRequestException('Rights scope does not match catalog');
+      }
+      if(error instanceof Error&&[
         'Canonical metadata version conflict',
         'Published canonical work is immutable via draft editor',
         'Published canonical edition is immutable via draft editor',
@@ -127,6 +143,7 @@ export class AdminCatalogDb implements OnModuleDestroy {
         'Canonical original title cannot be edited through optional title editor',
         'Edition with source revisions or rights cannot be removed',
         'Canonical work match review is stale or unavailable',
+        'Withdrawn rights cannot be restored',
         'Import candidate review stale or evidence unavailable',
         'Incoming claim does not match canonical title or source digest',
         'Import package UUID reused with different checksum',
@@ -173,6 +190,17 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   rightsLedger(bearer:string,input:unknown){
     return this.authorized(()=>getVerifiedAdminRightsLedger(this.db(),bearer,input));
+  }
+  submitRights(bearer:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      submitVerifiedAdminRightsEvidence(this.db(),bearer,input,requestId));
+  }
+  reviewRights(bearer:string,workId:string,recordId:string,input:unknown,requestId:string){
+    return this.authorized(()=>
+      reviewVerifiedAdminRightsEvidence(this.db(),bearer,workId,recordId,input,requestId));
+  }
+  rightsDecision(bearer:string,input:unknown){
+    return this.authorized(()=>getVerifiedAdminRightsDecision(this.db(),bearer,input));
   }
   authorDetail(bearer:string,id:string){
     return this.authorized(()=>getVerifiedAdminAuthorDetails(this.db(),bearer,id));
@@ -371,6 +399,50 @@ const contentChapterResultApi={
         includeNormal:{type:'boolean'},includeRsvp:{type:'boolean'},includeAudio:{type:'boolean'},
       },
     }},
+  },
+};
+
+
+const rightsClaimInputApi={
+  type:'object',additionalProperties:false,
+  required:['workId','evidence','licenseKind','territories'],
+  properties:{
+    workId:detailUuidApi,editionId:detailUuidApi,revisionId:detailUuidApi,
+    sourceUrl:{type:'string',format:'uri'},
+    evidence:{type:'string',minLength:12,maxLength:4000},
+    licenseKind:{type:'string',minLength:2,maxLength:60},
+    territories:{type:'array',minItems:1,maxItems:250,items:{
+      type:'string',pattern:'^[A-Z]{2}$',
+    }},
+    displayAllowed:{type:'boolean'},translationAllowed:{type:'boolean'},
+    audioAllowed:{type:'boolean'},sharingAllowed:{type:'boolean'},
+    expiresAt:{type:'string',format:'date-time'},
+  },
+};
+const rightsClaimResultApi={
+  type:'object',additionalProperties:false,required:['id','reviewStatus'],
+  properties:{id:detailUuidApi,reviewStatus:{type:'string',enum:['pending']}},
+};
+const rightsReviewInputApi={
+  type:'object',additionalProperties:false,required:['decision','reason'],
+  properties:{
+    decision:{type:'string',enum:['approved','rejected','withdrawn']},
+    reason:{type:'string',minLength:12,maxLength:4000},
+  },
+};
+const rightsReviewResultApi={
+  type:'object',additionalProperties:false,required:['id','reviewStatus'],
+  properties:{
+    id:detailUuidApi,
+    reviewStatus:{type:'string',enum:['approved','rejected','withdrawn']},
+  },
+};
+const rightsDecisionResultApi={
+  type:'object',additionalProperties:false,required:['allowed','reason'],
+  properties:{
+    allowed:{type:'boolean'},
+    reason:{type:'string',enum:['approved','missing','unreviewed',
+      'territory','expired','prohibited','wrong_scope']},
   },
 };
 
