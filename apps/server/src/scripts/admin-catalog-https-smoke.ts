@@ -1,12 +1,14 @@
 import 'reflect-metadata';
-import {execFileSync} from 'node:child_process';
+import {execFileSync,spawn} from 'node:child_process';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
-import {request as httpsRequest} from 'node:https';
+import {createServer as createHttpsServer,request as httpsRequest} from 'node:https';
+import type {Server as HttpsServer} from 'node:https';
+import type {AddressInfo} from 'node:net';
 import {request as httpRequest} from 'node:http';
 import type {IncomingHttpHeaders} from 'node:http';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {NestFactory} from '@nestjs/core';
 import type {INestApplication} from '@nestjs/common';
 import {SwaggerModule} from '@nestjs/swagger';
@@ -88,6 +90,7 @@ async function main():Promise<void>{
   const temp=mkdtempSync(join(tmpdir(),'folio-admin-catalog-'));
   const {db,pool}=createFolioDb(url);
   let httpsApp:INestApplication|undefined,httpApp:INestApplication|undefined;
+  let liveProxy:HttpsServer|undefined;
   const password='Synthetic-Catalog-HTTPS-Lab-2026!';
   async function account(){
     const email='catalog-https-'+randomUUID()+'@example.com';
@@ -790,6 +793,149 @@ async function main():Promise<void>{
       adminCatalogAuthorDetailSchema.parse(JSON.parse(browserAuthor.body)).author.id===
         nativeDraftId,
       'Verified exact-origin cookie + MFA could not fetch canonical detail');
+
+    // #12 real Browser -> same-origin TLS reverse proxy -> Nest direct TLS ->
+    // Folio-only PostgreSQL. The proxy NEVER makes a request privileged;
+    // all server gates see the real user cookie, Origin and DB MFA state.
+    // This is NOT the prior route.fulfill mocked browser suite.
+    const liveTitle='Folio Live Browser '+suffix;
+    const liveAlternate='Folio Live Alternate '+suffix;
+    const livePeerName='Folio Live Coauthor '+suffix;
+    const liveEditionLabel='Folio Live Empty Edition '+suffix;
+    const livePrimary=await createCanonicalAuthor(db,editor.userId,{
+      canonicalName:'Folio Live Primary '+suffix,
+    });
+    const livePeer=await createCanonicalAuthor(db,editor.userId,{
+      canonicalName:livePeerName,
+    });
+    const liveWork=await createCanonicalWork(db,editor.userId,{
+      originalTitle:liveTitle,originalLanguage:'tr',
+      authors:[
+        {authorId:livePrimary.id,contribution:'author',sortOrder:0},
+        {authorId:livePeer.id,contribution:'co-author',sortOrder:1},
+      ],
+      titles:[{language:'en',title:liveAlternate,kind:'alternate'}],
+      editions:[{language:'en',label:liveEditionLabel}],
+    });
+    const editionRows=await pool.query<{id:string}>(
+      'SELECT id FROM editions WHERE work_id=$1::uuid AND label=$2',
+      [liveWork.id,liveEditionLabel],
+    );
+    check(editionRows.rows.length===1,'Isolated live-browser edition missing');
+    const liveEditionId=editionRows.rows[0]!.id;
+    liveProxy=createHttpsServer(
+      {key:readFileSync(key),cert:readFileSync(cert)},
+      (request,response)=>{
+        const target=request.url?.startsWith('/v1/')?'api':'vite';
+        const targetPort=target==='api'?port:4173;
+        const headers={...request.headers,
+          host:'127.0.0.1:'+targetPort};
+        // Untrusted forwarded-* transport metadata cannot change
+        // security policy. The true upstream is another direct TLS socket.
+        delete headers['x-forwarded-proto'];
+        delete headers['x-forwarded-host'];
+        delete headers['x-forwarded-for'];
+        const upstream=(target==='api'?httpsRequest:httpRequest)({
+          host:'127.0.0.1',port:targetPort,
+          path:request.url??'/',method:request.method,headers,
+          ...(target==='api'?{rejectUnauthorized:false}:{}),
+        },incoming=>{
+          response.writeHead(incoming.statusCode??502,incoming.headers);
+          incoming.pipe(response);
+        });
+        upstream.on('error',()=>{
+          if(!response.headersSent)response.writeHead(502);
+          response.end();
+        });
+        request.pipe(upstream);
+      },
+    );
+    await new Promise<void>((done,reject)=>{
+      liveProxy!.once('error',reject);
+      liveProxy!.listen(0,'127.0.0.1',()=>done());
+    });
+    const proxyAddress=liveProxy.address() as AddressInfo;
+    check(proxyAddress?.port>0,'No isolated real-browser HTTPS port');
+    const originalWebOrigin=process.env.FOLIO_WEB_AUTH_ORIGIN;
+    const liveOrigin='https://127.0.0.1:'+proxyAddress.port;
+    process.env.FOLIO_WEB_AUTH_ORIGIN=liveOrigin;
+    try{
+      // Only SYNTHETIC, local folio_test MFA session tokens cross this
+      // ephemeral child-process boundary. No token is logged or committed.
+      await new Promise<void>((done,reject)=>{
+        const processHandle=spawn('pnpm',[
+          'exec','playwright','test','--config','playwright.live.config.ts',
+        ],{
+          cwd:resolve(process.cwd(),'../..'),
+          env:{...process.env,
+            FOLIO_LIVE_BROWSER_ORIGIN:liveOrigin,
+            FOLIO_LIVE_BROWSER_WORK_ID:liveWork.id,
+            FOLIO_LIVE_BROWSER_TITLE:liveTitle,
+            FOLIO_LIVE_BROWSER_ALTERNATE:liveAlternate,
+            FOLIO_LIVE_BROWSER_PEER_NAME:livePeerName,
+            FOLIO_LIVE_BROWSER_EDITION_LABEL:liveEditionLabel,
+            FOLIO_LIVE_BROWSER_EDITION_ID:liveEditionId,
+            FOLIO_LIVE_BROWSER_EDITOR_TOKEN:web.sessionToken,
+            FOLIO_LIVE_BROWSER_PEER_TOKEN:reviewerSessionA.sessionToken,
+            FOLIO_LIVE_BROWSER_VIEWER_TOKEN:viewerSession.sessionToken,
+          },
+          stdio:'inherit',
+        });
+        processHandle.once('error',reject);
+        processHandle.once('exit',(exit,signal)=>{
+          if(exit===0)done();
+          else reject(Error('Real Folio browser/PG/HTTPS test failed, status='+
+            String(exit??signal)));
+        });
+      });
+    }finally{
+      process.env.FOLIO_WEB_AUTH_ORIGIN=originalWebOrigin;
+      liveProxy.closeAllConnections();
+      await new Promise<void>(done=>liveProxy!.close(()=>done()));
+      liveProxy=undefined;
+    }
+    // Browser assertions alone are not enough: verify the actual stored
+    // PostgreSQL row and actor-bound before/after audit after the browser
+    // has exited. All these records remain isolated in folio_test only.
+    const finalLive=await pool.query<{
+      original_title:string;metadata_version:number;first_publication_year:number|null;
+    }>('SELECT original_title,metadata_version,first_publication_year FROM works '+
+      'WHERE id=$1::uuid',[liveWork.id]);
+    check(finalLive.rows.length===1&&
+      finalLive.rows[0]?.original_title===liveTitle+' Updated'&&
+      finalLive.rows[0]?.metadata_version===5&&
+      finalLive.rows[0]?.first_publication_year===1872,
+      'Real-browser DB persistence does not match versioned UI writes');
+    const deletedLiveEdition=await pool.query<{id:string}>(
+      'SELECT id FROM editions WHERE id=$1::uuid',[liveEditionId]);
+    check(deletedLiveEdition.rows.length===0,
+      'Real browser edition delete did not persist');
+    const liveAudit=await pool.query<{
+      action:string;actor_id:string;request_id:string|null;
+      before_json:unknown;after_json:unknown;
+    }>(
+      'SELECT action,actor_id,request_id,before_json,after_json FROM audit_events '+
+      'WHERE (entity_type=$1 AND entity_id=$2::uuid) '+
+      'OR (entity_type=$3 AND entity_id=$4::uuid)',
+      ['work',liveWork.id,'edition',liveEditionId],
+    );
+    const expectedLive=[
+      {action:'work.metadata.update',actor:reviewerA.userId,count:1},
+      {action:'work.metadata.update',actor:editor.userId,count:1},
+      {action:'work.title.metadata.update',actor:editor.userId,count:1},
+      {action:'work.author.metadata.update',actor:editor.userId,count:1},
+      {action:'edition.empty_draft.remove',actor:editor.userId,count:1},
+    ];
+    check(liveAudit.rows.length===5,
+      'Real-browser test wrote unexpected audits or replayed stale 409');
+    for(const expected of expectedLive){
+      const events=liveAudit.rows.filter(row=>
+        row.action===expected.action&&row.actor_id===expected.actor);
+      check(events.length===expected.count&&events.every(row=>
+        !!row.request_id&&!!row.before_json&&!!row.after_json),
+        'Real-browser audit lost original session actor or before/after evidence');
+    }
+    console.log('LIVE ADMIN BROWSER + REAL NEST HTTPS + POSTGRES PASS: Chrome 390px TR/EN, MFA 2 actors, 401/403/409, zero automatic retry and five correlated audits.');
 
     const cookieDraft={canonicalName:'Web Writer '+suffix};
     check((await post(port,createRoot,cookie,cookieDraft)).status===403,
@@ -2059,6 +2205,10 @@ async function main():Promise<void>{
     console.log('ADMIN CATALOG RELATION UNLINK PASS: direct TLS + DB/MFA/HMAC-CSRF, 200/400/403/404/409, original/last-author immutability, double-delete/concurrency denial, correlated audit and unaltered editions.');
     console.log('ADMIN CATALOG HTTPS PASS: versioned edition metadata PATCH and FK rollback, 200/409 concurrency, before-after audit and immutable source/language;  canonical multi-author/edition/ISBN/translated title MFA/CSRF work relationship appends, strict versions, FK rollback and 201/409 concurrency; real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
   }finally{
+    if(liveProxy){
+      liveProxy.closeAllConnections();
+      await new Promise<void>(done=>liveProxy!.close(()=>done()));
+    }
     if(httpsApp)await httpsApp.close();
     if(httpApp)await httpApp.close();
     await pool.end();
