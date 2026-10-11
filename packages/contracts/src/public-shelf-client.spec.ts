@@ -36,8 +36,12 @@ describe('MVP public book search and verified owner shelf requests',()=>{
       expect(init?.body).toBe(JSON.stringify({status:'to-read'}));
       return new Response(JSON.stringify({saved:true}),{status:200});
     }) as unknown as typeof fetch;
-    await expect(saveOwnWebShelf('https://folio.example',id,{status:'to-read'},{fetcher}))
-      .resolves.toEqual({saved:true});
-    expect(vi.mocked(fetcher).mock.calls).toHaveLength(2);
+    vi.stubGlobal('window',{location:{origin:'https://folio.example'}});
+    vi.stubGlobal('document',{});
+    try{
+      await expect(saveOwnWebShelf('https://folio.example',id,{status:'to-read'},{fetcher}))
+        .resolves.toEqual({saved:true});
+      expect(vi.mocked(fetcher).mock.calls).toHaveLength(2);
+    }finally{vi.unstubAllGlobals();}
   });
 });
