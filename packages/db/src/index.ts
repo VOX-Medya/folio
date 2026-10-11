@@ -80,3 +80,5 @@ export {AuthRateLimitExceeded,prepareAuthAttemptBuckets,consumeAuthAttemptRateLi
 
 // Verified owner-only active session metadata and targeted revocation.
 export {listVerifiedDeviceSessions,revokeVerifiedDeviceSession} from './device-sessions.js';
+
+export {setVerifiedAdminPublication,permitsPublication} from './publication.js';
