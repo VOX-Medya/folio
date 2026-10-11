@@ -6160,6 +6160,289 @@
           "profile"
         ]
       }
+    },
+    "/v1/me/friends": {
+      "get": {
+        "operationId": "FriendshipController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "requestId",
+                          "direction",
+                          "state",
+                          "displayName"
+                        ],
+                        "properties": {
+                          "requestId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "direction": {
+                            "type": "string",
+                            "enum": [
+                              "incoming",
+                              "outgoing"
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "accepted",
+                              "blocked"
+                            ]
+                          },
+                          "displayName": {
+                            "type": "string",
+                            "nullable": true,
+                            "maxLength": 80
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "List current account invitation requests and accepted friends, no directory",
+        "tags": [
+          "friendship"
+        ]
+      }
+    },
+    "/v1/me/friends/invite": {
+      "post": {
+        "operationId": "FriendshipController_issue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "rotate"
+                ],
+                "properties": {
+                  "rotate": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "expiresAt"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "pattern": "^[A-Z2-9]{16}$"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Rotate a private random invitation code with seven-day expiration",
+        "tags": [
+          "friendship"
+        ]
+      }
+    },
+    "/v1/me/friends/request": {
+      "post": {
+        "operationId": "FriendshipController_request",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[A-Z2-9]{16}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "requestId",
+                    "state"
+                  ],
+                  "properties": {
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "pending"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Request friendship using a private invitation code, never user search",
+        "tags": [
+          "friendship"
+        ]
+      }
+    },
+    "/v1/me/friends/decision": {
+      "post": {
+        "operationId": "FriendshipController_decide",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "requestId",
+                  "action"
+                ],
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "accept",
+                      "reject",
+                      "block"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "state"
+                  ],
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "accepted",
+                        "rejected",
+                        "blocked"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Accept/reject incoming request or block an existing pairing",
+        "tags": [
+          "friendship"
+        ]
+      }
     }
   },
   "info": {
