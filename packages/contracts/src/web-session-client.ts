@@ -1,5 +1,6 @@
 import {
   deviceSessionIdSchema,deviceSessionInventorySchema,webLoginRequestSchema,
+  webRegisterRequestSchema,webVerifyEmailRequestSchema,
   onboardingSnapshotSchema,onboardingUpdateRequestSchema,
 } from './index.js';
 import type {DeviceSessionInventory,OnboardingSnapshot} from './index.js';
@@ -83,6 +84,31 @@ async function failDeviceSession(
     catch{/* A revoked cookie yields 401; keep the original device error. */}
   }
   return fail(response);
+}
+
+/** Unauthenticated registration sends only credentials. NEVER accepts a token in JSON. */
+export async function registerWebAccount(
+  options:WebSessionClientRequest,raw:unknown,
+):Promise<void>{
+  const origin=browserApiOrigin(options.baseUrl);
+  const data=webRegisterRequestSchema.parse(raw);
+  const response=await (options.fetcher??fetch)(origin+'/v1/auth/web/register',
+    requestInit(options,'POST',{body:JSON.stringify(data)}));
+  if(!response.ok)return fail(response);
+  if(response.status!==202)throw new WebSessionHttpError(
+    response.status,'UNEXPECTED_HTTP_RESPONSE',null);
+}
+
+/** Email verification code is submitted through a POST body, never a URL. */
+export async function verifyWebAccountEmail(
+  options:WebSessionClientRequest,raw:unknown,
+):Promise<void>{
+  const origin=browserApiOrigin(options.baseUrl);
+  const data=webVerifyEmailRequestSchema.parse(raw);
+  const response=await (options.fetcher??fetch)(origin+'/v1/auth/web/verify-email',
+    requestInit(options,'POST',{body:JSON.stringify(data)}));
+  if(!response.ok)return fail(response);
+  expectNoContent(response);
 }
 
 /**
