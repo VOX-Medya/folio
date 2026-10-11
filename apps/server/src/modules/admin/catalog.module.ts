@@ -930,6 +930,37 @@ export class AdminCatalogController {
     return adminCatalogRightsLedgerSchema.parse(result);
   }
 
+
+  /** Editorial-only source preview, never the public reader rights gate. */
+  @Get('works/:workId/editions/:editionId/revisions/:revisionId/chapters/:chapterId')
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'Verified MFA/RBAC immutable draft chapter text preview, not a public reader'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiParam({name:'revisionId',type:String,format:'uuid'})
+  @ApiParam({name:'chapterId',type:String,format:'uuid'})
+  @ApiOkResponse({schema:contentChapterResultApi})
+  async contentChapter(@Req() request:CatalogRequest,
+    @Param('workId') rawWorkId:string,
+    @Param('editionId') rawEditionId:string,
+    @Param('revisionId') rawRevisionId:string,
+    @Param('chapterId') rawChapterId:string,
+    @Query() query:Record<string,unknown>){
+    this.rejectWriteQuery(query);
+    const ids=[rawWorkId,rawEditionId,rawRevisionId,rawChapterId]
+      .map(id=>adminCatalogIdSchema.safeParse(id));
+    if(ids.some(id=>!id.success)){
+      throw new BadRequestException('Invalid canonical chapter scope');
+    }
+    const bearer=await this.bearer(request);
+    const result=await this.store.contentChapter(bearer,{
+      workId:rawWorkId,editionId:rawEditionId,
+      revisionId:rawRevisionId,chapterId:rawChapterId,
+    });
+    if(!result)throw new NotFoundException('Canonical chapter not found');
+    return adminContentChapterResponseSchema.parse(result);
+  }
+
   @Get('works/:workId/editions/:editionId/revisions')
   @Header('Cache-Control','private, no-store')
   @ApiOperation({summary:'Verified same-device MFA/RBAC edition revision UUID list; no source bytes'})
