@@ -88,7 +88,7 @@ export async function getAuthorizedPublishedAudio(
          sha256Text(block.sourceText)!==block.textSha256)continue;
       const [asset]=await tx.select().from(schema.mediaAssets)
         .where(eq(schema.mediaAssets.id,segment.assetId)).limit(1);
-      const mime=variant.codec==='opus'?'audio/ogg':variant.codec==='m4a'?'audio/mp4':null;
+      const mime:'audio/ogg'|'audio/mp4'|null=variant.codec==='opus'?'audio/ogg':variant.codec==='m4a'?'audio/mp4':null;
       if(!mime||!asset||asset.ownerScope!=='catalog'||asset.ownerUserId!==null||
          asset.status!=='verified'||!asset.verifiedAt||asset.mime!==mime||
          !uuid.safeParse(asset.storageKey).success||
