@@ -829,3 +829,21 @@ export const shelfListSchema=z.object({
 }).strict();
 export type ShelfList=z.infer<typeof shelfListSchema>;
 export {searchPublicCatalog,fetchOwnWebShelf,saveOwnWebShelf,removeOwnWebShelf} from './public-shelf-client.js';
+
+/** #36 User-private, versioned last read location, never shared through public search. */
+export const readingPositionInputSchema=z.object({
+  chapterId:z.uuid(),blockId:z.uuid(),
+  wordIndex:z.number().int().min(0).max(100000),
+  audioSecond:z.number().int().min(0).max(43200),
+  mode:z.enum(['normal','rsvp','audio']),
+  expectedVersion:z.number().int().min(0).max(2147483646),
+}).strict();
+export type ReadingPositionInput=z.infer<typeof readingPositionInputSchema>;
+export const readingPositionSchema=readingPositionInputSchema.omit({expectedVersion:true}).extend({
+  revisionId:z.uuid(),version:z.number().int().min(1),updatedAt:z.iso.datetime(),
+}).strict();
+export const readingPositionResponseSchema=z.object({
+  position:readingPositionSchema.nullable(),
+}).strict();
+export type ReadingPositionResponse=z.infer<typeof readingPositionResponseSchema>;
+export {fetchOwnReadingPosition,saveOwnReadingPosition} from './reading-position-client.js';
