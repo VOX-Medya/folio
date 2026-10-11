@@ -593,6 +593,8 @@ async function main():Promise<void>{
             FOLIO_LIVE_SHELF_TITLE:privateWork.originalTitle,
             FOLIO_LIVE_SHELF_OWNER_TOKEN:guestSession.sessionToken,
             FOLIO_LIVE_SHELF_OTHER_TOKEN:reviewerSessionA.sessionToken,
+            FOLIO_LIVE_WEB_LOGIN_EMAIL:guest.email,
+            FOLIO_LIVE_WEB_LOGIN_PASSWORD:password,
           },
           stdio:'inherit',
         });
