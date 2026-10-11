@@ -196,7 +196,7 @@ test('Chrome verified account login, onboarding, sessions and CSRF-protected log
     expect(before).toBe(200);
     // No role/MFA is gained from successful ordinary password authentication.
     const admin=await page.evaluate(async()=>{
-      const response=await fetch('/v1/admin/catalog/works',{credentials:'same-origin'});
+      const response=await fetch('/v1/admin/catalog/works?q=Folio&limit=10',{credentials:'same-origin'});
       return response.status;
     });
     expect([401,403,404]).toContain(admin);
