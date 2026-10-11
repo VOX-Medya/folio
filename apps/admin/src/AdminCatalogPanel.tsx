@@ -584,20 +584,20 @@ export function AdminCatalogPanel({kind,language,theme}:{
       </section>}
       {showMatchReviews&&detail?.kind==='works'&&
         detail.value.work.publicationStatus==='draft'&&
-        <AdminWorkMatchReviews key={detail.value.work.id}
+        <AdminWorkMatchReviews key={'match:'+detail.value.work.id}
           workId={detail.value.work.id} language={language}
           online={online&&!busy}/>}
       {showImportReviews&&detail?.kind==='works'&&
-        <AdminImportCandidateReviews key={detail.value.work.id}
+        <AdminImportCandidateReviews key={'incoming:'+detail.value.work.id}
           candidateWorkId={detail.value.work.id} language={language}
           online={online&&!busy}/>}
       {showRights&&detail?.kind==='works'&&
-        <AdminRightsLedgerPanel key={detail.value.work.id}
+        <AdminRightsLedgerPanel key={'rights:'+detail.value.work.id}
           workId={detail.value.work.id} language={language}
           online={online&&!busy}/>
       }
       {detail?.kind==='works'&&
-        <AdminPublicationPanel key={detail.value.work.id}
+        <AdminPublicationPanel key={'publication:'+detail.value.work.id}
           workId={detail.value.work.id}
           workStatus={detail.value.work.publicationStatus}
           editions={detail.value.editions.map(e=>({id:e.id,label:e.label,status:e.status}))}
