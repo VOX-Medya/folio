@@ -86,6 +86,9 @@ jobs:
           bash infra/lab.sh storage-integrity-smoke
           bash infra/lab.sh auth-http-smoke
           bash infra/lab.sh admin-catalog-https-smoke
+      - name: Isolated database and private assets restore proof (opt-in)
+        if: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:backup')) || (github.event_name == 'workflow_dispatch' && inputs.validation == 'extended') }}
+        run: bash infra/lab.sh backup-restore-smoke
       - name: Additional domain and security regression (manual extended only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
         run: |
