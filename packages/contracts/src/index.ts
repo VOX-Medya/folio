@@ -848,3 +848,21 @@ export const readingPositionResponseSchema=z.object({
 export type ReadingPosition=z.infer<typeof readingPositionSchema>;
 export type ReadingPositionResponse=z.infer<typeof readingPositionResponseSchema>;
 export {fetchOwnWebReadingPosition,saveOwnWebReadingPosition} from './reading-position-client.js';
+
+/** #39 owner-only: "friends" preference is not public until the #40 invite gate. */
+export const ownProfileSchema=z.object({
+  userId:z.uuid(),displayName:z.string().max(80),
+  locale:z.enum(['tr','en']),visibility:z.enum(['private','friends']),
+  deletionRequestedAt:z.iso.datetime({offset:true}).nullable(),
+  version:z.number().int().min(0).max(2147483647),
+}).strict();
+export type OwnProfile=z.infer<typeof ownProfileSchema>;
+export const ownProfileUpdateSchema=z.object({
+  expectedVersion:z.number().int().min(0).max(2147483646),
+  displayName:z.string().trim().max(80),
+  locale:z.enum(['tr','en']),visibility:z.enum(['private','friends']),
+}).strict();
+export const ownDeletionRequestSchema=z.object({confirm:z.literal(true)}).strict();
+export const ownDeletionResultSchema=z.object({requested:z.literal(true)}).strict();
+export type OwnProfileUpdate=z.infer<typeof ownProfileUpdateSchema>;
+export {fetchOwnWebProfile,updateOwnWebProfile,requestOwnWebDeletion} from './own-profile-client.js';
