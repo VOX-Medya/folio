@@ -641,6 +641,14 @@ export const adminRightsClaimCreatedSchema=z.object({
 export const adminRightsReviewedSchema=z.object({
   id:z.uuid(),reviewStatus:z.enum(['approved','rejected','withdrawn']),
 }).strict();
+export const adminRightsEvidenceSchema=z.object({
+  id:z.uuid(),workId:z.uuid(),editionId:z.uuid().nullable(),revisionId:z.uuid().nullable(),
+  evidence:z.string().min(12),sourceUrl:z.url().nullable(),
+  licenseKind:z.string().min(2),territories:z.array(z.string().regex(/^[A-Z]{2}$/)),
+  claims:z.object({display:z.boolean(),translation:z.boolean(),audio:z.boolean(),sharing:z.boolean()}).strict(),
+  reviewStatus:z.enum(['pending','approved','rejected','withdrawn']),
+  expiresAt:z.iso.datetime({offset:true}).nullable(),
+}).strict();
 export const adminRightsDecisionResultSchema=z.object({
   allowed:z.boolean(),
   reason:z.enum(['approved','missing','unreviewed','territory',
