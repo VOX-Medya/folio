@@ -16,6 +16,8 @@ import {
   adminCatalogRelationRemoveSchema,
   adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
   adminWorkMatchResultSchema,adminWorkMatchPageSchema,adminWorkMatchQuerySchema,
+  adminImportCandidateProposeSchema,adminImportCandidateResultSchema,
+  adminImportCandidatePageSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
 
@@ -429,5 +431,51 @@ describe('draft canonical work identity reviewer DTO boundary',()=>{
     expect(adminWorkMatchQuerySchema.safeParse({cursor:id}).success).toBe(true);
     expect(adminWorkMatchQuerySchema.safeParse({cursor:'broken'}).success).toBe(false);
     expect(adminWorkMatchQuerySchema.safeParse({userId:id}).success).toBe(false);
+  });
+});
+
+describe('unverified incoming package review strict metadata boundary',()=>{
+  const pair={packageId:id,manifestChecksum:'a'.repeat(64),
+    incomingWorkId:'9d4c3c6a-6045-4c16-8c87-991eb78dce05',
+    incomingTitle:'Verified only after inspecting the actual source',
+    incomingLanguage:'en' as const};
+  it('never accepts a review as automatic merge, rights or import authorization',()=>{
+    expect(adminImportCandidateProposeSchema.parse(pair)).toEqual(pair);
+    expect(adminImportCandidateProposeSchema.parse({
+      ...pair,sourceSha256:'b'.repeat(64),
+    }).sourceSha256).toBe('b'.repeat(64));
+    for(const bad of [
+      {...pair,manifestChecksum:'not-a-hash'},
+      {...pair,sourceSha256:'not-a-hash'},
+      {...pair,incomingLanguage:'fr'},
+      {...pair,incomingWorkId:'invalid'},
+      {...pair,incomingTitle:''},
+      {...pair,incomingTitle:'A'.repeat(601)},
+      {...pair,allowImport:true},{...pair,mergeInto:id},
+      {...pair,publicationStatus:'published'}, {...pair,actorId:id},
+      {...pair,sourceText:'PRIVATE TEXT'},{...pair,verified:true},
+    ])expect(adminImportCandidateProposeSchema.safeParse(bad).success).toBe(false);
+  });
+  it('requires explicit unverified false response and private cursor projection',()=>{
+    const result={id,candidateWorkId:id,packageId:pair.packageId,
+      incomingWorkId:pair.incomingWorkId,status:'pending',
+      reviewVersion:0,changed:true,provenanceVerified:false};
+    expect(adminImportCandidateResultSchema.parse(result)).toEqual(result);
+    expect(adminImportCandidateResultSchema.safeParse({
+      ...result,provenanceVerified:true,
+    }).success).toBe(false);
+    const item={id,candidateWorkId:id,packageId:pair.packageId,
+      incomingWorkId:pair.incomingWorkId,incomingTitle:pair.incomingTitle,
+      incomingLanguage:pair.incomingLanguage,status:'pending',
+      evidenceKind:'claimed_title',reviewVersion:0,snapshotCurrent:true,
+      provenanceVerified:false};
+    const page={items:[item],nextCursor:null};
+    expect(adminImportCandidatePageSchema.parse(page)).toEqual(page);
+    for(const bad of [
+      {...page,items:[{...item,sourceSha256:'x'.repeat(64)}]},
+      {...page,items:[{...item,rightsApproved:true}]},
+      {...page,items:[{...item,reviewedBy:id}]},
+      {...page,items:[{...item,provenanceVerified:true}]},
+    ])expect(adminImportCandidatePageSchema.safeParse(bad).success).toBe(false);
   });
 });

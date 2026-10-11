@@ -33,3 +33,7 @@ The Folio-only `folio_test` `import-smoke` now creates a synthetic existing cano
 ## Kanonik eser kimlik incelemesiyle güvenli ayrım (#12/#19 kısmi)
 
 `canonical_work_match_reviews` artık yalnız var olan iki taslak eser için bağımsız MFA editör inceleme/audit kaydını destekler. Bu yalnızca manuel değerlendirme kanıtıdır ve **import dry-run, stage veya resume sonucunu değiştirmez**. İnceleyicinin `distinct` kararı verilse bile hazırlanan farklı UUID/başlık/kaynak SHA çatışması otomatik aşılmaz; yeni paket ve hak/sürüm eşlemesi ileriki reviewer-güvenli import akışına bırakıldı. `docs/58-CANONICAL-WORK-MATCH-REVIEW.md` ayrıntılandırır. #19 engeli kaldırılmadı.
+
+## Gelen paket eser çakışması inceleme kaydı (#19, kısmi)
+
+Yetkili ve MFA doğrulamalı iki farklı katalog editörü, mevcut bir eser ile **henüz kataloğa eklenmemiş paket eser UUID** için ayrı `import_candidate_reviews` metadata incelemesi açıp `distinct/deferred` notu verebilir. Paket/manifest SHA bilgisi kullanıcı beyanıdır, kaynak dosyanın doğrulandığına dair kanıt değildir. HTTP arayüzü yalnız katalogdaki mevcut başlık/dil veya mevcut revizyonun aynı SHA değerine dayanarak kayıt açar. Hiçbir karar `dry-run` çıktısını değiştirmez, conflict `canStage=false` ve staging engeli devam eder. İleri-yönlü migrasyon `0020_import_candidate_reviews.sql`, TLS+MFA+CSRF testleri ve TR/EN paneli ayrıntısı `docs/59-INCOMING-PACKAGE-CANDIDATE-REVIEW.md` içinde. #19 AÇIK.

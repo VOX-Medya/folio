@@ -141,6 +141,13 @@
       "when": 1791620000000,
       "tag": "0019_canonical_work_match_review",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791621000000,
+      "tag": "0020_import_candidate_reviews",
+      "breakpoints": true
     }
   ]
 }

@@ -3498,6 +3498,416 @@
           "admin-catalog"
         ]
       }
+    },
+    "/v1/admin/catalog/works/{workId}/import-reviews": {
+      "get": {
+        "operationId": "AdminCatalogController_listImportCandidateReviews",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 20,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "candidateWorkId",
+                          "packageId",
+                          "incomingWorkId",
+                          "incomingTitle",
+                          "incomingLanguage",
+                          "status",
+                          "evidenceKind",
+                          "reviewVersion",
+                          "snapshotCurrent",
+                          "provenanceVerified"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "candidateWorkId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "packageId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "incomingWorkId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "incomingTitle": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 600
+                          },
+                          "incomingLanguage": {
+                            "type": "string",
+                            "enum": [
+                              "tr",
+                              "en"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "distinct",
+                              "deferred"
+                            ]
+                          },
+                          "evidenceKind": {
+                            "type": "string",
+                            "enum": [
+                              "claimed_source_sha256",
+                              "claimed_title"
+                            ]
+                          },
+                          "reviewVersion": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "snapshotCurrent": {
+                            "type": "boolean"
+                          },
+                          "provenanceVerified": {
+                            "type": "boolean",
+                            "enum": [
+                              false
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA catalog:read; unverified incoming package candidate claims; bounded metadata only",
+        "tags": [
+          "admin-catalog"
+        ]
+      },
+      "post": {
+        "operationId": "AdminCatalogController_proposeImportCandidateReview",
+        "parameters": [
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "packageId",
+                  "manifestChecksum",
+                  "incomingWorkId",
+                  "incomingTitle",
+                  "incomingLanguage"
+                ],
+                "properties": {
+                  "packageId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "manifestChecksum": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "incomingWorkId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "incomingTitle": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "incomingLanguage": {
+                    "type": "string",
+                    "enum": [
+                      "tr",
+                      "en"
+                    ]
+                  },
+                  "sourceSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "candidateWorkId",
+                    "packageId",
+                    "incomingWorkId",
+                    "status",
+                    "reviewVersion",
+                    "changed",
+                    "provenanceVerified"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "candidateWorkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "packageId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "incomingWorkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "distinct",
+                        "deferred"
+                      ]
+                    },
+                    "reviewVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "provenanceVerified": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "MFA catalog:edit; unverified package identity CLAIM only; never apply/merge/publish",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
+    },
+    "/v1/admin/catalog/works/{workId}/import-reviews/{reviewId}": {
+      "patch": {
+        "operationId": "AdminCatalogController_decideImportCandidateReview",
+        "parameters": [
+          {
+            "name": "reviewId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expectedVersion",
+                  "decision",
+                  "rationale"
+                ],
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483646
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "distinct",
+                      "deferred"
+                    ]
+                  },
+                  "rationale": {
+                    "type": "string",
+                    "minLength": 24,
+                    "maxLength": 1200
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "candidateWorkId",
+                    "packageId",
+                    "incomingWorkId",
+                    "status",
+                    "reviewVersion",
+                    "changed",
+                    "provenanceVerified"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "candidateWorkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "packageId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "incomingWorkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "distinct",
+                        "deferred"
+                      ]
+                    },
+                    "reviewVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "provenanceVerified": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "folioWebSession": []
+          },
+          {
+            "folioSession": []
+          }
+        ],
+        "summary": "Different MFA editor records distinct/deferred incoming claim only; no import approval",
+        "tags": [
+          "admin-catalog"
+        ]
+      }
     }
   },
   "info": {

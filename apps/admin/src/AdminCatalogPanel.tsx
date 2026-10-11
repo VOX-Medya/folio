@@ -6,6 +6,7 @@ import {AdminRevisionDiffPanel} from './AdminRevisionDiffPanel.js';
 import {AdminFolioCoverPreview} from './AdminFolioCoverPreview.js';
 import {AdminRightsLedgerPanel} from './AdminRightsLedgerPanel.js';
 import {AdminWorkMatchReviews} from './AdminWorkMatchReviews.js';
+import {AdminImportCandidateReviews} from './AdminImportCandidateReviews.js';
 import {
   authorCreateSchema,workCreateSchema,
   canonicalAuthorMetadataPatchSchema,canonicalWorkMetadataPatchSchema,
@@ -46,7 +47,7 @@ const copy={
     aliases:'Takma adlar',external:'Kaynak kimlikleri',titles:'Dil başlıkları',
     editions:'Baskılar',contributors:'Katkıda bulunanlar',identifiers:'Tanımlayıcılar',
     editEdition:'Taslak baskıyı düzenle',reviewRevision:'Revizyon farkları',viewRights:'Hak kayıtları',
-    viewMatches:'Eser kimlik incelemeleri',
+    viewMatches:'Eser kimlik incelemeleri',importReviews:'Gelen paket eser incelemeleri',
     notAvailable:'Kayıtlı bilgi yok',name:'Kanonik yazar adı',sortName:'Sıralama adı',
     create:'Yeni taslak oluştur',createAction:'Taslağı kaydet',
     edit:'Metadata düzenle',save:'Sürüm kontrolüyle kaydet',cancel:'Vazgeç',
@@ -80,7 +81,7 @@ const copy={
     aliases:'Aliases',external:'Source identifiers',titles:'Language titles',
     editions:'Editions',contributors:'Contributors',identifiers:'Identifiers',
     editEdition:'Edit draft edition',reviewRevision:'Revision differences',viewRights:'Rights ledger',
-    viewMatches:'Work identity reviews',
+    viewMatches:'Work identity reviews',importReviews:'Incoming package reviews',
     notAvailable:'No stored information',name:'Canonical author name',sortName:'Sort name',
     create:'Create new draft',createAction:'Save draft',
     edit:'Edit metadata',save:'Save with version check',cancel:'Cancel',
@@ -140,6 +141,7 @@ export function AdminCatalogPanel({kind,language,theme}:{
   const [reviewEditionId,setReviewEditionId]=useState<string|null>(null);
   const [showRights,setShowRights]=useState(false);
   const [showMatchReviews,setShowMatchReviews]=useState(false);
+  const [showImportReviews,setShowImportReviews]=useState(false);
   const [creating,setCreating]=useState(false);
   const [busy,setBusy]=useState(false);
   const [stale,setStale]=useState(false);
@@ -197,6 +199,7 @@ export function AdminCatalogPanel({kind,language,theme}:{
     detailAbort.current=controller;
     setDetailId(id);setDetail(null);setDetailState('loading');
     setEditingEditionId(null);setReviewEditionId(null);setShowRights(false);
+    setShowImportReviews(false);
     setDetailError('');setEditing(false);setStale(false);setError('');
     if(!keepMessage)setMessage('');
     try{
@@ -244,6 +247,7 @@ export function AdminCatalogPanel({kind,language,theme}:{
     detailAbort.current?.abort();
     setDetail(null);setDetailId(null);setDetailState('idle');
     setEditingEditionId(null);setReviewEditionId(null);setShowRights(false);
+    setShowImportReviews(false);
     setDetailError('');setEditing(false);setStale(false);
     setError('');setMessage('');
   }
@@ -479,6 +483,9 @@ export function AdminCatalogPanel({kind,language,theme}:{
               aria-expanded={showMatchReviews} disabled={!online||busy||editing||!!editingEditionId}
               onClick={()=>setShowMatchReviews(current=>!current)}>{w.viewMatches}</button>}
           <button type="button" className="folio-catalog-secondary"
+            aria-expanded={showImportReviews} disabled={!online||busy||editing||!!editingEditionId}
+            onClick={()=>setShowImportReviews(current=>!current)}>{w.importReviews}</button>
+          <button type="button" className="folio-catalog-secondary"
             aria-expanded={showRights} disabled={!online||busy||editing||!!editingEditionId}
             onClick={()=>setShowRights(current=>!current)}>{w.viewRights}</button>
         </>:<>
@@ -578,6 +585,10 @@ export function AdminCatalogPanel({kind,language,theme}:{
         detail.value.work.publicationStatus==='draft'&&
         <AdminWorkMatchReviews key={detail.value.work.id}
           workId={detail.value.work.id} language={language}
+          online={online&&!busy}/>}
+      {showImportReviews&&detail?.kind==='works'&&
+        <AdminImportCandidateReviews key={detail.value.work.id}
+          candidateWorkId={detail.value.work.id} language={language}
           online={online&&!busy}/>}
       {showRights&&detail?.kind==='works'&&
         <AdminRightsLedgerPanel key={detail.value.work.id}

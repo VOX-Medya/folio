@@ -5,6 +5,8 @@ import {
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
   removeAdminWorkTitle,removeAdminWorkAuthor,
   listAdminWorkMatchReviews,proposeAdminWorkMatchReview,decideAdminWorkMatchReview,
+  listAdminImportCandidateReviews,proposeAdminImportCandidateReview,
+  decideAdminImportCandidateReview,
   patchAdminEdition,getAdminRevisionDiff,getAdminRevisionList,
   getAdminRightsLedger,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
@@ -613,6 +615,85 @@ describe('authenticated independent identity review client',()=>{
     expect(f).toHaveBeenCalledTimes(2);
     vi.stubGlobal('window',{location:{protocol:'http:'}});
     await expect(listAdminWorkMatchReviews(workId)).rejects.toMatchObject({kind:'secure-https'});
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('incoming package claim client refuses unsafe work import automation',()=>{
+  const caseId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+  const incomingWorkId='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+  const input={packageId:authorId,manifestChecksum:'e'.repeat(64),
+    incomingWorkId,incomingTitle:'Eser',incomingLanguage:'tr' as const};
+  const record={id:caseId,candidateWorkId:workId,packageId:authorId,
+    incomingWorkId,incomingTitle:'Eser',incomingLanguage:'tr',
+    status:'pending',evidenceKind:'claimed_title',
+    reviewVersion:0,snapshotCurrent:true,provenanceVerified:false};
+  it('uses same-origin cookie, fresh HMAC-CSRF on each write and strict unverified DTO',async()=>{
+    const seen:Array<{path:string;method:string;body:unknown;csrf:string|undefined}>=[];
+    const f=vi.fn(async(path:string,options:RequestInit)=>{
+      if(path==='/v1/auth/web/csrf')return bootstrap();
+      seen.push({path,method:options.method??'',body:options.body
+        ?JSON.parse(String(options.body)) as unknown:null,
+        csrf:(options.headers as Record<string,string>)?.['x-folio-csrf']});
+      if(options.method==='GET')return json({items:[record],nextCursor:null});
+      if(options.method==='POST')return json({
+        id:caseId,candidateWorkId:workId,packageId:authorId,incomingWorkId,
+        status:'pending',reviewVersion:0,changed:true,provenanceVerified:false,
+      },201);
+      if(options.method==='PATCH')return json({
+        id:caseId,candidateWorkId:workId,packageId:authorId,incomingWorkId,
+        status:'deferred',reviewVersion:1,changed:true,provenanceVerified:false,
+      });
+      throw Error('Bad method');
+    });
+    vi.stubGlobal('fetch',f);
+    expect((await listAdminImportCandidateReviews(workId)).items[0])
+      .toMatchObject({id:caseId,provenanceVerified:false});
+    expect(await proposeAdminImportCandidateReview(workId,input))
+      .toMatchObject({id:caseId,changed:true});
+    expect(await decideAdminImportCandidateReview(workId,caseId,{
+      expectedVersion:0,decision:'deferred',
+      rationale:'Separate editor could not independently verify the incoming package.',
+    })).toMatchObject({reviewVersion:1,status:'deferred'});
+    expect(seen.map(row=>row.method)).toEqual(['GET','POST','PATCH']);
+    expect(seen.slice(1).map(row=>row.csrf)).toEqual([
+      'B'.repeat(43),'B'.repeat(43),
+    ]);
+    expect(seen[1]?.body).toEqual(input);
+    expect(seen[2]?.body).toMatchObject({expectedVersion:0,decision:'deferred'});
+    expect(f).toHaveBeenCalledTimes(5);
+    for(const [,options] of f.mock.calls){
+      expect(options).toMatchObject({
+        mode:'same-origin',credentials:'same-origin',
+        redirect:'error',cache:'no-store',
+      });
+      expect(options.headers).not.toHaveProperty('Authorization');
+      expect(options.headers).not.toHaveProperty('x-admin-role');
+      expect(options.headers).not.toHaveProperty('x-user-id');
+    }
+  });
+  it('rejects unverified authority claims and never blind retries after 409',async()=>{
+    const f=vi.fn().mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'CONFLICT'}},409));
+    vi.stubGlobal('fetch',f);
+    await expect(proposeAdminImportCandidateReview(workId,{
+      ...input,autoMerge:true,
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(proposeAdminImportCandidateReview(workId,{
+      ...input,incomingWorkId:workId,
+    })).rejects.toMatchObject({kind:'invalid'});
+    await expect(decideAdminImportCandidateReview(workId,caseId,{
+      expectedVersion:0,decision:'approved',
+      rationale:'Unverified approval must not authorize any package writes.',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(decideAdminImportCandidateReview(workId,caseId,{
+      expectedVersion:0,decision:'distinct',
+      rationale:'Source claims require independent human editorial review.',
+    })).rejects.toMatchObject({kind:'conflict'});
+    expect(f).toHaveBeenCalledTimes(2);
+    vi.stubGlobal('window',{location:{protocol:'http:'}});
+    await expect(listAdminImportCandidateReviews(workId)).rejects
+      .toMatchObject({kind:'secure-https'});
     expect(f).toHaveBeenCalledTimes(2);
   });
 });

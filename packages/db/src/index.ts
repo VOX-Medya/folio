@@ -20,6 +20,7 @@ export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction,getVerif
 export {createPreparedTranslationLink,verifyPreparedTranslationEdges,resolveTranslationSwitch} from './translation.js';
 export {registerPreparedAudioAsset,registerPreparedAudioVariant,replacePreparedAudioSegment,getPreparedAudioVariant} from './audio.js';
 export {proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,listVerifiedAdminWorkMatchReviews} from './canonical-work-match-review.js';
+export {proposeVerifiedAdminImportCandidateReview,decideVerifiedAdminImportCandidateReview,listVerifiedAdminImportCandidateReviews} from './import-candidate-review.js';
 export {preparedImportSchema,canonicalJson,payloadHash,previewPreparedCatalogImport,stagePreparedCatalogImport,resumeStagedCatalogMetadata,getStagedCatalogImportStatus} from './import-staging.js';
 export type {PreparedImport,ImportPlanItem} from './import-staging.js';
 

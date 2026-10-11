@@ -323,6 +323,36 @@ export type AdminWorkMatchDecision=z.infer<typeof adminWorkMatchDecisionSchema>;
 export type AdminWorkMatchResult=z.infer<typeof adminWorkMatchResultSchema>;
 export type AdminWorkMatchPage=z.infer<typeof adminWorkMatchPageSchema>;
 
+/** #19 package metadata CLAIM, not a verified manifest or import permit.
+ * Only an existing canonical work candidate is selected by the URL. */
+export const adminImportCandidateProposeSchema=z.object({
+  packageId:z.uuid(),
+  manifestChecksum:z.string().regex(/^[a-f0-9]{64}$/),
+  incomingWorkId:z.uuid(),
+  incomingTitle:z.string().trim().min(1).max(600),
+  incomingLanguage:z.enum(['tr','en']),
+  sourceSha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).strict();
+const importCandidateEvidence=z.enum(['claimed_source_sha256','claimed_title']);
+export const adminImportCandidateResultSchema=z.object({
+  id:z.uuid(),candidateWorkId:z.uuid(),packageId:z.uuid(),incomingWorkId:z.uuid(),
+  status:workMatchStatus,reviewVersion:metadataVersionSchema,changed:z.boolean(),
+  provenanceVerified:z.literal(false),
+}).strict();
+export const adminImportCandidatePageSchema=z.object({
+  items:z.array(z.object({
+    id:z.uuid(),candidateWorkId:z.uuid(),packageId:z.uuid(),incomingWorkId:z.uuid(),
+    incomingTitle:z.string().min(1).max(600),incomingLanguage:z.enum(['tr','en']),
+    status:workMatchStatus,evidenceKind:importCandidateEvidence,
+    reviewVersion:metadataVersionSchema,snapshotCurrent:z.boolean(),
+    provenanceVerified:z.literal(false),
+  }).strict()).max(20),
+  nextCursor:z.uuid().nullable(),
+}).strict();
+export type AdminImportCandidatePropose=z.infer<typeof adminImportCandidateProposeSchema>;
+export type AdminImportCandidateResult=z.infer<typeof adminImportCandidateResultSchema>;
+export type AdminImportCandidatePage=z.infer<typeof adminImportCandidatePageSchema>;
+
 /** HTTP draft creation acknowledges opaque canonical IDs only.
  * No arbitrary publication status, owner or raw text may be returned. */
 export const adminCatalogAuthorCreatedSchema=z.object({
