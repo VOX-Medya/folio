@@ -329,7 +329,7 @@ export const adminWorkMatchDecisionSchema=z.object({
   rationale:z.string().trim().min(24).max(1200),
 }).strict();
 const workMatchStatus=z.enum(['pending','distinct','deferred']);
-const workMatchEvidence=z.enum(['shared_source_sha256','same_title','manual']);
+const workMatchEvidence=z.enum(['shared_source_sha256','shared_isbn','same_title','manual']);
 export const adminWorkMatchResultSchema=z.object({
   id:z.uuid(),workId:z.uuid(),candidateWorkId:z.uuid(),
   status:workMatchStatus,reviewVersion:metadataVersionSchema,changed:z.boolean(),
