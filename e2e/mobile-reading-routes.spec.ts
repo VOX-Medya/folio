@@ -8,13 +8,14 @@ for(const width of [390,1024]){
     await page.setViewportSize({width,height:900});
     await page.goto(base+'/books/'+valid);
     await expect(page.getByTestId('folio-book-route')).toBeVisible();
-    await expect(page.getByText('Eser bilgileri henüz sunucuya bağlanmadı.')).toBeVisible();
+    await expect(page.getByText('Eser bilgileri yalnız yayımlanmış katalogdan yüklenir.')).toBeVisible();
     await expect(page.getByTestId(width===390?'folio-bottom-navigation':'folio-responsive-navigation')).toBeVisible();
     await expect(page.getByTestId('folio-web-session-verified')).toHaveCount(0);
     await expect(page.getByTestId('folio-login-submit')).toHaveCount(0);
+    await expect(page.getByTestId('folio-book-unavailable')).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.getByRole('button',{name:'EN'}).click();
-    await expect(page.getByText('Book details are not connected to the server yet.')).toBeVisible();
+    await expect(page.getByText('Book details are loaded only from the published catalog.')).toBeVisible();
     const back=page.getByTestId('folio-route-return');
     await back.focus();
     await page.keyboard.press('Enter');
