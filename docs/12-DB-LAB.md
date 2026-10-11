@@ -1,7 +1,7 @@
 # Folio isolated PostgreSQL laboratory (#10 and #11)
 
 ## Isolation and commands
-Only the Desktop Commander Ubuntu device `mehmet` runs the stack. Docker Compose project **folio_lab**, private network **folio_lab_private**, own data volume **folio_lab_postgres_data**, PostgreSQL loopback port **127.0.0.1:55432**. Other project containers/volumes/networks are not touched. `infra/lab.sh` creates `infra/.env.lab` with a unique local-only password (not committed) on first invocation.
+**Primary automated lab: ephemeral GitHub-hosted Ubuntu Actions runner**. The Desktop Commander Ubuntu device `mehmet` is an **optional additional local lab**, not a CI prerequisite. On either machine the Docker Compose project is **folio_lab**, with private network **folio_lab_private**, own data volume **folio_lab_postgres_data**, and PostgreSQL loopback port **127.0.0.1:55432**. Other project containers/volumes/networks are not touched. `infra/lab.sh` creates `infra/.env.lab` with a unique local-only password (not committed) on first invocation. GitHub Actions is not a persistent production database or application server.
 
 ```bash
 bash infra/lab.sh up
@@ -11,6 +11,8 @@ bash infra/lab.sh test-db
 bash infra/lab.sh smoke
 bash infra/lab.sh down # stops only Folio project, preserves its volume
 ```
+
+The GitHub Actions `full-regression` job runs `db-up`, `migrate`, `test-db` and isolated database/HTTPS smoke commands with synthetic fixtures. Manual Actions `validation=fast` does not run heavy checks; `validation=full` (default) does. The Ubuntu `mehmet` device need not be online. Neither lab should be connected to production data or secrets.
 
 Database `folio_lab` is for local app development; `folio_test` is a **separate database** in the same Folio-only Postgres server, created by `test-db`. `down` does not remove volumes; do not use `down -v`. Production is never deployed without explicit user approval.
 

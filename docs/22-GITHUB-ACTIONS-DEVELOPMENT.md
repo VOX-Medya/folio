@@ -2,14 +2,14 @@
 
 ## Kapsam
 
-V1 geliştirme kodları GitHub issue referanslı branch/PR üzerinden gönderilir. GitHub-hosted Ubuntu runner'ı, erişimi kotalı olan yerel Desktop Commander \`mehmet\` yerine **CI/test için** kullanılabilir. Bu izin bir production deploy, mağaza submission, VPS bağlantısı veya gerçek kullanıcı verisi aktarımı izni değildir. GitHub Actions kendi başına ürün kodunu yazan veya 7/24 iş yapan bir agent değildir; kod değişiklikleri ayrı PR gerektirir.
+V1 geliştirme kodları GitHub issue referanslı branch/PR üzerinden gönderilir. **Birincil otomatik geliştirme/test yürütme ortamı GitHub-hosted Ubuntu Actions runner'larıdır.** Yerel Desktop Commander \`mehmet\` yalnız isteğe bağlı ek laboratuvardır; bağlantısı/kotası otomatik CI'ı durdurmaz. GitHub Actions **production runtime değildir**: ephemeral runner ne kalıcı API/DB/dosya sunucusu ne de gerçek Android/iOS cihazıdır. Bu izin bir production deploy, mağaza submission, VPS bağlantısı veya gerçek kullanıcı verisi aktarımı izni değildir. GitHub Actions kendi başına ürün kodunu yazan veya 7/24 iş yapan bir agent değildir; kod değişiklikleri ayrı PR gerektirir.
 
-\`.github/workflows/ci.yml\` otomatik olarak PR ve \`main\` push'larında, isteğe bağlı olarak GitHub Actions sekmesindeki **CI > Run workflow** üzerinden çalışır. En düşük izin \`contents: read\`; hiçbir production secret, environment veya release token istemez. Aynı branch'te eski CI denemeleri yeni push ile iptal edilir.
+\`.github/workflows/ci.yml\` otomatik olarak PR ve \`main\` push'larında, isteğe bağlı olarak GitHub Actions sekmesindeki **CI > Run workflow** üzerinden çalışır. Manuel tetiklemede `validation=fast` yalnız hızlı `check` job'unu çalıştırır; varsayılan `validation=full` tüm regresyon ve sentetik ClamAV job'larını çalıştırır. PR'a `ci:full` etiketi eklemek de tam doğrulamayı açar. `main` ve gece koşularında tam regresyon zorunlu kalır. En düşük izin \`contents: read\`; hiçbir production secret, environment veya release token istemez. Aynı branch'te eski CI denemeleri yeni push ile iptal edilir.
 
 ## Standart kabul akışı
 
 1. GitHub issue'da en öncelikli, bağımlılığı karşılanmış V1 task'ını seç. Kod ve test değişikliğini bir branch'te PR olarak aç.
-2. \`pnpm install --frozen-lockfile\` ile bağımlılıkları yeniden kur; \`pnpm check\` lint, TypeScript, paket testleri, derlemeler, API ve design sözleşmelerini doğrular.
+2. `pnpm install --frozen-lockfile` ile bağımlılıkları yeniden kur. Varsayılan PR `check` job'u lint, TypeScript, unit, OpenAPI ve yapısal dependency/Metro kontrollerini çalıştırır; `pnpm check` dahil geniş testler `full-regression` içindedir. DB/kimlik/izin/dosya/telif/import gibi riskli PR'larda birleştirme öncesi `ci:full` gereklidir.
 3. Folio'ya özel geçici Compose projesinde PostgreSQL ve ayrı \`folio_test\` DB hazırlanır. Tekrar migration, catalog/content/rights/translation/audio/job/import smoke testleri çalışır. Gerçek/saha veritabanı, başka Compose projesi veya kullanıcı volume'ü erişilebilir değildir.
 4. Expo Web, Android Hermes ve iOS Hermes JS export'ları doğrulanır. Bu testler **APK/AAB/IPA, Xcode, simülatör, fiziksel Android/iOS** testi değildir. Playwright Chrome 320–1920 px kontrolleri, lisans bildirim denetimi ve deployment yapmadan Docker image build çalışır.
 5. Hata olursa logları ve gerekliyse yalnız başarısız UI test artefaktlarını GitHub Actions'ta incele. Sorunu aynı PR'da düzelt ve kontrolleri baştan geçir. **Yeşil CI tek başına ilgili issue'yu completed yapmaz**; DoD ve hak/erişim/release kabul koşulları ayrıca doğrulanır.

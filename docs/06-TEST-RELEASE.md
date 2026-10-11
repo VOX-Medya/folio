@@ -1,7 +1,7 @@
 # Kalite kapıları, güvenlik, CI, lab ve canlıya çıkış
 
 ## Temel prensip
-Şimdi yalnız issue/plan ve prototip referansları. Kod tamamlanınca tüm testler önce yetkili Ubuntu test makinesinde ayrı lab/staging altında; **prod deployment yapılmaz**, prod yalnız bağımsız onay kapısından sonra. Lab için secrets .env (gitignored), canlı için ayrı secrets.
+Geliştirme ve otomatik testlerin ana yürütücüsü **GitHub-hosted Ubuntu Actions**; `mehmet` Desktop Commander yalnız isteğe bağlı yerel laboratuvar. Kod ve testler Folio-only izole CI/lab altında sentetik verilerle çalışır; **prod deployment yapılmaz**, prod yalnız bağımsız onay kapısından sonra. CI'da geçici gitignored lab secrets; canlı için ayrı secrets. GitHub Actions production runtime veya kalıcı DB değildir.
 
 ## CI / statik kalite
 - Node LTS, corepack/pnpm lockfile; linters, TS strict, format, dependency vulnerability/licensing scan, config validation, conventional migrations.
@@ -29,8 +29,8 @@
 - Disaster recovery: DB backup + offsite blob backup + documented actual restore into fresh stack; RPO/RTO measured; import/export != DR backup.
 
 ## Lab machine and deployment
-- Desktop Commander authorized device display name 'mehmet', Linux, GitHub CLI already authenticated and Docker installed (verified 2026-10-10). Plan must never record device ID/SSH address/tokens in public repository.
-- Use separate ./infra/compose.lab.yaml and lab.env secret external; no cross-environment DB mount. Test operator can use Desktop Commander or local gh CLI. Do not modify user's existing unrelated Docker stacks; reserved ports, prefix project folio_lab.
+- Birincil laboratuvar GitHub-hosted Ubuntu Actions CI, ayrı `folio_lab` Compose project ve yalnız sentetik test verileridir. `mehmet` Linux Desktop Commander cihazı isteğe bağlı ek test makinesidir; çevrimdışı olması Actions CI'ını engellemez. Repo device ID, SSH address veya token tutmaz.
+- Use separate ./infra/compose.lab.yaml and lab.env secret external; no cross-environment DB mount. GitHub Actions `validation=fast` hızlı geliştirme; `validation=full` tam regresyon içindir. Desktop Commander veya yerel gh CLI isteğe bağlıdır. Do not modify unrelated Docker stacks; reserved ports, prefix project folio_lab.
 - Lab smoke: local HTTPS/proxy, health endpoints, migrations, insert fixture work+author, import sample package, reader retrieve, progress write, two devices sync; nightly backup and restore test.
 - Production readiness checklist: security review, country-by-country rights sample review, restore proof, monitoring, incident runbook, stable performance, Android/iOS/Web E2E, release artifacts/review, explicit deploy approval.
 - Live: separate VPS when authorized. Avoid live testing on production users. Zero-downtime migration desirable, but don't add cluster until metrics justify.
