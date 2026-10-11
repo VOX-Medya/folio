@@ -751,6 +751,19 @@ export type DeviceSessionInventory=z.infer<typeof deviceSessionInventorySchema>;
 export {fetchOwnDeviceSessions,revokeOwnDeviceSession,DeviceSessionHttpError} from './device-sessions-client.js';
 export type {OwnDeviceSessionsRequest} from './device-sessions-client.js';
 
+/** The client requests a single editorial transition, never a rights grant. */
+export const adminPublicationCommandSchema=z.object({
+  action:z.enum(['publish','withdraw']),
+  territory:z.string().regex(/^[A-Z]{2}$/),
+  reason:z.string().trim().min(8).max(500),
+}).strict();
+export const adminPublicationResultSchema=z.object({
+  workId:z.uuid(),editionId:z.uuid(),revisionId:z.uuid(),
+  status:z.enum(['published','withdrawn']),
+}).strict();
+export type AdminPublicationCommand=z.infer<typeof adminPublicationCommandSchema>;
+export type AdminPublicationResult=z.infer<typeof adminPublicationResultSchema>;
+
 /** Strict request for gated HTTPS web sign-in; session token never in response. */
 export const webLoginRequestSchema=z.object({
   email:z.string().trim().max(254).pipe(z.email()),
