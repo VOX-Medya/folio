@@ -66,6 +66,25 @@ async function call(secure:boolean,port:number,path:string,
     req.end(payload);
   });
 }
+async function callAudioBytes(secure:boolean,port:number,path:string,
+  headers:Record<string,string>={}):Promise<{status:number;headers:IncomingHttpHeaders;body:Buffer}>{
+  return new Promise((resolve,reject)=>{
+    const req=(secure?httpsRequest:httpRequest)({
+      host:'127.0.0.1',port,path,headers,
+      ...(secure?{rejectUnauthorized:false}:{}),timeout:10000,
+    },res=>{
+      const chunks:Buffer[]=[];
+      res.on('data',(part:Buffer)=>chunks.push(part));
+      res.on('end',()=>resolve({status:res.statusCode??0,
+        headers:res.headers,body:Buffer.concat(chunks)}));
+      res.on('error',reject);
+    });
+    req.on('error',reject);
+    req.on('timeout',()=>req.destroy(Error('Synthetic audio HTTPS timeout')));
+    req.end();
+  });
+}
+
 function post(port:number,path:string,headers:Record<string,string>,body:unknown){
   return call(true,port,path,headers,'POST',body);
 }
@@ -304,6 +323,45 @@ async function main():Promise<void>{
         textSha256:createHash('sha256').update(chapterTwoText).digest('hex'),
         includeNormal:true,includeRsvp:true,includeAudio:true},
     ]);
+    // #35: REAL generated playable synthetic voice bytes are staged under
+    // private catalog 0600 quarantine before rights review and publication.
+    // This is never a third-party literary work or a production license claim.
+    const syntheticAudioFile=join(temp,'prepared-ci-voice.ogg');
+    execFileSync('ffmpeg',['-nostdin','-hide_banner','-loglevel','error',
+      '-f','lavfi','-i','sine=frequency=440:duration=12',
+      '-c:a','libopus','-b:a','24k','-f','ogg',syntheticAudioFile],
+    {stdio:'ignore',timeout:30_000});
+    const syntheticAudioBytes=readFileSync(syntheticAudioFile);
+    const syntheticAudioSha=createHash('sha256').update(syntheticAudioBytes).digest('hex');
+    const preparedAudioStorage=await LocalStorageAdapter.create(privateVault);
+    const stagedAudio=await preparedAudioStorage.stage({
+      owner:{scope:'catalog',ownerUserId:null},
+      source:(async function*(){yield syntheticAudioBytes;})(),
+      declaredSha256:syntheticAudioSha,declaredMime:'audio/ogg',
+      maxBytes:syntheticAudioBytes.length,
+    });
+    const [preparedAudioAsset]=await db.insert(schema.mediaAssets).values({
+      ownerScope:'catalog',ownerUserId:null,storageKey:stagedAudio.key,
+      sha256:stagedAudio.sha256,sizeBytes:stagedAudio.sizeBytes,
+      mime:'audio/ogg',durationMs:12_000,status:'pending_verify',
+    }).returning();
+    check(!!preparedAudioAsset,'Synthetic prepared voice asset not staged');
+    const [preparedAudioVariant]=await db.insert(schema.audioVariants).values({
+      contentRevisionId:editorialRevision.id,language:'tr',
+      voiceId:'prepared.manual',sourceLabel:'CI-generated sine tone',
+      codec:'opus',variantVersion:1,status:'draft',createdBy:editor.userId,
+    }).returning();
+    check(!!preparedAudioVariant,'Synthetic prepared voice variant not created');
+    await db.insert(schema.audioSegments).values({
+      variantId:preparedAudioVariant.id,chapterId:pubChapterId,ordinal:0,
+      assetId:preparedAudioAsset.id,textBlockId:pubBlockId,
+      textSha256:createHash('sha256').update(chapterOneText).digest('hex'),
+      startMs:0,endMs:12_000,
+    });
+    const publicAudioPath='/v1/catalog/audio/'+editorialRevision.id+'/'+pubChapterId;
+    const unpublishedAudio=await call(true,port,publicAudioPath);
+    check(unpublishedAudio.status===404,
+      'Staged private voice played before independent audio rights and publication');
     check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===404,
       'Admin write opt-in did not protect publication');
     process.env.FOLIO_ADMIN_CATALOG_WRITE_MODE='direct-tls-only';
@@ -339,7 +397,7 @@ async function main():Promise<void>{
         ...scope,licenseKind:'synthetic-CI-only',
         evidence:'Synthetic publication approval scope '+index+' with manual CI fixture',
         territories:['TR'],displayAllowed:true,
-        translationAllowed:false,audioAllowed:false,sharingAllowed:false,
+        translationAllowed:false,audioAllowed:true,sharingAllowed:false,
       });
       publicationRecords.push(claim);
       const approval=await patch(port,
@@ -374,12 +432,44 @@ async function main():Promise<void>{
       publicDetail.editions.length===1&&
       publicDetail.editions[0]?.id===editorialEdition.id&&
       publicDetail.editions[0]?.revisionId===editorialRevision.id&&
-      publicDetail.editions[0]?.audioAvailable===false&&
+      publicDetail.editions[0]?.audioAvailable===true&&
       !publicBook.body.includes(editorialBytes.toString('utf8'))&&
       !publicBook.body.includes(privateVault)&&
       !publicBook.body.includes(stagedEditorial.key)&&
       !publicBook.body.includes('Synthetic publication approval scope'),
       'Public book response leaked source/rights or mismatched author/edition');
+    // #35: immutable published audio with current dual-purpose rights and
+    // actual private SHA-256 bytes, including one valid range for seek.
+    const preparedResponse=await callAudioBytes(true,port,publicAudioPath);
+    check(preparedResponse.status===200&&
+      preparedResponse.headers['content-type']?.startsWith('audio/ogg')&&
+      preparedResponse.headers['cache-control']==='no-store'&&
+      preparedResponse.body.equals(syntheticAudioBytes),
+      'Approved synthetic voice was not served byte-exactly over HTTPS');
+    const preparedRange=await callAudioBytes(true,port,publicAudioPath,{
+      range:'bytes=100-599',
+    });
+    check(preparedRange.status===206&&
+      preparedRange.headers['content-range']==='bytes 100-599/'+
+        String(syntheticAudioBytes.length)&&
+      preparedRange.body.equals(syntheticAudioBytes.subarray(100,600)),
+      'Trusted audio chapter Range seek corrupted media');
+    check((await callAudioBytes(true,port,publicAudioPath,{range:'bytes=0-3,6-9'}))
+      .status===416,'Multi-range was accepted');
+    check((await call(true,port,publicAudioPath+'?territory=US')).status===400,
+      'Client-supplied audio territory was accepted');
+    check((await call(true,port,publicAudioPath.replace(pubChapterId,pubChapterTwoId)))
+      .status===404,'Chapter without reviewed audio returned a media asset');
+    check((await call(false,plainAddress.port,publicAudioPath,
+      {'x-forwarded-proto':'https'})).status===503,
+      'Fake TLS proxy accessed private approved media');
+    const privateAudioFile=join(privateVault,'quarantine','catalog',stagedAudio.key+'.blob');
+    const tamperedAudio=Buffer.from(syntheticAudioBytes);
+    tamperedAudio[0]=tamperedAudio[0]!^1;
+    writeFileSync(privateAudioFile,tamperedAudio);
+    check((await call(true,port,publicAudioPath)).status===503,
+      'Modified same-length media played without SHA-256 verification');
+    writeFileSync(privateAudioFile,syntheticAudioBytes);
     // #33: one true published plaintext source -> two immutable chapters.
     const readerResponse=await call(true,port,readerPath);
     const readerData=publishedReaderTextSchema.parse(JSON.parse(readerResponse.body));
@@ -536,6 +626,8 @@ async function main():Promise<void>{
       'x-forwarded-proto':'https',
     })).status===503,'Forged proxy TLS bypassed public book transport');
     process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='US';
+    check((await call(true,port,publicAudioPath)).status===404,
+      'Approved audio leaked outside server-selected territory');
     check((await call(true,port,readerPath)).status===404,
       'Reader body was accessible outside approved territory');
     check((await call(true,port,publicBookPath)).status===404,
@@ -576,6 +668,8 @@ async function main():Promise<void>{
       'Authenticated reviewer could not withdraw a published revision');
     check((await call(true,port,publicBookPath)).status===404,
       'Withdrawn work metadata remained publicly accessible');
+    check((await call(true,port,publicAudioPath)).status===404,
+      'Withdrawn approved voice remained accessible');
     check((await call(true,port,readerPath)).status===404,
       'Withdrawn revision body remained publicly accessible');
     check(publishedCatalogSearchPageSchema.parse(JSON.parse(
