@@ -23,7 +23,7 @@
     "db:translation-smoke": "tsx scripts/translation-smoke.ts",
     "db:audio-smoke": "tsx scripts/audio-smoke.ts",
     "db:job-smoke": "tsx scripts/job-policy-smoke.ts",
-    "db:import-smoke": "tsx scripts/import-smoke.ts",
+    "db:import-smoke": "tsx scripts/import-smoke.ts && tsx scripts/folioctl-single-book-smoke.ts",
     "db:storage-quota-smoke": "tsx scripts/storage-quota-smoke.ts",
     "db:storage-integrity-smoke": "tsx scripts/storage-integrity-smoke.ts",
     "db:clamav-native-smoke": "tsx scripts/clamav-native-smoke.ts",
@@ -39,7 +39,8 @@
     "db:auth-smoke": "tsx scripts/auth-smoke.ts",
     "db:onboarding-smoke": "tsx scripts/onboarding-smoke.ts",
     "db:auth-rate-smoke": "tsx scripts/auth-rate-smoke.ts",
-    "db:session-cap-smoke": "tsx scripts/session-cap-smoke.ts"
+    "db:session-cap-smoke": "tsx scripts/session-cap-smoke.ts",
+    "db:folioctl-smoke": "tsx scripts/folioctl-single-book-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",
