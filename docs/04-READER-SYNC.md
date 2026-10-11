@@ -1,3 +1,5 @@
+> **MVP kapsam üst kararı (11.10.2026):** İlk kesit tek backend kalıcı eser/bölüm/blok konumu, modlar arası temel devam ve sunucu mutasyon doğruluğudur. Tam offline indirme/çoklu cihaz conflict/çeviri N:M hizalama ileri aşamada; bunları #36 temel okuma konumu kabulüne bağımlılık yapma. Özel kullanıcı konumu hiçbir koşulda başka hesaba açılmaz. [MVP kesiti](62-MVP-EXECUTION-PLAN.md).
+
 # Okuma, RSVP, ses ve çapraz cihaz konum sözleşmesi
 
 ## Kanonik belge

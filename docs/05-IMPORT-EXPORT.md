@@ -1,3 +1,5 @@
+> **MVP kapsam üst kararı (11.10.2026):** #18/#19 için yalnız haklı ve önceden hazırlanmış kitapların sürümlü JSON manifest + SHA-256 + CLI validate/dry-run/apply/idempotent kaydı kabulü gerekir. Tam GUI wizard, özel tar.zst export, büyük resume/özel kimlik conflict review ledger ileriki sürümdedir. Dosya sahteciliği, telif/ülke hakkı ve private-owner kontrolleri hiçbir zaman bypass edilmez. [MVP kesiti](62-MVP-EXECUTION-PLAN.md).
+
 # Yerel kitap hazırlama ve toplu transfer sözleşmesi (V1)
 
 ## Kapsam

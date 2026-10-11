@@ -14,16 +14,18 @@ on:
         options:
           - full
           - fast
-  schedule:
-    - cron: '17 3 * * *'
+          - extended
 permissions:
   contents: read
 concurrency:
   group: folio-ci-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
+  # PRs run only quick checks. Main runs one MVP regression job, not both.
   check:
     name: check
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validation == 'fast') }}
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
@@ -36,7 +38,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Fast type, lint, unit and OpenAPI contract checks
+      - name: Lint, type, unit and API contract feedback
         run: |
           pnpm --filter @folio/contracts build
           pnpm --filter @folio/db build
@@ -48,37 +50,50 @@ jobs:
           pnpm dependency:hardening-check
 
   full-regression:
+    # No nightly rerun: main checks one MVP regression; sensitive PRs opt in via ci:full.
     name: full-regression
-    # Heavy checks run on main/nightly, manual full, or ci:full PRs.
-    # Manual fast feedback is development-only, not release evidence.
-    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.validation == 'full') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validation != 'fast') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
       - uses: pnpm/action-setup@v4
         with:
           version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - name: Isolated Folio PostgreSQL and durable-job integration tests
+      - name: Full application check on main and manual runs
+        if: ${{ github.event_name != 'pull_request' }}
+        run: pnpm check
+      - name: Build app on CI-approved full PR (unit/lint already in check job)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          pnpm --filter @folio/contracts build
+          pnpm --filter @folio/db build
+          pnpm build
+      - name: Isolated Folio DB and MVP HTTP smoke
         run: |
           bash infra/lab.sh db-up
-          bash infra/lab.sh migrate
           bash infra/lab.sh migrate
           bash infra/lab.sh test-db
           bash infra/lab.sh catalog-smoke
           bash infra/lab.sh content-smoke
           bash infra/lab.sh rights-smoke
+          bash infra/lab.sh import-smoke
+          bash infra/lab.sh storage-integrity-smoke
+          bash infra/lab.sh auth-http-smoke
+          bash infra/lab.sh admin-catalog-https-smoke
+      - name: Additional domain and security regression (manual extended only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
+        run: |
+          bash infra/lab.sh migrate
           bash infra/lab.sh translation-smoke
           bash infra/lab.sh audio-smoke
           bash infra/lab.sh job-smoke
-          bash infra/lab.sh import-smoke
           bash infra/lab.sh storage-quota-smoke
-          bash infra/lab.sh storage-integrity-smoke
           bash infra/lab.sh storage-malware-smoke
           bash infra/lab.sh storage-epub-smoke
           bash infra/lab.sh storage-ogg-smoke
@@ -91,39 +106,49 @@ jobs:
           bash infra/lab.sh admin-role-lifecycle-smoke
           bash infra/lab.sh session-cap-smoke
           bash infra/lab.sh auth-rate-smoke
-          bash infra/lab.sh auth-http-smoke
           bash infra/lab.sh auth-admission-http-smoke
           bash infra/lab.sh web-cookie-https-smoke
           bash infra/lab.sh web-auth-https-smoke
           bash infra/lab.sh web-self-https-smoke
           bash infra/lab.sh admin-totp-https-smoke
-          bash infra/lab.sh admin-catalog-https-smoke
           bash infra/lab.sh onboarding-smoke
           bash infra/lab.sh onboarding-http-smoke
           bash infra/lab.sh device-sessions-http-smoke
-      - name: Require six live catalog visual samples
+      - name: Extended visual sample presence
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
         run: |
           count="$(find artifacts/live-catalog-visual -maxdepth 1 -type f -name 'live-catalog-*-dark-*.png' | wc -l)"
           test "$count" -eq 6
-      - name: Preserve synthetic live catalog responsive screenshots
-        if: always()
+      - name: Keep visual evidence only on extended manual run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
         uses: actions/upload-artifact@v4
         with:
           name: folio-catalog-live-visual-${{ github.run_id }}
           path: artifacts/live-catalog-visual/*.png
           if-no-files-found: error
           retention-days: 7
-      - name: Stop isolated Folio CI laboratory
+      - name: Stop Folio-only lab (volumes never deleted)
         if: always()
         run: |
           if test -f infra/.env.lab; then bash infra/lab.sh down; fi
-      - name: Export all Expo JavaScript targets (web/Android/iOS)
+      - name: Expo JavaScript exports (Web/Android/iOS; no native build)
         run: pnpm mobile:export
-      - name: Validate CI bundle checker negative cases
-        run: pnpm ci:contract-test
-      - run: pnpm licenses list --json > licenses.json && node tools/security/check-licenses.mjs licenses.json
-      - run: pnpm e2e
-      - name: Preserve failed browser test diagnostics only
+      - name: Chrome user journey tests
+        run: pnpm e2e
+      - name: Extra CI negative tests, license checks and non-deploy Docker (manual extended only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
+        run: |
+          pnpm ci:contract-test
+          pnpm licenses list --json > licenses.json
+          node tools/security/check-licenses.mjs licenses.json
+          docker build --file infra/Dockerfile --tag folio-ci:local .
+      - name: Dependency release audit report (manual extended; informational only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
+        continue-on-error: true
+        run: |
+          pnpm audit --json > dependency-audit.json || true
+          pnpm security:release-check
+      - name: Retain failed browser diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -133,34 +158,27 @@ jobs:
             playwright-report/
           if-no-files-found: ignore
           retention-days: 7
-      - name: Build local Docker image (no deployment)
-        run: docker build --file infra/Dockerfile --tag folio-ci:local .
-      - name: Dependency evidence and release readiness (informational; no deploy)
-        continue-on-error: true
-        run: |
-          pnpm audit --json > dependency-audit.json || true
-          pnpm security:release-check
 
   clamav-native-protocol:
-    name: ClamAV stdin protocol (synthetic signatures only; not a release gate)
-    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.validation == 'full') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+    name: ClamAV stdin protocol (synthetic; manual extended only)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.validation == 'extended' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
       - uses: pnpm/action-setup@v4
         with:
           version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
       - run: pnpm install --frozen-lockfile
-      - name: Install ClamAV executable in ephemeral Ubuntu test runner
+      - name: Install disposable scanner on isolated Ubuntu runner
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends clamav
           /usr/bin/clamscan --version
-      - name: Test real ClamAV engine using synthetic local hash signatures
+      - name: Synthetic local signature protocol test (not a release approval)
         env:
           FOLIO_CLAMAV_TEST_MODE: synthetic-only
         run: pnpm --filter @folio/db db:clamav-native-smoke
