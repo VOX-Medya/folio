@@ -1138,6 +1138,166 @@ async function main():Promise<void>{
       adminImportCandidateResultSchema.parse(JSON.parse(final.body)).reviewVersion===2,
       'Refreshed package review was not safely versioned');
     console.log('INCOMING PACKAGE CLAIM REVIEW PASS: real TLS/Postgres, 201/200/400/403/409, MFA two-person audit, stale version, duplicate/checksum protection; dry-run/stage remain deny.');
+    // #12 completed DRAFT metadata matrix: optional title edit, author
+    // role/order adjustment, and empty-edition deletion without source/rights.
+    const secondary=await createCanonicalAuthor(db,editor.userId,{
+      canonicalName:'Secondary '+suffix,
+    });
+    const relationWork=await createCanonicalWork(db,editor.userId,{
+      originalTitle:'Relation completion '+suffix,originalLanguage:'tr',
+      authors:[
+        {authorId:author.id,contribution:'author',sortOrder:0},
+        {authorId:secondary.id,contribution:'co-author',sortOrder:1},
+      ],
+      titles:[{language:'en',title:'Initial optional title',kind:'alternate'}],
+      editions:[
+        {language:'en',label:'Empty removable',identifiers:[
+          {kind:'isbn-13',value:'9781234567890'},
+        ],contributors:[{authorId:secondary.id,role:'translator'}]},
+        {language:'tr',label:'Rights protected'},
+        {language:'tr',label:'Source protected'},
+      ],
+    });
+    const relationBase=root+'/works/'+relationWork.id;
+    const relationDetail=await call(true,port,relationBase,bearer);
+    check(relationDetail.status===200,'New DRAFT relation fixture not returned');
+    const relationData=adminCatalogWorkDetailSchema.parse(JSON.parse(relationDetail.body));
+    const optional=relationData.titles.find(row=>row.kind==='alternate');
+    const original=relationData.titles.find(row=>row.kind==='original');
+    const empty=relationData.editions.find(row=>row.label==='Empty removable');
+    const rightsProtected=relationData.editions.find(row=>row.label==='Rights protected');
+    const sourceProtected=relationData.editions.find(row=>row.label==='Source protected');
+    check(optional&&original&&empty&&rightsProtected&&sourceProtected,
+      'Canonical relation fixture is incomplete');
+    const originalTitlePath=relationBase+'/titles/'+original.id;
+    const optionalPath=relationBase+'/titles/'+optional.id;
+    const mainAuthorPath=relationBase+'/authors/'+author.id;
+    const secondaryPath=relationBase+'/authors/'+secondary.id;
+    const emptyPath=relationBase+'/editions/'+empty.id;
+    const rightsPath=relationBase+'/editions/'+rightsProtected.id;
+    const sourcePath=relationBase+'/editions/'+sourceProtected.id;
+    check((await patch(port,originalTitlePath,bearer,{
+      expectedVersion:0,title:'Forbidden original rewriting',
+    })).status===409,'Optional editor changed canonical original title');
+    check((await patch(port,optionalPath,readonlyBearer,{
+      expectedVersion:0,title:'Forbidden role editor',
+    })).status===403,'Read-only role edited optional title');
+    check((await patch(port,optionalPath,cookie,{
+      expectedVersion:0,title:'Forged CSRF',
+    })).status===403,'Cookie without current CSRF edited optional title');
+    check((await patch(port,optionalPath,{
+      ...secureCookie,origin:'https://hostile.example',
+    },{expectedVersion:0,title:'Forged origin'})).status===403,
+    'Cross-origin cookie edited optional title');
+    for(const payload of [
+      {expectedVersion:0,kind:'original'},
+      {expectedVersion:0,rawSourceText:'rewrite',title:'Forged'},
+      {expectedVersion:0,rightsApproved:true,title:'Forged'},
+      {expectedVersion:0},
+    ]){
+      check((await patch(port,optionalPath,bearer,payload)).status===400,
+        'Optional title endpoint accepted original/source/rights/empty payload');
+    }
+    const optionalPatch=await patch(port,optionalPath,bearer,{
+      expectedVersion:0,title:'Verified optional edition title',
+      language:'en',kind:'translation',
+    });
+    check(optionalPatch.status===200&&
+      adminCatalogTitleAppendedSchema.parse(JSON.parse(optionalPatch.body))
+        .metadataVersion===1,
+      'Optional title edit did not advance exactly one work version');
+    check((await patch(port,secondaryPath,bearer,{
+      expectedVersion:0,contribution:'editor',
+    })).status===409,'Stale author relation PATCH overwrote newer title edit');
+    check((await patch(port,secondaryPath,bearer,{
+      expectedVersion:1,contribution:'author',sortOrder:1,
+      publish:true,
+    })).status===400,'Author link PATCH accepted publish claim');
+    const adjusted=await patch(port,secondaryPath,bearer,{
+      expectedVersion:1,contribution:'editor',sortOrder:4,
+    });
+    check(adjusted.status===200&&
+      adminCatalogWorkAuthorAppendedSchema.parse(JSON.parse(adjusted.body))
+        .metadataVersion===2,'Author role/order update failed');
+    check((await patch(port,mainAuthorPath,bearer,{
+      expectedVersion:2,contribution:'editor',
+    })).status===409,'Last real author was demoted to editor');
+    const races=await Promise.all([
+      patch(port,mainAuthorPath,bearer,{expectedVersion:2,sortOrder:2}),
+      patch(port,optionalPath,bearer,{expectedVersion:2,kind:'alternate'}),
+    ]);
+    check(races.map(row=>row.status).sort().join(',')==='200,409',
+      'Concurrent DRAFT metadata PATCHes both passed a single version gate');
+
+    const [provenance]=await db.insert(schema.sourceProvenance)
+      .values({sourceName:'Synthetic protected source '+suffix}).returning();
+    check(provenance,'Cannot create protected-source fixture');
+    await db.insert(schema.contentRevisions).values({
+      editionId:sourceProtected.id,language:'tr',
+      rawArtifactKey:'fixture-only/'+suffix,rawSha256:'b'.repeat(64),
+      normalizedSha256:'c'.repeat(64),parserVersion:'synthetic-test-only',
+      provenanceId:provenance.id,createdBy:editor.userId,
+    });
+    await db.insert(schema.rightsRecords).values({
+      workId:relationWork.id,editionId:rightsProtected.id,
+      evidence:'Synthetic rights pending; NEVER publish',
+      licenseKind:'unverified',territories:['TR'],
+    });
+    check((await remove(port,rightsPath,bearer,{expectedVersion:3})).status===409,
+      'Draft edition with RIGHTS evidence was silently deleted');
+    check((await remove(port,sourcePath,bearer,{expectedVersion:3})).status===409,
+      'Draft edition with immutable SOURCE REVISION was silently deleted');
+    check((await remove(port,emptyPath,readonlyBearer,{expectedVersion:3})).status===403,
+      'Read-only role deleted an empty DRAFT edition');
+    check((await remove(port,emptyPath,cookie,{expectedVersion:3})).status===403,
+      'Missing CSRF deleted an empty DRAFT edition');
+    check((await remove(port,emptyPath,bearer,{
+      expectedVersion:3,deleteAllRevisions:true,
+    })).status===400,'Empty edition removal accepted content deletion flag');
+    const removedEdition=await remove(port,emptyPath,bearer,{expectedVersion:3});
+    check(removedEdition.status===200&&
+      JSON.parse(removedEdition.body).removed===true&&
+      JSON.parse(removedEdition.body).metadataVersion===4,
+      'Empty DRAFT edition was not removed with a versioned receipt');
+    check((await remove(port,emptyPath,bearer,{expectedVersion:4})).status===404,
+      'Repeating a completed edition removal did not fail closed');
+    check((await remove(port,rightsPath,bearer,{expectedVersion:4})).status===409,
+      'Rights-protected edition was removable after unrelated update');
+    const afterRelations=await call(true,port,relationBase,bearer);
+    const finalRelations=adminCatalogWorkDetailSchema.parse(JSON.parse(afterRelations.body));
+    check(finalRelations.work.metadataVersion===4&&
+      finalRelations.work.originalTitle==='Relation completion '+suffix&&
+      finalRelations.titles.some(row=>row.kind==='original'&&row.title===relationWork.originalTitle)&&
+      finalRelations.titles.some(row=>row.id===optional.id)&&
+      !finalRelations.editions.some(row=>row.id===empty.id)&&
+      finalRelations.editions.some(row=>row.id===rightsProtected.id)&&
+      finalRelations.editions.some(row=>row.id===sourceProtected.id)&&
+      finalRelations.authors.some(row=>row.id===author.id&&row.role==='author')&&
+      finalRelations.authors.some(row=>row.id===secondary.id&&row.role==='editor'&&
+        row.sortOrder===4),
+      'Optional relation CRUD altered original title, last author, or protected editions');
+    const relationAudit=await pool.query<{
+      action:string;actor_id:string;request_id:string;before_json:unknown;after_json:unknown;
+    }>(
+      'SELECT action,actor_id,request_id,before_json,after_json FROM audit_events '+ 
+      'WHERE (entity_type=$1 AND entity_id=$2::uuid) OR '+
+      '(entity_type=$3 AND entity_id=$4::uuid) ORDER BY created_at',
+      ['work',relationWork.id,'edition',empty.id],
+    );
+    for(const action of [
+      'work.title.metadata.update','work.author.metadata.update','edition.empty_draft.remove',
+    ]){
+      const events=relationAudit.rows.filter(row=>row.action===action);
+      check(events.length===1&&events[0]?.actor_id===editor.userId&&
+        !!events[0].request_id&&!!events[0].before_json&&!!events[0].after_json,
+        'Missing one correlated before/after audit for '+action);
+    }
+    const protectedRefs=await pool.query<{id:string}>(
+      'SELECT id FROM content_revisions WHERE edition_id=$1::uuid',
+      [sourceProtected.id],
+    );
+    check(protectedRefs.rows.length===1,'Edition edit removed immutable content revision');
+    console.log('DRAFT RELATION METADATA CRUD PASS: direct TLS/MFA/CSRF, optional title edit, author role/order lock, protected edition refusal, safe empty edition removal, 200/400/403/404/409 and atomic audit.');
     const cookiePatch=await patch(port,workPath,{
       ...secureCookie,'x-request-id':'forged-browser-update',
     },{expectedVersion:2,firstPublicationYear:1880});
@@ -1848,6 +2008,9 @@ async function main():Promise<void>{
       !!spec.paths[root+'/works/{workId}/import-reviews']?.get&&
       !!spec.paths[root+'/works/{workId}/import-reviews']?.post&&
       !!spec.paths[root+'/works/{workId}/import-reviews/{reviewId}']?.patch&&
+      !!spec.paths[root+'/works/{workId}/titles/{titleId}']?.patch&&
+      !!spec.paths[root+'/works/{workId}/authors/{authorId}']?.patch&&
+      !!spec.paths[root+'/works/{workId}/editions/{editionId}']?.delete&&
       !!spec.paths[root+'/works/{workId}/titles/{titleId}']?.delete&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
@@ -1872,6 +2035,10 @@ async function main():Promise<void>{
       'Independent write flag enabled match review proposal');
     check((await post(port,incomingClaimPath,bearer,claim)).status===404,
       'Independent write flag left incoming package review intake enabled');
+    check((await patch(port,optionalPath,bearer,{expectedVersion:4,title:'Off'})).status===404,
+      'Independent write flag left optional title PATCH enabled');
+    check((await remove(port,rightsPath,bearer,{expectedVersion:4})).status===404,
+      'Independent write flag left edition DELETE enabled');
     check((await post(port,editionsPath,bearer,{
       expectedVersion:4,language:'tr',label:'Unavailable',
     })).status===404,

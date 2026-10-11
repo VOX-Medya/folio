@@ -1036,3 +1036,109 @@ test('incoming package claim UX stays private, versioned and explicitly unverifi
   await expect(review).toContainText('Incoming package identity reviews');
   await expect(review).toContainText('Import remains blocked.');
 });
+
+test('DRAFT metadata relation edits and empty edition removal require versioned confirmation at 390px',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const peer='9d4c3c6a-6045-4c16-8c87-991eb78dce05';
+  const titleId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+  const editionId='b58a3610-4ea2-4644-ac65-586c877fa3f3';
+  const base='/v1/admin/catalog/works/'+workId;
+  let version=0,title='Eski Ek Başlık',role='co-author',order=1,edition=true;
+  let conflict=true;
+  const writes:Array<{method:string;path:string;body:Record<string,unknown>;csrf:string|undefined}>=[];
+  await page.route('**/v1/**',async route=>{
+    const r=route.request(),path=new URL(r.url()).pathname;
+    if(path==='/v1/auth/web/csrf'){
+      await route.fulfill({status:204,headers:{'x-folio-csrf':'T'.repeat(43)}});
+    }else if(path==='/v1/admin/catalog/works'&&r.method()==='GET'){
+      await route.fulfill(respond({items:[{
+        id:workId,originalTitle:'Ana Kanonik Eser',
+        originalLanguage:'tr',publicationStatus:'draft',
+      }],nextCursor:null}));
+    }else if(path===base&&r.method()==='GET'){
+      await route.fulfill(respond({
+        work:{id:workId,originalTitle:'Ana Kanonik Eser',
+          originalLanguage:'tr',firstPublicationYear:null,
+          publicationStatus:'draft',metadataVersion:version},
+        authors:[
+          {id:authorId,name:'Asıl Yazar',role:'author',sortOrder:0},
+          {id:peer,name:'İkinci Yazar',role,sortOrder:order},
+        ],
+        titles:[
+          {id:authorId,language:'tr',title:'Ana Kanonik Eser',kind:'original'},
+          {id:titleId,language:'en',title,kind:'alternate'},
+        ],
+        editions:edition?[{
+          id:editionId,language:'tr',label:'Boş Taslak',
+          publisher:null,status:'draft',identifiers:[],contributors:[],
+        }]:[],
+      }));
+    }else if(r.method()==='PATCH'&&(path===base+'/titles/'+titleId||
+      path===base+'/authors/'+peer)){
+      const body=r.postDataJSON() as Record<string,unknown>;
+      writes.push({method:r.method(),path,body,csrf:r.headers()['x-folio-csrf']});
+      expect(r.headers()['authorization']).toBeUndefined();
+      expect(r.headers()['x-admin-role']).toBeUndefined();
+      expect(body.expectedVersion).toBe(version);
+      if(path.endsWith('/titles/'+titleId)){
+        expect(body.kind).toBe('alternate');
+        title=body.title as string;version++;
+        await route.fulfill(respond({id:titleId,workId,metadataVersion:version}));
+      }else{
+        role=body.contribution as string;
+        order=body.sortOrder as number;
+        version++;
+        await route.fulfill(respond({workId,authorId:peer,metadataVersion:version}));
+      }
+    }else if(r.method()==='DELETE'&&path===base+'/editions/'+editionId){
+      const body=r.postDataJSON() as Record<string,unknown>;
+      writes.push({method:r.method(),path,body,csrf:r.headers()['x-folio-csrf']});
+      expect(body).toEqual({expectedVersion:version});
+      if(conflict){
+        conflict=false;version++;
+        await route.fulfill(respond({error:{code:'CONFLICT'}},409));
+      }else{
+        edition=false;version++;
+        await route.fulfill(respond({id:editionId,workId,metadataVersion:version,removed:true}));
+      }
+    }else await route.fulfill(respond({error:{code:'NOT_FOUND'}},404));
+  });
+  await page.goto(root+'/admin/works');
+  await page.getByRole('searchbox',{name:'Yazar veya eser metni'}).fill('Ana Kanonik');
+  await page.getByRole('button',{name:'Ara',exact:true}).click();
+  await page.getByRole('button',{name:/Ana Kanonik Eser/}).click();
+  let relations=page.getByTestId('admin-work-relations');
+  await relations.getByRole('button',{name:'Alternatif başlığı düzenle: Eski Ek Başlık'}).click();
+  await expect(relations.getByTestId('admin-work-relation-edit')).toBeVisible();
+  await relations.getByRole('textbox',{name:'Başlık',exact:true}).fill('Güncel Ek Başlık');
+  await relations.getByRole('button',{name:'Değişikliği sürüm kontrolüyle kaydet'}).click();
+  await expect(page.getByTestId('admin-catalog-detail')).toContainText('Güncel Ek Başlık');
+  relations=page.getByTestId('admin-work-relations');
+  await relations.getByRole('button',{name:'Yazarın rolünü/sırasını düzenle: İkinci Yazar'}).click();
+  await relations.getByRole('combobox',{name:'Katkı türü'}).selectOption('editor');
+  await relations.getByRole('textbox',{name:'Sıra'}).fill('5');
+  await relations.getByRole('button',{name:'Değişikliği sürüm kontrolüyle kaydet'}).click();
+  await expect(page.getByTestId('admin-catalog-detail')).toContainText('İkinci Yazar (editor, 5)');
+  relations=page.getByTestId('admin-work-relations');
+  await relations.getByRole('button',{name:'Boş taslak baskıyı kaldır: Boş Taslak'}).click();
+  await expect(relations.getByTestId('admin-work-relation-unlink-confirm')).toBeVisible();
+  expect(writes).toHaveLength(2); // no DELETE before deliberate confirmation
+  await relations.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'}).click();
+  await expect(relations.getByRole('alert')).toBeVisible();
+  expect(writes).toHaveLength(3);
+  await expect(relations.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'})).toBeDisabled();
+  await relations.getByRole('button',{name:'Güncel eseri yeniden yükle'}).click();
+  relations=page.getByTestId('admin-work-relations');
+  await expect(relations).toContainText('Beklenen metadata sürümü: 3');
+  expect(writes).toHaveLength(3); // 409 never blind retries
+  await relations.getByRole('button',{name:'Boş taslak baskıyı kaldır: Boş Taslak'}).click();
+  await relations.getByRole('button',{name:'İlişkiyi kaldırmayı onayla'}).click();
+  await expect(page.getByTestId('admin-catalog-detail')).not.toContainText('Boş Taslak');
+  await expect(page.getByTestId('admin-catalog-detail')).toContainText('Ana Kanonik Eser');
+  expect(writes).toHaveLength(4);
+  expect(writes.map(item=>item.csrf)).toEqual(Array(4).fill('T'.repeat(43)));
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth))
+    .toBeLessThanOrEqual(1);
+  await page.getByRole('button',{name:'EN',exact:true}).click();
+  await expect(page.getByTestId('admin-work-relations')).toContainText('Draft work relationships');
+});

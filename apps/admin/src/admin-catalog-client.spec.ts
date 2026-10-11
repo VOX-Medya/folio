@@ -4,6 +4,7 @@ import {
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
   removeAdminWorkTitle,removeAdminWorkAuthor,
+  patchAdminWorkTitle,patchAdminWorkAuthorLink,removeAdminEmptyDraftEdition,
   listAdminWorkMatchReviews,proposeAdminWorkMatchReview,decideAdminWorkMatchReview,
   listAdminImportCandidateReviews,proposeAdminImportCandidateReview,
   decideAdminImportCandidateReview,
@@ -694,6 +695,68 @@ describe('incoming package claim client refuses unsafe work import automation',(
     vi.stubGlobal('window',{location:{protocol:'http:'}});
     await expect(listAdminImportCandidateReviews(workId)).rejects
       .toMatchObject({kind:'secure-https'});
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('draft optional relation patch and safe edition removal client',()=>{
+  const titleId='822ab87e-bb66-4a60-a6fb-6675c1dba21b';
+  it('sends strict versioned PATCH/PATCH/DELETE, each with fresh same-origin CSRF',async()=>{
+    const seen:Array<{url:string;method:string;body:unknown;csrf:string|undefined}>=[];
+    const f=vi.fn(async(url:string,opts:RequestInit)=>{
+      if(url==='/v1/auth/web/csrf')return bootstrap();
+      seen.push({url,method:opts.method??'',body:opts.body?JSON.parse(String(opts.body)):null,
+        csrf:(opts.headers as Record<string,string>)?.['x-folio-csrf']});
+      if(opts.method==='PATCH'&&url.endsWith('/titles/'+titleId)){
+        return json({id:titleId,workId,metadataVersion:8});
+      }
+      if(opts.method==='PATCH')return json({workId,authorId,metadataVersion:9});
+      if(opts.method==='DELETE')return json({
+        id:titleId,workId,metadataVersion:10,removed:true,
+      });
+      throw Error('Unexpected browser API call');
+    });
+    vi.stubGlobal('fetch',f);
+    expect(await patchAdminWorkTitle(workId,titleId,{
+      expectedVersion:7,title:'New title',kind:'translation',
+    })).toMatchObject({metadataVersion:8});
+    expect(await patchAdminWorkAuthorLink(workId,authorId,{
+      expectedVersion:8,sortOrder:4,contribution:'co-author',
+    })).toMatchObject({metadataVersion:9});
+    expect(await removeAdminEmptyDraftEdition(workId,titleId,{expectedVersion:9}))
+      .toMatchObject({metadataVersion:10,removed:true});
+    expect(seen.map(s=>s.method)).toEqual(['PATCH','PATCH','DELETE']);
+    expect(seen.map(s=>s.csrf)).toEqual(Array(3).fill('B'.repeat(43)));
+    expect(seen[0]?.body).toEqual({
+      expectedVersion:7,title:'New title',kind:'translation',
+    });
+    expect(seen[2]?.body).toEqual({expectedVersion:9});
+    for(const [,options] of f.mock.calls as unknown as Array<[string,RequestInit]>){
+      expect(options).toMatchObject({
+        mode:'same-origin',credentials:'same-origin',
+        redirect:'error',cache:'no-store',
+      });
+      expect(options.headers).not.toHaveProperty('Authorization');
+      expect(options.headers).not.toHaveProperty('x-user-id');
+      expect(options.headers).not.toHaveProperty('x-admin-role');
+    }
+  });
+  it('rejects canonical original/rights/invalid payloads and does not retry 409',async()=>{
+    const f=vi.fn().mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'CONFLICT'}},409));
+    vi.stubGlobal('fetch',f);
+    await expect(patchAdminWorkTitle(workId,titleId,{
+      expectedVersion:0,kind:'original',
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(patchAdminWorkAuthorLink(workId,authorId,{
+      expectedVersion:0,sortOrder:0,rightsApproved:true,
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(removeAdminEmptyDraftEdition(workId,titleId,{
+      expectedVersion:0,removeAllRevisions:true,
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    await expect(patchAdminWorkAuthorLink(workId,authorId,{
+      expectedVersion:0,sortOrder:2,
+    })).rejects.toMatchObject({kind:'conflict'});
     expect(f).toHaveBeenCalledTimes(2);
   });
 });

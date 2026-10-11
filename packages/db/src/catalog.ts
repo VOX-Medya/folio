@@ -5,11 +5,13 @@ import {
   canonicalWorkMetadataPatchSchema,adminCatalogEditionAppendSchema,
   adminCatalogTitleAppendSchema,adminCatalogWorkAuthorAppendSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogRelationRemoveSchema,
+  adminCatalogTitleMetadataPatchSchema,adminCatalogWorkAuthorMetadataPatchSchema,
 } from '@folio/contracts';
 import type {
   AuthorCreate,WorkCreate,CanonicalAuthorMetadataPatch,CanonicalWorkMetadataPatch,
   AdminCatalogEditionAppend,AdminCatalogTitleAppend,AdminCatalogWorkAuthorAppend,
-  AdminCatalogEditionMetadataPatch,
+  AdminCatalogEditionMetadataPatch,AdminCatalogTitleMetadataPatch,
+  AdminCatalogWorkAuthorMetadataPatch,
 } from '@folio/contracts';
 import type {createFolioDb} from './index.js';
 import {withVerifiedAdminPermission} from './admin-authorization.js';
@@ -457,6 +459,158 @@ export async function appendVerifiedAdminWorkAuthor(
   });
 }
 
+
+
+/** Edit ONLY the optional title row. Work original title is stored separately,
+ * cannot be edited via this endpoint, and its relation is immutable here.
+ * This is not translation TEXT editing. */
+export async function patchVerifiedAdminWorkTitleMetadata(
+  db:CatalogDb,bearer:string,workId:string,titleId:string,raw:unknown,
+  requestId:string,
+){
+  const id=z.uuid().parse(workId),tid=z.uuid().parse(titleId),
+    traceId=z.uuid().parse(requestId);
+  const input:AdminCatalogTitleMetadataPatch=
+    adminCatalogTitleMetadataPatchSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const rev=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!rev)return null;
+    const [before]=await tx.select({
+      id:schema.workTitles.id,workId:schema.workTitles.workId,
+      title:schema.workTitles.title,language:schema.workTitles.language,
+      kind:schema.workTitles.kind,
+    }).from(schema.workTitles).where(and(
+      eq(schema.workTitles.id,tid),eq(schema.workTitles.workId,id),
+    )).limit(1).for('update');
+    if(!before)return null;
+    if(before.kind==='original'){
+      throw new Error('Canonical original title cannot be edited through optional title editor');
+    }
+    const next={title:input.title??before.title,
+      language:input.language??before.language,kind:input.kind??before.kind};
+    const [updated]=await tx.update(schema.workTitles).set(next).where(and(
+      eq(schema.workTitles.id,tid),eq(schema.workTitles.workId,id),
+    )).returning({id:schema.workTitles.id});
+    if(!updated)throw new Error('Title relation changed during update');
+    await advanceDraftWorkVersion(tx,id,rev.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'work.title.metadata.update',entityType:'work',entityId:id,
+      beforeJson:{workMetadataVersion:rev.oldVersion,titleId:tid,
+        title:before.title,language:before.language,kind:before.kind},
+      afterJson:{workMetadataVersion:rev.newVersion,titleId:tid,...next},
+    });
+    return {id:tid,workId:id,metadataVersion:rev.newVersion};
+  });
+}
+
+/** A contributor cannot silently demote the last real author to editor.
+ * Sort/role changes never mutate the referenced canonical author itself. */
+export async function patchVerifiedAdminWorkAuthorMetadata(
+  db:CatalogDb,bearer:string,workId:string,authorId:string,raw:unknown,
+  requestId:string,
+){
+  const id=z.uuid().parse(workId),aid=z.uuid().parse(authorId),
+    traceId=z.uuid().parse(requestId);
+  const input:AdminCatalogWorkAuthorMetadataPatch=
+    adminCatalogWorkAuthorMetadataPatchSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const rev=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!rev)return null;
+    const links=await tx.select({
+      authorId:schema.workAuthors.authorId,
+      contribution:schema.workAuthors.contribution,
+      sortOrder:schema.workAuthors.sortOrder,
+    }).from(schema.workAuthors)
+      .where(eq(schema.workAuthors.workId,id))
+      .orderBy(asc(schema.workAuthors.authorId)).for('update');
+    const before=links.find(item=>item.authorId===aid);
+    if(!before)return null;
+    const next={contribution:input.contribution??before.contribution,
+      sortOrder:input.sortOrder??before.sortOrder};
+    const projected=links.map(link=>link.authorId===aid?{...link,...next}:link);
+    if(!projected.some(link=>link.contribution==='author'||
+      link.contribution==='co-author')){
+      throw new Error('Last canonical author cannot be demoted to editor');
+    }
+    const [updated]=await tx.update(schema.workAuthors).set(next).where(and(
+      eq(schema.workAuthors.workId,id),eq(schema.workAuthors.authorId,aid),
+    )).returning({authorId:schema.workAuthors.authorId});
+    if(!updated)throw new Error('Author relation changed during update');
+    await advanceDraftWorkVersion(tx,id,rev.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'work.author.metadata.update',entityType:'work',entityId:id,
+      beforeJson:{workMetadataVersion:rev.oldVersion,authorId:aid,
+        contribution:before.contribution,sortOrder:before.sortOrder},
+      afterJson:{workMetadataVersion:rev.newVersion,authorId:aid,...next},
+    });
+    return {workId:id,authorId:aid,metadataVersion:rev.newVersion};
+  });
+}
+
+/** Remove ONLY an empty DRAFT edition's bibliographic shell. Source revisions,
+ * rights, private media and any content dependencies are never removed.
+ * Database RESTRICT FKs remain a final concurrent-insertion safeguard. */
+export async function removeVerifiedAdminEmptyDraftEdition(
+  db:CatalogDb,bearer:string,workId:string,editionId:string,raw:unknown,
+  requestId:string,
+){
+  const id=z.uuid().parse(workId),eid=z.uuid().parse(editionId),
+    traceId=z.uuid().parse(requestId);
+  const input=adminCatalogRelationRemoveSchema.parse(raw);
+  return withVerifiedAdminPermission(db,bearer,'catalog:edit',async(tx,who)=>{
+    const rev=await verifiedDraftWorkForAppend(tx,id,input.expectedVersion);
+    if(!rev)return null;
+    const [edition]=await tx.select({
+      id:schema.editions.id,workId:schema.editions.workId,
+      language:schema.editions.language,label:schema.editions.label,
+      publisher:schema.editions.publisher,status:schema.editions.status,
+    }).from(schema.editions).where(and(
+      eq(schema.editions.id,eid),eq(schema.editions.workId,id),
+    )).limit(1).for('update');
+    if(!edition)return null;
+    if(edition.status!=='draft'){
+      throw new Error('Published canonical edition is immutable via draft editor');
+    }
+    const [revision]=await tx.select({id:schema.contentRevisions.id})
+      .from(schema.contentRevisions)
+      .where(eq(schema.contentRevisions.editionId,eid)).limit(1);
+    const [rights]=await tx.select({id:schema.rightsRecords.id})
+      .from(schema.rightsRecords)
+      .where(eq(schema.rightsRecords.editionId,eid)).limit(1);
+    if(revision||rights)throw new Error('Edition with source revisions or rights cannot be removed');
+    const identifiers=await tx.select({
+      kind:schema.editionIdentifiers.kind,value:schema.editionIdentifiers.value,
+    }).from(schema.editionIdentifiers)
+      .where(eq(schema.editionIdentifiers.editionId,eid))
+      .orderBy(asc(schema.editionIdentifiers.kind),asc(schema.editionIdentifiers.value));
+    const contributors=await tx.select({
+      authorId:schema.editionContributors.authorId,
+      role:schema.editionContributors.role,
+      sortOrder:schema.editionContributors.sortOrder,
+    }).from(schema.editionContributors)
+      .where(eq(schema.editionContributors.editionId,eid))
+      .orderBy(asc(schema.editionContributors.role),
+        asc(schema.editionContributors.authorId));
+    await tx.delete(schema.editionIdentifiers).where(eq(schema.editionIdentifiers.editionId,eid));
+    await tx.delete(schema.editionContributors).where(eq(schema.editionContributors.editionId,eid));
+    const removed=await tx.delete(schema.editions).where(and(
+      eq(schema.editions.id,eid),eq(schema.editions.workId,id),
+    )).returning({id:schema.editions.id});
+    if(removed.length!==1)throw new Error('Edition changed during removal');
+    await advanceDraftWorkVersion(tx,id,rev.newVersion);
+    await tx.insert(schema.auditEvents).values({
+      actorId:who.userId,requestId:traceId,
+      action:'edition.empty_draft.remove',entityType:'edition',entityId:eid,
+      beforeJson:{workId:id,workMetadataVersion:rev.oldVersion,...edition,
+        identifiers,contributors},
+      afterJson:{workId:id,workMetadataVersion:rev.newVersion,
+        removed:true,sourceRevisionsRemoved:false,rightsRemoved:false},
+    });
+    return {id:eid,workId:id,metadataVersion:rev.newVersion,removed:true as const};
+  });
+}
 
 /**
  * Remove a mistaken OPTIONAL title relation from a DRAFT work.

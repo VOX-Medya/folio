@@ -272,6 +272,34 @@ export const adminCatalogWorkAuthorAppendSchema=z.object({
 export type AdminCatalogEditionAppend=z.infer<typeof adminCatalogEditionAppendSchema>;
 export type AdminCatalogTitleAppend=z.infer<typeof adminCatalogTitleAppendSchema>;
 export type AdminCatalogWorkAuthorAppend=z.infer<typeof adminCatalogWorkAuthorAppendSchema>;
+/** Strict versioned edits to optional DRAFT work relations.
+ * ORIGINAL title and last real author are protected by DB-side checks. */
+export const adminCatalogTitleMetadataPatchSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  title:z.string().trim().min(1).max(600).optional(),
+  language:z.enum(['tr','en']).optional(),
+  kind:z.enum(['alternate','translation']).optional(),
+}).strict().superRefine((v,ctx)=>{
+  if(v.title===undefined&&v.language===undefined&&v.kind===undefined){
+    ctx.addIssue({code:'custom',message:'Optional title change required'});
+  }
+});
+export const adminCatalogWorkAuthorMetadataPatchSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+  contribution:z.enum(['author','co-author','editor']).optional(),
+  sortOrder:z.number().int().min(0).max(10000).optional(),
+}).strict().superRefine((v,ctx)=>{
+  if(v.contribution===undefined&&v.sortOrder===undefined){
+    ctx.addIssue({code:'custom',message:'Author relation change required'});
+  }
+});
+export type AdminCatalogTitleMetadataPatch=z.infer<typeof adminCatalogTitleMetadataPatchSchema>;
+export type AdminCatalogWorkAuthorMetadataPatch=z.infer<typeof adminCatalogWorkAuthorMetadataPatchSchema>;
+export const adminCatalogEditionRemovedSchema=z.object({
+  id:z.uuid(),workId:z.uuid(),metadataVersion:metadataVersionSchema,
+  removed:z.literal(true),
+}).strict();
+
 /** Removal only affects a DRAFT work's optional title/author link. */
 export const adminCatalogRelationRemoveSchema=z.object({
   expectedVersion:expectedMetadataVersionSchema,

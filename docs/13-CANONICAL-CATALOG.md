@@ -81,3 +81,13 @@ Gerçek Folio-only `folio_test` PostgreSQL ve geçici HTTPS deneyi `admin-catalo
 ## İki bağımsız editörlü kanonik eser kimlik incelemesi (#12, kısmi)
 
 Mevcut iki **taslak** eserin metadata/hash karşılaştırması için yetkili MFA/CSRF korumalı `match-reviews` GET/POST/PATCH ekranı ve ileri-yönlü `0019_canonical_work_match_review.sql` inceleme kaydı eklendi. İkinci, farklı yönetici `distinct` veya `deferred` kararı verir; aynı editör kendi önerisini onaylayamaz. Sunucu UUID sırası, kanıt fingerprint/sürüm eşleşmesi, `FOR SHARE` katalog ve `FOR UPDATE` review kilitleri, tek transaction audit, 409 çakışması ve tekrar eden öneri idempotency koşullarını uygular. Hiçbir karar kitap birleştirme, hak onayı veya katalog yayını gerçekleştirmez. Ayrıntılı sınırlar ve kanıt: `docs/58-CANONICAL-WORK-MATCH-REVIEW.md`. #12 **AÇIK**.
+
+## Taslak ilişki metadata tamamlama (#12, kısmi)
+
+Yalnız **DRAFT** kanonik eserlerde ve doğrudan uygulama HTTPS + canlı DB oturum/MFA + `catalog:edit` + web exact-origin/HMAC-CSRF koşulları altında yeni üç işlem bulunur:
+
+- `PATCH /v1/admin/catalog/works/:workId/titles/:titleId`: yalnız `alternate/translation` başlık ilişkisi için ad, dil veya başlık türü düzenlenebilir. Kanonik `kind=original` ilişki reddedilir; çevrilmiş **kaynak metin**, telif ve eser UUID'si değişmez.
+- `PATCH /v1/admin/catalog/works/:workId/authors/:authorId`: var olan yazar bağının `author/co-author/editor` rolü veya sırası düzenlenebilir. Son gerçek `author/co-author` editörlüğe düşürülemez; yazar kaydı veya diğer eser bağlantısı değişmez.
+- `DELETE /v1/admin/catalog/works/:workId/editions/:editionId`: **yalnız boş DRAFT baskı metadata kabuğu** (ISBN ve katkı veren bağlantıları dahil) kaldırılabilir. Baskıya bağlı `content_revisions` **veya** `rights_records` varsa 409; ilave FK RESTRICT kuralları silmeyi güvenli biçimde durdurur. Korunan kaynak, ses, hak ve kullanıcı konumu asla toplu silinmez. Yanıtta yalnız `removed:true`, UUID ve artan parent work `metadataVersion` vardır.
+
+Üç işlem de gerçek eser satırını `FOR UPDATE` kilitler, `expectedVersion` ile eşzamanlı yazmaları sıralar, iş/bağlantı değişikliği + güvenilir oturum sahibi, server request-id ve before/after audit'i **tek PostgreSQL transaction** içinde tutar. İstemci iki aşamalı baskı silme onayı ve belirsiz ağ/409 sonrası explicit reload uygular; otomatik DELETE tekrarı yapmaz. TR/EN Paperbound admin 390px testine eklenmiştir. İlgili şema `docs/api/openapi.v1.json` içinde güncellenmiştir. V1 #12, eksik diğer kabul koşulları sebebiyle hâlâ AÇIK; bu metin completed onayı değildir.

@@ -15,6 +15,8 @@ import {
   patchVerifiedAdminWorkMetadata,appendVerifiedAdminWorkEdition,
   appendVerifiedAdminWorkTitle,appendVerifiedAdminWorkAuthor,
   removeVerifiedAdminWorkTitle,removeVerifiedAdminWorkAuthor,
+  patchVerifiedAdminWorkTitleMetadata,patchVerifiedAdminWorkAuthorMetadata,
+  removeVerifiedAdminEmptyDraftEdition,
   patchVerifiedAdminEditionMetadata,getVerifiedAdminRevisionMetadataDiff,
   getVerifiedAdminEditionRevisions,getVerifiedAdminRightsLedger,
   searchVerifiedAdminAuthors,searchVerifiedAdminWorks,
@@ -35,7 +37,8 @@ import {
   adminCatalogWorkAuthorAppendSchema,adminCatalogEditionAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
-  adminCatalogRelationRemoveSchema,
+  adminCatalogRelationRemoveSchema,adminCatalogTitleMetadataPatchSchema,
+  adminCatalogWorkAuthorMetadataPatchSchema,adminCatalogEditionRemovedSchema,
   adminWorkMatchProposeSchema,adminWorkMatchDecisionSchema,
   adminWorkMatchQuerySchema,adminWorkMatchResultSchema,
   adminWorkMatchPageSchema,
@@ -118,6 +121,9 @@ export class AdminCatalogDb implements OnModuleDestroy {
         'Published canonical edition is immutable via draft editor',
         'Canonical original title cannot be unlinked',
         'Last canonical author link cannot be removed',
+        'Last canonical author cannot be demoted to editor',
+        'Canonical original title cannot be edited through optional title editor',
+        'Edition with source revisions or rights cannot be removed',
         'Canonical work match review is stale or unavailable',
         'Import candidate review stale or evidence unavailable',
         'Incoming claim does not match canonical title or source digest',
@@ -226,6 +232,18 @@ export class AdminCatalogDb implements OnModuleDestroy {
   }
   decideImportCandidateReview(bearer:string,id:string,reviewId:string,input:unknown,trace:string){
     return this.authorized(()=>decideVerifiedAdminImportCandidateReview(this.db(),bearer,id,reviewId,input,trace));
+  }
+  patchTitle(bearer:string,workId:string,titleId:string,input:unknown,trace:string){
+    return this.authorized(()=>
+      patchVerifiedAdminWorkTitleMetadata(this.db(),bearer,workId,titleId,input,trace));
+  }
+  patchAuthorLink(bearer:string,workId:string,authorId:string,input:unknown,trace:string){
+    return this.authorized(()=>
+      patchVerifiedAdminWorkAuthorMetadata(this.db(),bearer,workId,authorId,input,trace));
+  }
+  removeEmptyEdition(bearer:string,workId:string,editionId:string,input:unknown,trace:string){
+    return this.authorized(()=>
+      removeVerifiedAdminEmptyDraftEdition(this.db(),bearer,workId,editionId,input,trace));
   }
   async onModuleDestroy():Promise<void>{await this.connection?.pool.end();}
 }
@@ -619,6 +637,34 @@ const appendAuthorBodyApi={
     authorId:detailUuidApi,
     contribution:{type:'string',enum:['author','co-author','editor'],default:'author'},
     sortOrder:{type:'integer',minimum:0,maximum:10000,default:0},
+  },
+};
+const patchOptionalTitleBodyApi={
+  type:'object',additionalProperties:false,required:['expectedVersion'],
+  anyOf:[{required:['title']},{required:['language']},{required:['kind']}],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    title:{type:'string',minLength:1,maxLength:600},
+    language:{type:'string',enum:['tr','en']},
+    kind:{type:'string',enum:['alternate','translation']},
+  },
+};
+const patchWorkAuthorBodyApi={
+  type:'object',additionalProperties:false,required:['expectedVersion'],
+  anyOf:[{required:['contribution']},{required:['sortOrder']}],
+  properties:{
+    expectedVersion:{type:'integer',minimum:0,maximum:2147483646},
+    contribution:{type:'string',enum:['author','co-author','editor']},
+    sortOrder:{type:'integer',minimum:0,maximum:10000},
+  },
+};
+const removeEmptyEditionResultApi={
+  type:'object',additionalProperties:false,
+  required:['id','workId','metadataVersion','removed'],
+  properties:{
+    id:detailUuidApi,workId:detailUuidApi,
+    metadataVersion:{type:'integer',minimum:0},
+    removed:{type:'boolean',enum:[true]},
   },
 };
 const matchReviewProposeApi={
@@ -1133,6 +1179,84 @@ export class AdminCatalogController {
       token,workId.data,authorId.data,parsed.data,this.trace(request));
     if(!removed)throw new NotFoundException('Draft work-author relation not found');
     return adminCatalogWorkAuthorAppendedSchema.parse(removed);
+  }
+
+  @Patch('works/:workId/titles/:titleId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; versioned OPTIONAL title metadata update, original forbidden, audited'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'titleId',type:String,format:'uuid'})
+  @ApiBody({schema:patchOptionalTitleBodyApi})
+  @ApiOkResponse({schema:appendTitleResultApi})
+  async patchTitle(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawWorkId:string,@Param('titleId') rawTitleId:string,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      titleId=adminCatalogIdSchema.safeParse(rawTitleId),
+      input=adminCatalogTitleMetadataPatchSchema.safeParse(raw);
+    if(!workId.success||!titleId.success||!input.success){
+      throw new BadRequestException('Invalid optional title metadata patch');
+    }
+    const token=await this.bearer(request);
+    const result=await this.store.patchTitle(
+      token,workId.data,titleId.data,input.data,this.trace(request));
+    if(!result)throw new NotFoundException('Optional title not found');
+    return adminCatalogTitleAppendedSchema.parse(result);
+  }
+
+  @Patch('works/:workId/authors/:authorId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; reorder/change DRAFT author role, last true author protected'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'authorId',type:String,format:'uuid'})
+  @ApiBody({schema:patchWorkAuthorBodyApi})
+  @ApiOkResponse({schema:appendAuthorResultApi})
+  async patchAuthorLink(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawWorkId:string,@Param('authorId') rawAuthorId:string,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      authorId=adminCatalogIdSchema.safeParse(rawAuthorId),
+      input=adminCatalogWorkAuthorMetadataPatchSchema.safeParse(raw);
+    if(!workId.success||!authorId.success||!input.success){
+      throw new BadRequestException('Invalid author relation patch');
+    }
+    const token=await this.bearer(request);
+    const result=await this.store.patchAuthorLink(
+      token,workId.data,authorId.data,input.data,this.trace(request));
+    if(!result)throw new NotFoundException('Author relation not found');
+    return adminCatalogWorkAuthorAppendedSchema.parse(result);
+  }
+
+  @Delete('works/:workId/editions/:editionId')
+  @UseGuards(AdminCatalogWriteGuard)
+  @Header('Cache-Control','private, no-store')
+  @ApiOperation({summary:'MFA/RBAC catalog:edit; remove EMPTY DRAFT edition only, never revisions or rights, audited'})
+  @ApiParam({name:'workId',type:String,format:'uuid'})
+  @ApiParam({name:'editionId',type:String,format:'uuid'})
+  @ApiBody({schema:removeRelationBodyApi})
+  @ApiOkResponse({schema:removeEmptyEditionResultApi})
+  async removeEmptyEdition(@Req() request:CatalogRequest,
+    @Query() query:Record<string,unknown>,
+    @Param('workId') rawWorkId:string,@Param('editionId') rawEditionId:string,
+    @Body() raw:unknown){
+    this.rejectWriteQuery(query);
+    const workId=adminCatalogIdSchema.safeParse(rawWorkId),
+      editionId=adminCatalogIdSchema.safeParse(rawEditionId),
+      input=adminCatalogRelationRemoveSchema.safeParse(raw);
+    if(!workId.success||!editionId.success||!input.success){
+      throw new BadRequestException('Invalid empty draft edition removal');
+    }
+    const token=await this.bearer(request);
+    const result=await this.store.removeEmptyEdition(
+      token,workId.data,editionId.data,input.data,this.trace(request));
+    if(!result)throw new NotFoundException('Draft edition not found');
+    return adminCatalogEditionRemovedSchema.parse(result);
   }
 
   @Get('works/:workId/match-reviews')
