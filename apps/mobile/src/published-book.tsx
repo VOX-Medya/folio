@@ -17,9 +17,9 @@ const copy={
     notFound:'Bu eser yayımlanmamış, geri çekilmiş veya bulunduğun bölgede kullanılamıyor.',
     error:'Katalog bilgileri alınamadı. Bağlantını kontrol edip tekrar dene.',
     author:'Yazar',edition:'Baskı',language:'Dil',
-    audio:'Hazır ses',audioYes:'Hazır ses kaydı mevcut; oynatıcı geliştirme aşamasında.',
+    audio:'Hazır ses',audioYes:'Onaylı ses kaydı mevcut. HTTPS web okuyucusundan Hazır ses modunu aç.',
     audioNo:'Bu baskı için yayımlanmış bir ses kaydı yok.',
-    read:'Okuma ekranına geç',retry:'Yeniden dene',notReady:'Ses oynatma henüz etkin değil.',
+    read:'Okuma ekranına geç',retry:'Yeniden dene',notReady:'Android/iOS ses oynatma henüz doğrulanmadı.',
   },
   en:{
     loading:'Loading published book information…',
@@ -27,9 +27,9 @@ const copy={
     notFound:'This book is unpublished, withdrawn or unavailable in your region.',
     error:'Book details could not be loaded. Check your connection and retry.',
     author:'Author',edition:'Edition',language:'Language',
-    audio:'Prepared audio',audioYes:'Prepared audio exists; playback is still in development.',
+    audio:'Prepared audio',audioYes:'Approved audio is available. Open Prepared audio mode in the HTTPS web reader.',
     audioNo:'No published audio recording is available for this edition.',
-    read:'Open reading screen',retry:'Retry',notReady:'Audio playback is not enabled yet.',
+    read:'Open reading screen',retry:'Retry',notReady:'Android/iOS playback has not yet been verified.',
   },
 };
 

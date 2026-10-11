@@ -5323,6 +5323,54 @@
         ]
       }
     },
+    "/v1/catalog/audio/{revisionId}/{chapterId}": {
+      "get": {
+        "operationId": "PublishedCatalogController_audio",
+        "parameters": [
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "revisionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded audio bytes (HTTP Range supported)",
+            "content": {
+              "audio/ogg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "audio/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Approved prepared audio bytes with current display and audio territory rights",
+        "tags": [
+          "public-catalog"
+        ]
+      }
+    },
     "/v1/catalog/reader/{revisionId}": {
       "get": {
         "operationId": "PublishedCatalogController_reader",

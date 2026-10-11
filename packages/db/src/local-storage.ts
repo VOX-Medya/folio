@@ -575,6 +575,50 @@ export class LocalStorageAdapter implements StorageAdapter {
     }finally{await handle.close();}
   }
 
+  /**
+   * #35 Read only a DB-authorized, published, catalog-owned audio asset.
+   * The caller MUST have just verified publication and three-scope audio rights.
+   * Returns bytes, never a vault path or URL, and rechecks inode+digest on
+   * EVERY media request. One small prepared chapter is capped at 16 MiB.
+   */
+  async readVerifiedCatalogAudio(record:{
+    scope:'catalog';ownerUserId:null;status:'verified';key:string;
+    sha256:string;sizeBytes:number;mime:'audio/ogg'|'audio/mp4';
+  }):Promise<Buffer>{
+    const owner=ownerSchema.parse({scope:record.scope,ownerUserId:record.ownerUserId});
+    requireBlobKey(record.key);
+    requireSha256(record.sha256);
+    ensureLimit(record.sizeBytes);
+    if(owner.scope!=='catalog'||record.status!=='verified'||
+      !['audio/ogg','audio/mp4'].includes(record.mime)||record.sizeBytes>16*1024*1024){
+      throw new Error('Published catalog audio claim rejected');
+    }
+    const dir=await this.ensurePrivateDirectories(this.ownerSegments(owner));
+    const filename=join(dir,record.key+'.blob');
+    const handle=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+    try{
+      const before=await handle.stat();
+      const safe=(s:typeof before)=>s.isFile()&&s.nlink===1&&
+        s.size===record.sizeBytes&&(s.mode&0o777)===0o600&&
+        (typeof process.getuid!=='function'||s.uid===process.getuid());
+      if(!safe(before))throw new Error('Unsafe published audio inode');
+      const bytes=await handle.readFile();
+      if(bytes.length!==record.sizeBytes||
+         createHash('sha256').update(bytes).digest('hex')!==record.sha256){
+        throw new Error('Published audio digest mismatch');
+      }
+      const after=await handle.stat(),pathState=await lstat(filename);
+      if(!safe(after)||!pathState.isFile()||pathState.isSymbolicLink()||
+         after.ino!==before.ino||after.dev!==before.dev||
+         after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||
+         pathState.ino!==before.ino||pathState.dev!==before.dev||
+         pathState.mtimeMs!==before.mtimeMs||pathState.ctimeMs!==before.ctimeMs){
+        throw new Error('Published audio changed while reading');
+      }
+      return bytes;
+    }finally{await handle.close();}
+  }
+
   async inspectQuarantined(record:QuarantinedBlob):Promise<{sha256:string;sizeBytes:number}>{
     const owner=ownerSchema.parse(record);
     requireBlobKey(record.key);

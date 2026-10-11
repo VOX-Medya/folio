@@ -5,6 +5,7 @@ import {fetchPublishedReaderText,PublishedReaderHttpError} from '@folio/contract
 import type {PublishedReaderText} from '@folio/contracts';
 import type {FolioLocale} from './shell-data';
 import {RsvpPlayer} from './rsvp-player';
+import {PreparedAudioPlayer} from './prepared-audio-player';
 
 declare const process:{env:{EXPO_PUBLIC_FOLIO_CATALOG_ORIGIN?:string}};
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
@@ -19,7 +20,7 @@ const copy={
     retry:'Yeniden yükle',previous:'Önceki bölüm',next:'Sonraki bölüm',
     fontDown:'Yazıyı küçült',fontUp:'Yazıyı büyüt',theme:'Okuma teması',
     system:'Sistem',light:'Açık',dark:'Koyu',chapter:'Bölüm',
-    normal:'Normal okuma',rsvp:'RSVP akışı',
+    normal:'Normal okuma',rsvp:'RSVP akışı',audio:'Hazır ses',
     location:'Son okuma konumu henüz sunucuya kaydedilmiyor.',
   },
   en:{
@@ -30,7 +31,7 @@ const copy={
     retry:'Reload',previous:'Previous chapter',next:'Next chapter',
     fontDown:'Decrease font size',fontUp:'Increase font size',theme:'Reader theme',
     system:'System',light:'Light',dark:'Dark',chapter:'Chapter',
-    normal:'Normal reading',rsvp:'RSVP stream',
+    normal:'Normal reading',rsvp:'RSVP stream',audio:'Prepared audio',
     location:'Last reading position is not yet saved to the server.',
   },
 } as const;
@@ -55,7 +56,7 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
   const [chapterIndex,setChapterIndex]=useState(0);
   const [fontSize,setFontSize]=useState(18);
   const [theme,setTheme]=useState<ReaderTheme>('system');
-  const [mode,setMode]=useState<'normal'|'rsvp'>('normal');
+  const [mode,setMode]=useState<'normal'|'rsvp'|'audio'>('normal');
   const [retry,setRetry]=useState(0);
   const palette=theme==='system'?colors:theme==='dark'?paperbound.mobile.dark:paperbound.mobile.light;
   useEffect(()=>{
@@ -146,6 +147,13 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
             backgroundColor:mode==='rsvp'?palette.tint:palette.surface}}>
           <Text style={{color:palette.ink,fontWeight:'600'}}>{t.rsvp}</Text>
         </Pressable>
+        <Pressable testID="folio-reader-mode-audio" accessibilityRole="button"
+          accessibilityLabel={t.audio} onPress={()=>setMode('audio')}
+          style={{minHeight:48,paddingHorizontal:14,justifyContent:'center',
+            borderRadius:9,borderColor:palette.line,borderWidth:1,
+            backgroundColor:mode==='audio'?palette.tint:palette.surface}}>
+          <Text style={{color:palette.ink,fontWeight:'600'}}>{t.audio}</Text>
+        </Pressable>
       </View>
       <Text testID="folio-reader-chapter-title" accessibilityRole="header"
         style={{color:palette.ink,fontSize:22,fontWeight:'700',lineHeight:31}}>
@@ -159,7 +167,12 @@ export function PublishedReaderPanel({revisionId,locale,colors}:{
             {block.text}
           </Text>)}
         </View>
-        : <RsvpPlayer key={chapter.id} blocks={chapter.blocks} locale={locale} colors={palette}/>}
+        : mode==='rsvp'
+          ? <RsvpPlayer key={chapter.id} blocks={chapter.blocks} locale={locale} colors={palette}/>
+          : <PreparedAudioPlayer key={chapter.id} origin={origin??''}
+              revisionId={revisionId} chapterId={chapter.id} locale={locale} colors={palette}
+              hasNext={chapterIndex<book.chapters.length-1}
+              onNext={()=>setChapterIndex(n=>Math.min(book.chapters.length-1,n+1))}/>}
 
       <View style={{gap:10,flexDirection:'row',flexWrap:'wrap'}}>
         <Pressable testID="folio-reader-prev" accessibilityRole="button"
