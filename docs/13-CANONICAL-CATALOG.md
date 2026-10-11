@@ -91,3 +91,7 @@ Yalnız **DRAFT** kanonik eserlerde ve doğrudan uygulama HTTPS + canlı DB otur
 - `DELETE /v1/admin/catalog/works/:workId/editions/:editionId`: **yalnız boş DRAFT baskı metadata kabuğu** (ISBN ve katkı veren bağlantıları dahil) kaldırılabilir. Baskıya bağlı `content_revisions` **veya** `rights_records` varsa 409; ilave FK RESTRICT kuralları silmeyi güvenli biçimde durdurur. Korunan kaynak, ses, hak ve kullanıcı konumu asla toplu silinmez. Yanıtta yalnız `removed:true`, UUID ve artan parent work `metadataVersion` vardır.
 
 Üç işlem de gerçek eser satırını `FOR UPDATE` kilitler, `expectedVersion` ile eşzamanlı yazmaları sıralar, iş/bağlantı değişikliği + güvenilir oturum sahibi, server request-id ve before/after audit'i **tek PostgreSQL transaction** içinde tutar. İstemci iki aşamalı baskı silme onayı ve belirsiz ağ/409 sonrası explicit reload uygular; otomatik DELETE tekrarı yapmaz. TR/EN Paperbound admin 390px testine eklenmiştir. İlgili şema `docs/api/openapi.v1.json` içinde güncellenmiştir. V1 #12, eksik diğer kabul koşulları sebebiyle hâlâ AÇIK; bu metin completed onayı değildir.
+
+## Gerçek HTTPS + PostgreSQL + Chrome kabul bağlantısı (#12, kısmi)
+
+Katalog ilişki CRUD için sadece tarayıcıda mock API değil, canlı NestJS HTTPS + Folio-only PostgreSQL ile aynı Chrome E2E koşusunda auth/RBAC, iki ayrı MFA oturumu, sürüm çakışması, manuel reload, düzenleme, iki aşamalı silme ve aktörlü audit doğrulaması eklendi. Tam çalışma ve sınırlar: `docs/61-LIVE-ADMIN-CATALOG-E2E.md`. V1 #12 kapanışının diğer maddeleri hâlâ açık.
