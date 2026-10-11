@@ -3,8 +3,8 @@ import {mobileSections,screenCopy} from './shell-data';
 
 describe('Folio V1 mobile navigation policy',()=>{
   it('includes only V1 book, library, reader and personal sections',()=>{
-    expect(mobileSections.map(section=>section.id)).toEqual(['home','library','catalog','goals','profile']);
-    expect(mobileSections.map(section=>section.href)).toEqual(['/','/library','/catalog','/goals','/profile']);
+    expect(mobileSections.map(section=>section.id)).toEqual(['home','library','catalog','profile']);
+    expect(mobileSections.map(section=>section.href)).toEqual(['/','/library','/catalog','/profile']);
     expect(new Set(mobileSections.map(section=>section.href)).size).toBe(mobileSections.length);
     expect(mobileSections.some(section=>/user-search|people|friend-suggestion|ai|generate/i.test(section.href))).toBe(false);
   });

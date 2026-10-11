@@ -1,2 +1,4 @@
-import {MobileShell} from '../src/mobile-shell';
-export default function Goals(){return <MobileShell section="goals"/>;}
+import {Redirect} from 'expo-router';
+
+/** Goals and analytics are AFTER-MVP (#42), not an active user flow. */
+export default function DeferredGoals(){return <Redirect href="/"/>;}

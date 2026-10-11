@@ -7,8 +7,8 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {paperbound,responsiveMode,spacing,typography} from '@folio/ui-tokens';
 import type {ResponsiveMode} from '@folio/ui-tokens';
-import {mobileSections,screenCopy} from './shell-data';
-import type {FolioLocale,MobileSection} from './shell-data';
+import {mobileSections,readingRouteCopy,screenCopy,validReadingRouteId} from './shell-data';
+import type {FolioLocale,MobileSection,ReadingRouteKind} from './shell-data';
 import {WebSignInPanel} from './web-sign-in';
 
 interface Settings {locale:FolioLocale;setLocale:(next:FolioLocale)=>void;}
@@ -107,13 +107,15 @@ function LanguageSwitch({colors}:{colors:Palette}){
     })}
   </View>;
 }
-export function MobileShell({section}:{section:MobileSection}){
+export function MobileShell({section,route}:{section:MobileSection;route?:{kind:ReadingRouteKind;id:unknown}}){
   const {locale,setLocale}=useSettings();
   const {width}=useWindowDimensions();
   const mode=responsiveMode(Math.max(0,width));
   const scheme=useColorScheme();
   const colors=scheme==='dark'?paperbound.mobile.dark:paperbound.mobile.light;
-  const screen=screenCopy[section][locale];
+  const routeScreen=route?readingRouteCopy[route.kind][locale]:null;
+  const screen=routeScreen??screenCopy[section][locale];
+  const validId=route?validReadingRouteId(route.id):false;
   return <SafeAreaView style={{flex:1,backgroundColor:colors.bg}}>
     <View testID={'folio-layout-'+mode}
       style={{flex:1,flexDirection:mode==='desktop'?'row':'column',
@@ -152,13 +154,37 @@ export function MobileShell({section}:{section:MobileSection}){
               </Text>
               <View style={{backgroundColor:colors.bg,alignSelf:'stretch',gap:12}}>
                 <Text style={{fontSize:16,lineHeight:25,color:colors.ink}}>
-                  {screen.message}
+                  {route&&!validId?routeScreen?.invalid:screen.message}
                 </Text>
                 <Text style={{fontSize:14,lineHeight:23,color:colors.accessibleMuted}}>
                   {screen.detail}
                 </Text>
               </View>
-              {section==='profile'
+              {route
+                ? <View testID={validId?'folio-'+route.kind+'-route':'folio-invalid-reading-route'}
+                    style={{backgroundColor:colors.surface,borderColor:colors.line,
+                      borderWidth:1,borderRadius:18,padding:20,gap:14}}>
+                  <Text testID="folio-reading-route-notice"
+                    style={{fontSize:15,lineHeight:23,color:colors.accessibleMuted}}>
+                    {validId
+                      ?locale==='tr'
+                        ?'Bu rota henüz kitap veya özel okuma verisi yüklemez.'
+                        :'This route does not load book or private reading data yet.'
+                      :locale==='tr'?'Bağlantı kimliği doğrulanamadı.':'The link identifier is invalid.'}
+                  </Text>
+                  <Link href="/catalog" asChild>
+                    <Pressable testID="folio-route-return" accessibilityRole="link"
+                      accessibilityLabel={routeScreen?.back}
+                      style={{minHeight:48,minWidth:150,alignSelf:'flex-start',
+                        backgroundColor:colors.accent,borderRadius:10,
+                        paddingHorizontal:20,justifyContent:'center',alignItems:'center'}}>
+                      <Text style={{fontWeight:'700',fontSize:15,color:colors.accentOn}}>
+                        {routeScreen?.back}
+                      </Text>
+                    </Pressable>
+                  </Link>
+                </View>
+                : section==='profile'
                 ? <WebSignInPanel locale={locale} colors={colors} onLocaleSaved={setLocale}/>
                 : <View style={{backgroundColor:colors.surface,borderColor:colors.line,
                     borderWidth:1,borderRadius:18,padding:20,gap:10}}>
