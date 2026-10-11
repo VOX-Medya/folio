@@ -20,7 +20,7 @@ for(const width of [390,1024]){
     await back.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/catalog$/);
-    await expect(page.getByText('Book and author search is not enabled yet.')).toBeVisible();
+    await expect(page.getByText('Search published books and authors.')).toBeVisible();
   });
 }
 
