@@ -597,3 +597,16 @@ export const importCandidateReviews=pgTable('import_candidate_reviews',{
       ${t.proposedBy}<>${t.reviewedBy})
   )`),
 ]);
+
+/** MVP only: personal bookshelf. Reading block/cursor is a separate #36 concern. */
+export const userShelfItems=pgTable('user_shelf_items',{
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  workId:uuid('work_id').notNull().references(()=>works.id,{onDelete:'restrict'}),
+  status:varchar('status',{length:20}).notNull().default('to-read'),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  primaryKey({columns:[t.userId,t.workId],name:'user_shelf_items_pk'}),
+  index('user_shelf_items_work_idx').on(t.workId),
+  check('user_shelf_items_status_ck',sql`${t.status} in ('to-read','reading')`),
+]);
