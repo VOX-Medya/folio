@@ -7,10 +7,10 @@ test('Expo V1 tabs navigate and preserve TR/EN locale across browser back',async
   await expect(page.getByTestId('folio-bottom-navigation')).toBeVisible();
   await page.getByTestId('folio-tab-catalog').click();
   await expect(page).toHaveURL(/\/catalog$/);
-  await expect(page.getByText('Kitap ve yazar araması henüz etkin değil.').filter({visible:true}).first()).toBeVisible();
+  await expect(page.getByText('Yayımlanmış kitap ve yazarları arayabilirsin.').filter({visible:true}).first()).toBeVisible();
   await expect(page.getByText('Kullanıcı araması bulunmaz.',{exact:false})).toBeVisible();
   await page.getByRole('button',{name:'EN'}).click();
-  await expect(page.getByText('Book and author search is not enabled yet.').filter({visible:true}).first()).toBeVisible();
+  await expect(page.getByText('Search published books and authors.').filter({visible:true}).first()).toBeVisible();
   await page.goBack();
   await expect(page.getByText('The reader is still in development.').filter({visible:true}).first()).toBeVisible();
   await expect(page.getByTestId('folio-tab-home').filter({visible:true}).first()).toBeVisible();
