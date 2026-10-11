@@ -108,6 +108,11 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Duraklat');
     await page.keyboard.press('Space');
     await expect(page.getByTestId('folio-rsvp-play-pause')).toHaveText('Başlat');
+    // RSVP cursor can be persisted independently from normal page position.
+    await page.getByTestId('folio-reader-save-progress').click();
+    await expect(page.getByTestId('folio-reader-progress-status')).toHaveText('Konum kaydedildi.');
+    await page.reload();
+    await expect(page.getByTestId('folio-rsvp-player')).toBeVisible();
     await page.getByTestId('folio-reader-mode-normal').click();
     await expect(page.getByTestId('folio-reader-chapter-body')).toBeVisible();
     // #35: genuine HTTPS Opus media from the approved Folio vault, no fixture-mocked player.
@@ -127,6 +132,13 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await page.getByTestId('folio-audio-play').click();
     await expect.poll(async()=>audio.evaluate(el=>(el as HTMLAudioElement).paused))
       .toBe(true);
+    await page.getByTestId('folio-reader-save-progress').click();
+    await expect(page.getByTestId('folio-reader-progress-status')).toHaveText('Konum kaydedildi.');
+    await page.reload();
+    await expect(page.getByTestId('folio-audio-player')).toBeVisible();
+    const restored=page.getByTestId('folio-audio-element');
+    await expect.poll(async()=>restored.evaluate(el=>(el as HTMLAudioElement).currentTime))
+      .toBeGreaterThan(5);
     await page.getByTestId('folio-audio-next-chapter').click();
     await expect(page.getByTestId('folio-reader-chapter-title'))
       .toHaveText('Additional plaintext');

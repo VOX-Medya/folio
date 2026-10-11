@@ -42,3 +42,7 @@ The foundational tables and immutable-source tests for #13 are documented in `do
 
 ## Implemented preliminary translation anchors
 `docs/16-TRANSLATION-ALIGNMENTS.md` describes verified revision-qualified 1:N/N:1 paragraph mapping and explicit chapter-only fallback when not verified. No word offset is copied between languages. The real reader/UI/cursor persistence remain issue #36 work.
+
+## MVP implementation #36
+
+See [71-MVP-READING-POSITION.md](71-MVP-READING-POSITION.md) for the implemented verified-owner position API, CAS version and explicit web restore/save. The full cross-device offline design above remains future work.

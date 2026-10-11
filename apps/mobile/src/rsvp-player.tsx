@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {Platform,Pressable,Text,View} from 'react-native';
 import {paperbound} from '@folio/ui-tokens';
 import type {PublishedReaderText} from '@folio/contracts';
@@ -36,7 +36,11 @@ export function RsvpPlayer({blocks,locale,colors,initialWordIndex=0,onCursorChan
   const [groupSize,setGroupSize]=useState(1);
   const [cursor,setCursor]=useState(initialWordIndex);
   const [playing,setPlaying]=useState(false);
-  useEffect(()=>{onCursorChange?.(cursor);},[cursor,onCursorChange]);
+  // Parent renders while the cursor changes; only movement, not callback identity,
+  // should report a new position (otherwise the two components update forever).
+  const report=useRef(onCursorChange);
+  useEffect(()=>{report.current=onCursorChange;},[onCursorChange]);
+  useEffect(()=>{report.current?.(cursor);},[cursor]);
   const lastStart=words.length?Math.floor((words.length-1)/groupSize)*groupSize:0;
   useEffect(()=>{
     if(!playing||!words.length)return;
