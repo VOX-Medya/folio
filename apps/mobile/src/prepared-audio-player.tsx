@@ -8,6 +8,7 @@ type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 export function PreparedAudioPlayer({locale,colors}:{
   origin:string;revisionId:string;chapterId:string;locale:FolioLocale;
   colors:Palette;hasNext:boolean;onNext:()=>void;
+  initialPositionMs?:number;onPositionChange?:(ms:number)=>void;
 }){
   return <View testID="folio-audio-native-unavailable">
     <Text style={{color:colors.accessibleMuted}}>

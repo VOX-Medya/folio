@@ -25,16 +25,18 @@ const copy={
   },
 } as const;
 
-/** #34: local word cursor only. Persistent owner position is #36. */
-export function RsvpPlayer({blocks,locale,colors}:{
+/** #36: report RSVP word movement without pushing per-tick network requests. */
+export function RsvpPlayer({blocks,locale,colors,initialWordIndex=0,onCursorChange}:{
   blocks:Blocks;locale:FolioLocale;colors:Palette;
+  initialWordIndex?:number;onCursorChange?:(wordIndex:number)=>void;
 }){
   const t=copy[locale];
   const words=useMemo(()=>tokenizeRsvpWords(blocks),[blocks]);
   const [wpm,setWpm]=useState(250);
   const [groupSize,setGroupSize]=useState(1);
-  const [cursor,setCursor]=useState(0);
+  const [cursor,setCursor]=useState(initialWordIndex);
   const [playing,setPlaying]=useState(false);
+  useEffect(()=>{onCursorChange?.(cursor);},[cursor,onCursorChange]);
   const lastStart=words.length?Math.floor((words.length-1)/groupSize)*groupSize:0;
   useEffect(()=>{
     if(!playing||!words.length)return;

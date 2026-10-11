@@ -52,6 +52,34 @@ test('actual Expo Chrome search -> owner shelf -> reader route; other user sees 
     await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Additional plaintext');
     await expect(page.getByTestId('folio-reader-chapter-body'))
       .toContainText('<script>window.__folioReaderInjected=true;</script>');
+    // #36: server cursor survives browser reload and never appears for another account.
+    await page.getByTestId('folio-reader-save-progress').click();
+    await expect(page.getByTestId('folio-reader-progress-status')).toHaveText('Konum kaydedildi.');
+    const revisionId=page.url().split('/').at(-1)!;
+    const unrelated=await otherPage.evaluate(async id=>{
+      const response=await fetch('/v1/me/progress/'+id,{credentials:'same-origin'});
+      return {status:response.status,data:await response.json()};
+    },revisionId);
+    expect(unrelated.status).toBe(200);
+    expect(unrelated.data).toEqual({progress:null});
+    const conflict=await page.evaluate(async id=>{
+      const current=await fetch('/v1/me/progress/'+id,{credentials:'same-origin'});
+      const {progress}=await current.json();
+      const proof=await fetch('/v1/auth/web/csrf',{credentials:'same-origin'});
+      const csrf=proof.headers.get('x-folio-csrf')!;
+      const response=await fetch('/v1/me/progress/'+id,{
+        method:'PUT',credentials:'same-origin',
+        headers:{'content-type':'application/json','x-folio-csrf':csrf},
+        body:JSON.stringify({expectedVersion:0,
+          chapterId:progress.chapterId,blockId:progress.blockId,
+          tokenOffset:0,audioPositionMs:null,mode:'normal'}),
+      });
+      return response.status;
+    },revisionId);
+    expect(conflict).toBe(409);
+    await page.reload();
+    await expect(page.getByTestId('folio-reader-chapter-title')).toHaveText('Additional plaintext');
+
     expect(await page.evaluate(()=>Object.prototype.hasOwnProperty.call(
       window,'__folioReaderInjected'))).toBe(false);
     await page.getByTestId('folio-reader-font-increase').click();
