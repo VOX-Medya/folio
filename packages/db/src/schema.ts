@@ -610,3 +610,27 @@ export const userShelfItems=pgTable('user_shelf_items',{
   index('user_shelf_items_work_idx').on(t.workId),
   check('user_shelf_items_status_ck',sql`${t.status} in ('to-read','reading')`),
 ]);
+
+/** #36: one private CAS reading cursor per verified user and immutable revision. */
+export const userReadingPositions=pgTable('user_reading_positions',{
+  userId:uuid('user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  revisionId:uuid('revision_id').notNull().references(()=>contentRevisions.id,{onDelete:'restrict'}),
+  chapterId:uuid('chapter_id').notNull(),
+  blockId:uuid('block_id').notNull(),
+  wordIndex:integer('word_index').notNull().default(0),
+  audioSecond:integer('audio_second').notNull().default(0),
+  mode:varchar('mode',{length:12}).notNull().default('normal'),
+  version:integer('version').notNull().default(1),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  primaryKey({columns:[t.userId,t.revisionId],name:'user_reading_positions_pk'}),
+  foreignKey({columns:[t.revisionId,t.chapterId],foreignColumns:[
+    contentChapters.revisionId,contentChapters.chapterId,
+  ],name:'user_reading_position_chapter_fk'}).onDelete('restrict'),
+  foreignKey({columns:[t.revisionId,t.blockId],foreignColumns:[
+    contentBlocks.revisionId,contentBlocks.blockId,
+  ],name:'user_reading_position_block_fk'}).onDelete('restrict'),
+  check('user_reading_position_cursor_ck',sql`${t.wordIndex}>=0 AND ${t.wordIndex}<=100000 AND
+    ${t.audioSecond}>=0 AND ${t.audioSecond}<=43200 AND ${t.version}>=1`),
+  check('user_reading_position_mode_ck',sql`${t.mode} IN ('normal','rsvp','audio')`),
+]);
