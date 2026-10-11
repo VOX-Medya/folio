@@ -643,3 +643,34 @@ export const userReadingPositions=pgTable('user_reading_positions',{
   check('user_reading_positions_mode_ck',sql`${t.mode} in ('normal','rsvp','audio')`),
   check('user_reading_positions_version_ck',sql`${t.version} between 1 and 2147483647`),
 ]);
+
+/** #40: rotated 80-bit invite secrets are stored exclusively as SHA-256 digests. */
+export const friendInvites=pgTable('friend_invites',{
+  ownerId:uuid('owner_id').primaryKey().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  codeHash:varchar('code_hash',{length:64}).notNull(),
+  expiresAt:timestamp('expires_at',{withTimezone:true}).notNull(),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('friend_invites_hash_unique').on(t.codeHash),
+  check('friend_invites_hash_ck',sql`${t.codeHash} ~ '^[a-f0-9]{64}$'`),
+]);
+
+/** Exactly one pair per two accounts, and never a searchable social directory. */
+export const friendPairs=pgTable('friend_pairs',{
+  id:uuid('id').primaryKey().defaultRandom(),
+  lowerUserId:uuid('lower_user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  higherUserId:uuid('higher_user_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  requestedById:uuid('requested_by_id').notNull().references(()=>userAccounts.id,{onDelete:'restrict'}),
+  status:varchar('status',{length:12}).notNull().default('pending'),
+  blockedById:uuid('blocked_by_id').references(()=>userAccounts.id,{onDelete:'restrict'}),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[
+  uniqueIndex('friend_pairs_unique').on(t.lowerUserId,t.higherUserId),
+  index('friend_pairs_higher_idx').on(t.higherUserId),
+  check('friend_pairs_order_ck',sql`${t.lowerUserId} < ${t.higherUserId}`),
+  check('friend_pairs_requester_ck',sql`${t.requestedById} in (${t.lowerUserId},${t.higherUserId})`),
+  check('friend_pairs_state_ck',sql`${t.status} in ('pending','accepted','rejected','blocked')`),
+  check('friend_pairs_blocked_ck',sql`(${t.status}='blocked' and ${t.blockedById} in (${t.lowerUserId},${t.higherUserId}))
+    or (${t.status}<>'blocked' and ${t.blockedById} is null)`),
+]);
