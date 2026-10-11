@@ -26,6 +26,7 @@ import {
   adminRightsDecisionResultSchema,adminRightsEvidenceSchema,
   adminCatalogWorkAuthorAppendedSchema,
   adminImportCandidateResultSchema,adminImportCandidatePageSchema,
+  publishedBookDetailSchema,
 } from '@folio/contracts';
 import {
   createCanonicalAuthor,createCanonicalWork,createContentRevision,sha256Text,
@@ -88,6 +89,7 @@ async function main():Promise<void>{
     'FOLIO_ADMIN_CATALOG_HTTP_MODE','FOLIO_ADMIN_CATALOG_WRITE_MODE',
     'FOLIO_WEB_AUTH_MODE','FOLIO_PRIVATE_STORAGE_ROOT',
     'FOLIO_WEB_AUTH_ORIGIN','FOLIO_WEB_CSRF_KEY_HEX',
+    'FOLIO_PUBLIC_CATALOG_TERRITORY',
   ];
   const original=Object.fromEntries(names.map(name=>[name,process.env[name]]));
   const temp=mkdtempSync(join(tmpdir(),'folio-admin-catalog-'));
@@ -268,6 +270,12 @@ async function main():Promise<void>{
     console.log('PRIVATE SOURCE HTTPS PASS: MFA, real Folio DB, non-public 0600 bytes, owner scope, SHA mismatch denial.');
     // #23: one complete publish -> withdraw with real HTTPS, Folio DB and
     // already staged private bytes; all scope grants require a separate MFA reviewer.
+    const publicBookPath='/v1/catalog/works/'+privateWork.id;
+    check((await call(true,port,publicBookPath)).status===404,
+      'An unconfigured public catalog returned private metadata');
+    process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='TR';
+    check((await call(true,port,publicBookPath)).status===404,
+      'Unpublished work metadata leaked to public catalog');
     const publicationPath=root+'/works/'+privateWork.id+'/editions/'+editorialEdition.id+
       '/revisions/'+editorialRevision.id+'/publication';
     const publicationCommand=(action:'publish'|'withdraw')=>({
@@ -337,9 +345,37 @@ async function main():Promise<void>{
     check((await post(port,publicationPath,bearer,publicationCommand('publish'))).status===409,
       'Altered same-size private bytes became a verified publication');
     writeFileSync(editablePath,editorialBytes);
+    check((await call(true,port,publicBookPath)).status===404,
+      'Approved rights alone exposed unpublished draft work');
     const published=await post(port,publicationPath,bearer,publicationCommand('publish'));
     check(published.status===200&&published.headers['cache-control']==='private, no-store',
       'Reviewed synthetic catalog source failed authorized publication');
+    const publicBook=await call(true,port,publicBookPath);
+    check(publicBook.status===200&&publicBook.headers['cache-control']==='no-store',
+      'Published synthetic work unavailable from public HTTPS catalog');
+    const publicDetail=publishedBookDetailSchema.parse(JSON.parse(publicBook.body));
+    check(publicDetail.id===privateWork.id&&
+      publicDetail.title===privateWork.originalTitle&&
+      publicDetail.authors.some(author=>author.id===privateAuthor.id&&
+        author.name===privateAuthor.canonicalName)&&
+      publicDetail.editions.length===1&&
+      publicDetail.editions[0]?.id===editorialEdition.id&&
+      publicDetail.editions[0]?.revisionId===editorialRevision.id&&
+      publicDetail.editions[0]?.audioAvailable===false&&
+      !publicBook.body.includes(editorialBytes.toString('utf8'))&&
+      !publicBook.body.includes(privateVault)&&
+      !publicBook.body.includes(stagedEditorial.key)&&
+      !publicBook.body.includes('Synthetic publication approval scope'),
+      'Public book response leaked source/rights or mismatched author/edition');
+    check((await call(true,port,publicBookPath+'?territory=US')).status===400,
+      'Browser was allowed to override server-owned rights territory');
+    check((await call(false,plainAddress.port,publicBookPath,{
+      'x-forwarded-proto':'https',
+    })).status===503,'Forged proxy TLS bypassed public book transport');
+    process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='US';
+    check((await call(true,port,publicBookPath)).status===404,
+      'Public work was visible outside approved territory');
+    process.env.FOLIO_PUBLIC_CATALOG_TERRITORY='TR';
     const publishedResult=JSON.parse(published.body);
     check(publishedResult.workId===privateWork.id&&
       publishedResult.editionId===editorialEdition.id&&
@@ -373,6 +409,8 @@ async function main():Promise<void>{
     const publicationWithdrawal=await post(port,publicationPath,bearer,publicationCommand('withdraw'));
     check(publicationWithdrawal.status===200&&JSON.parse(publicationWithdrawal.body).status==='withdrawn',
       'Authenticated reviewer could not withdraw a published revision');
+    check((await call(true,port,publicBookPath)).status===404,
+      'Withdrawn work metadata remained publicly accessible');
     const stateAfter=await pool.query<{work_status:string;edition_status:string;revision_status:string}>(
       'SELECT w.publication_status AS work_status,e.status AS edition_status,r.status AS revision_status '+
       'FROM works w JOIN editions e ON e.work_id=w.id JOIN content_revisions r ON r.edition_id=e.id '+
