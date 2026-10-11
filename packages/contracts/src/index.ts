@@ -272,6 +272,11 @@ export const adminCatalogWorkAuthorAppendSchema=z.object({
 export type AdminCatalogEditionAppend=z.infer<typeof adminCatalogEditionAppendSchema>;
 export type AdminCatalogTitleAppend=z.infer<typeof adminCatalogTitleAppendSchema>;
 export type AdminCatalogWorkAuthorAppend=z.infer<typeof adminCatalogWorkAuthorAppendSchema>;
+/** Removal only affects a DRAFT work's optional title/author link. */
+export const adminCatalogRelationRemoveSchema=z.object({
+  expectedVersion:expectedMetadataVersionSchema,
+}).strict();
+export type AdminCatalogRelationRemove=z.infer<typeof adminCatalogRelationRemoveSchema>;
 export const adminCatalogEditionAppendedSchema=z.object({
   id:z.uuid(),workId:z.uuid(),
   metadataVersion:metadataVersionSchema,

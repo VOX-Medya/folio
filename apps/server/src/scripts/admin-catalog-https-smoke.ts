@@ -64,6 +64,9 @@ function post(port:number,path:string,headers:Record<string,string>,body:unknown
 function patch(port:number,path:string,headers:Record<string,string>,body:unknown){
   return call(true,port,path,headers,'PATCH',body);
 }
+function remove(port:number,path:string,headers:Record<string,string>,body:unknown){
+  return call(true,port,path,headers,'DELETE',body);
+}
 
 async function main():Promise<void>{
   const url=process.env.DATABASE_URL;
@@ -1090,6 +1093,94 @@ async function main():Promise<void>{
       cleared?.publisher===null&&cleared.identifiers.length===1&&
       cleared.contributors.length===1&&cleared.language==='en',
       'Clearing publisher unexpectedly reset unrelated edition metadata');
+    // #12: Removing mistaken OPTIONAL relations cannot orphan canonical
+    // authors, delete original titles, bypass MFA/CSRF or stale version locks.
+    const removeOptionalTitle=titlesPath+'/'+
+      adminCatalogTitleAppendedSchema.parse(JSON.parse(titleMade.body)).id;
+    const originalTitleId=linkedDetail.titles.find(t=>t.kind==='original')?.id;
+    check(!!originalTitleId,'Synthetic canonical original title missing');
+    const removeAuthorPath=authorsPath+'/'+author.id;
+    const removePrimaryPath=authorsPath+'/'+cookieId;
+    check((await remove(port,removeOptionalTitle,cookie,{
+      expectedVersion:7,
+    })).status===403,'Unprotected Web cookie unlinked a title without HMAC-CSRF');
+    check((await remove(port,removeAuthorPath,readonlyEditionBearer,{
+      expectedVersion:7,
+    })).status===403,'Read-only MFA role unlinked a canonical author');
+    check((await remove(port,removeOptionalTitle,{
+      ...secureCookie,origin:'https://foreign.example',
+    },{expectedVersion:7})).status===403,
+    'Cross-origin cookie unlinked a canonical title');
+    check((await remove(port,titlesPath+'/'+originalTitleId,secureCookie,{
+      expectedVersion:7,
+    })).status===409,'Canonical original title could be removed');
+    check((await remove(port,titlesPath+'/'+randomUUID(),secureCookie,{
+      expectedVersion:7,
+    })).status===404,'Nonexistent optional title did not return authorized 404');
+    check((await remove(port,removeOptionalTitle,secureCookie,{
+      expectedVersion:7,publicationStatus:'published',
+    })).status===400,'Relation unlink accepted publication/rights escalation');
+    check((await remove(port,removeOptionalTitle,secureCookie,{
+      expectedVersion:6,
+    })).status===409,'Stale optional title unlink skipped optimistic version');
+    const removedTitle=await remove(port,removeOptionalTitle,{
+      ...secureCookie,'x-user-id':guest.userId,
+      'x-request-id':'forged-unlink-trace','x-admin-role':'superadmin',
+    },{expectedVersion:7});
+    check(removedTitle.status===200&&
+      removedTitle.headers['cache-control']==='private, no-store'&&
+      removedTitle.headers['x-request-id']!=='forged-unlink-trace'&&
+      adminCatalogTitleAppendedSchema.parse(JSON.parse(removedTitle.body))
+        .metadataVersion===8,
+      'Versioned optional title unlink did not authorize/audit exactly once');
+    const duplicateTitle=await remove(port,removeOptionalTitle,secureCookie,{
+      expectedVersion:8,
+    });
+    check(duplicateTitle.status===404,'Double title unlink removed a missing link');
+    const competingUnlinks=await Promise.all([
+      remove(port,removeAuthorPath,secureCookie,{expectedVersion:8}),
+      remove(port,removeAuthorPath,secureCookie,{expectedVersion:8}),
+    ]);
+    check(competingUnlinks.map(row=>row.status).sort().join(',')==='200,409',
+      'Concurrent author unlinks lost a parent metadata revision');
+    const successful=competingUnlinks.find(row=>row.status===200)!;
+    check(adminCatalogWorkAuthorAppendedSchema.parse(JSON.parse(successful.body))
+      .metadataVersion===9,'Canonical author unlink did not advance metadata revision');
+    check((await remove(port,removePrimaryPath,secureCookie,{
+      expectedVersion:9,
+    })).status===409,'Last canonical author link could be unlinked');
+    check((await remove(port,authorsPath+'/'+randomUUID(),secureCookie,{
+      expectedVersion:9,
+    })).status===404,'Unrelated author link was removed');
+    const afterUnlink=adminCatalogWorkDetailSchema.parse(JSON.parse(
+      (await call(true,port,root+'/works/'+linkedWorkId,bearer)).body));
+    check(afterUnlink.work.metadataVersion===9&&
+      afterUnlink.authors.length===1&&afterUnlink.authors[0]?.id===cookieId&&
+      !afterUnlink.titles.some(t=>t.id===
+        adminCatalogTitleAppendedSchema.parse(JSON.parse(titleMade.body)).id)&&
+      afterUnlink.titles.some(t=>t.kind==='original')&&
+      afterUnlink.editions.length===2&&
+      afterUnlink.editions.some(e=>e.id===createdEdition.id)&&
+      (await pool.query('SELECT id FROM authors WHERE id=$1::uuid',
+        [author.id])).rowCount===1,
+      'Unlink changed the canonical author, original title, edition or nonoptional relation');
+    const relationAudits=await pool.query<{
+      action:string;actor_id:string;request_id:string;
+      before_json:{workMetadataVersion:number};
+      after_json:{workMetadataVersion:number};
+    }>(
+      'SELECT action,actor_id,request_id,before_json,after_json FROM audit_events WHERE entity_id=$1::uuid AND action IN ($2,$3) ORDER BY created_at',
+      [linkedWorkId,'work.title.remove','work.author.remove'],
+    );
+    check(relationAudits.rows.length===2&&
+      relationAudits.rows.every(row=>
+        row.actor_id===editor.userId&&
+        typeof row.request_id==='string'&&
+        row.request_id!=='forged-unlink-trace'&&
+        row.after_json.workMetadataVersion===row.before_json.workMetadataVersion+1)&&
+      relationAudits.rows.some(row=>row.action==='work.title.remove')&&
+      relationAudits.rows.some(row=>row.action==='work.author.remove'),
+      'Removed relations emitted unauthenticated, partial or false-positive audits');
     // #13: real PostgreSQL metadata-only diff via live admin TLS+DB MFA/RBAC.
     // Fixtures are synthetic, immutable DRAFT revisions without a real asset.
     const chapterId=randomUUID(),editedBlockId=randomUUID(),addedBlockId=randomUUID();
@@ -1424,6 +1515,8 @@ async function main():Promise<void>{
       !!spec.paths[root+'/works/{workId}/editions/{editionId}/revisions/{toRevisionId}/diff']?.get&&
       !!spec.paths[root+'/works/{workId}/titles']?.post&&
       !!spec.paths[root+'/works/{workId}/authors']?.post&&
+      !!spec.paths[root+'/works/{workId}/authors/{authorId}']?.delete&&
+      !!spec.paths[root+'/works/{workId}/titles/{titleId}']?.delete&&
       !spec.paths[root+'/users'],
       'Secure admin catalog GET/POST routes or user-search denial missing in OpenAPI');
     process.env.FOLIO_ADMIN_CATALOG_HTTP_MODE='off';
@@ -1450,9 +1543,13 @@ async function main():Promise<void>{
     check((await patch(port,editEditionPath,bearer,{
       expectedVersion:7,label:'Disabled editor',
     })).status===404,'Independent write flag off still allowed edition PATCH');
+    check((await remove(port,removePrimaryPath,bearer,{
+      expectedVersion:9,
+    })).status===404,'Independent write flag off left relation DELETE enabled');
     check((await patch(port,authorPath,bearer,{
       expectedVersion:2,sortName:'Should not update',
     })).status===404,'Independent write flag shutoff left PATCH enabled');
+    console.log('ADMIN CATALOG RELATION UNLINK PASS: direct TLS + DB/MFA/HMAC-CSRF, 200/400/403/404/409, original/last-author immutability, double-delete/concurrency denial, correlated audit and unaltered editions.');
     console.log('ADMIN CATALOG HTTPS PASS: versioned edition metadata PATCH and FK rollback, 200/409 concurrency, before-after audit and immutable source/language;  canonical multi-author/edition/ISBN/translated title MFA/CSRF work relationship appends, strict versions, FK rollback and 201/409 concurrency; real Folio-only PostgreSQL/TLS; default-off catalog GET/POST/PATCH; persisted MFA+RBAC native/cookie/CSRF, bounded DTO; optimistic metadata versions FOR UPDATE concurrency exactly one 200 vs one 409, atomic canonical author aliases/external IDs and draft original title+year edits, trusted server audit before/after; no content, no publication rights; 31+ existing browser E2E separate.');
   }finally{
     if(httpsApp)await httpsApp.close();

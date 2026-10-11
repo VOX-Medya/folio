@@ -1,11 +1,13 @@
 import {useEffect,useState} from 'react';
 import type {FormEvent} from 'react';
+import type {AdminCatalogWorkDetail} from '@folio/contracts';
 import {
   adminCatalogEditionAppendSchema,adminCatalogTitleAppendSchema,
   adminCatalogWorkAuthorAppendSchema,
 } from '@folio/contracts';
 import {
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
+  removeAdminWorkTitle,removeAdminWorkAuthor,
   CatalogClientError,catalogErrorText,
 } from './admin-catalog-client.js';
 
@@ -16,6 +18,8 @@ type Contributor={authorId:string;role:'author'|'translator'|'editor'|'illustrat
 interface Props{
   workId:string;
   version:number;
+  authors:AdminCatalogWorkDetail['authors'];
+  titles:AdminCatalogWorkDetail['titles'];
   language:Language;
   online:boolean;
   onReload:()=>void;
@@ -38,6 +42,11 @@ const copy={
     stale:'Kayıt değişmiş olabilir. Otomatik tekrar yok; önce son sürümü inceleyin.',
     reload:'Güncel eseri yeniden yükle',version:'Beklenen metadata sürümü',
     tooMany:'Sınır aşıldı. Yeni kayıt eklenemiyor.',
+    unlinkTitle:'Alternatif başlığı kaldır',unlinkAuthor:'Eserden yazar bağını kaldır',
+    unlinkWarning:'Yalnız eser ilişkisi kaldırılır. Kanonik yazar veya kitap içeriği silinmez.',
+    confirmUnlink:'İlişkiyi kaldırmayı onayla',cancelUnlink:'Vazgeç',
+    unlinkPending:'İlişki sunucuda güvenli biçimde kaldırılıyor…',
+    unlinked:'Sunucu ilişkiyi kaldırdı; eser yeniden yükleniyor.',
   },
   en:{
     heading:'Draft work relationships',notice:'Adds metadata only. No text, copyright approval or public catalog publication.',
@@ -56,6 +65,11 @@ const copy={
     stale:'The record may have changed. No automatic retry; review the latest revision.',
     reload:'Reload current work',version:'Expected metadata version',
     tooMany:'Limit reached. Cannot add another row.',
+    unlinkTitle:'Unlink alternate title',unlinkAuthor:'Unlink work author',
+    unlinkWarning:'Only the work relation is removed. The canonical author and book content remain intact.',
+    confirmUnlink:'Confirm unlink',cancelUnlink:'Cancel',
+    unlinkPending:'Removing the draft relation on the server…',
+    unlinked:'The server removed the relation; reloading the work.',
   },
 } as const;
 function order(raw:string):number|null{
@@ -66,9 +80,10 @@ function order(raw:string):number|null{
 
 /** Only mounted after a live, authorized, versioned DRAFT GET response.
  * Every child POST re-verifies TLS/session/MFA/role and CSRF on the server. */
-export function AdminWorkRelations({workId,version,language,online,onReload}:Props){
+export function AdminWorkRelations({workId,version,authors,titles,language,online,onReload}:Props){
   const w=copy[language];
   const [mode,setMode]=useState<Mode|null>(null);
+  const [removeTarget,setRemoveTarget]=useState<{kind:'title'|'author';id:string}|null>(null);
   const [editionLanguage,setEditionLanguage]=useState<'tr'|'en'>('en');
   const [editionLabel,setEditionLabel]=useState('');
   const [publisher,setPublisher]=useState('');
@@ -90,7 +105,7 @@ export function AdminWorkRelations({workId,version,language,online,onReload}:Pro
   const disabled=busy||stale||!connected;
   function start(next:Mode){
     if(busy||!online)return;
-    setMode(next);setStale(false);setError('');setNotice('');
+    setMode(next);setRemoveTarget(null);setStale(false);setError('');setNotice('');
     setEditionLanguage('en');setEditionLabel('');setPublisher('');
     setIdentifiers([]);setContributors([]);
     setAlternateLanguage('en');setAlternateTitle('');setTitleKind('alternate');
@@ -142,6 +157,27 @@ export function AdminWorkRelations({workId,version,language,online,onReload}:Pro
         (cause.kind==='conflict'||cause.kind==='network')){
         // Transport failure is ambiguous: backend may already have committed.
         // Retry is forbidden until an explicit fresh authenticated GET.
+        setStale(true);setNotice(w.stale);
+      }
+    }finally{setBusy(false);}
+  }
+  async function confirmRemove(){
+    if(!removeTarget||!online||busy||stale||mode)return;
+    setBusy(true);setError('');setNotice('');
+    try{
+      const result=removeTarget.kind==='title'
+        ?await removeAdminWorkTitle(workId,removeTarget.id,{expectedVersion:version})
+        :await removeAdminWorkAuthor(workId,removeTarget.id,{expectedVersion:version});
+      if(result.metadataVersion!==version+1){
+        throw new CatalogClientError('unexpected');
+      }
+      setRemoveTarget(null);
+      setNotice(w.unlinked);
+      onReload();
+    }catch(cause){
+      setError(catalogErrorText(cause,language));
+      if(cause instanceof CatalogClientError&&
+        (cause.kind==='conflict'||cause.kind==='network')){
         setStale(true);setNotice(w.stale);
       }
     }finally{setBusy(false);}
@@ -273,7 +309,36 @@ export function AdminWorkRelations({workId,version,language,online,onReload}:Pro
           onClick={onReload}>{w.reload}</button>}
       </div>
     </form>}
-    {busy&&<p role="status">{w.loading}</p>}
+    {!mode&&<section data-testid="admin-work-relation-unlink" aria-label={w.unlinkWarning}>
+      <p>{w.unlinkWarning}</p>
+      <ul>{titles.filter(item=>item.kind!=='original').map(item=><li key={item.id}>
+        {item.title} ({item.language.toUpperCase()})
+        <button type="button" className="folio-catalog-secondary"
+          aria-label={w.unlinkTitle+': '+item.title}
+          disabled={disabled||removeTarget!==null}
+          onClick={()=>{setRemoveTarget({kind:'title',id:item.id});setError('');setNotice('');}}>
+          {w.unlinkTitle}</button>
+      </li>)}</ul>
+      <ul>{authors.filter(item=>authors.some(other=>other.id!==item.id&&
+        (other.role==='author'||other.role==='co-author'))).map(item=><li key={item.id}>
+        {item.name} ({item.role})
+        <button type="button" className="folio-catalog-secondary"
+          aria-label={w.unlinkAuthor+': '+item.name}
+          disabled={disabled||removeTarget!==null}
+          onClick={()=>{setRemoveTarget({kind:'author',id:item.id});setError('');setNotice('');}}>
+          {w.unlinkAuthor}</button>
+      </li>)}</ul>
+      {removeTarget&&<div className="folio-catalog-actions"
+        data-testid="admin-work-relation-unlink-confirm">
+        <button type="button" disabled={disabled}
+          onClick={()=>{void confirmRemove();}}>{w.confirmUnlink}</button>
+        <button type="button" className="folio-catalog-secondary"
+          disabled={busy} onClick={()=>setRemoveTarget(null)}>{w.cancelUnlink}</button>
+      </div>}
+      {stale&&<button type="button" className="folio-catalog-secondary"
+        disabled={busy||!online} onClick={onReload}>{w.reload}</button>}
+    </section>}
+    {busy&&<p role="status">{removeTarget?w.unlinkPending:w.loading}</p>}
     {notice&&<p className="folio-catalog-notice" role="status">{notice}</p>}
     {error&&<p className="folio-catalog-alert" role="alert">{error}</p>}
   </section>;

@@ -10,6 +10,7 @@ import {
   adminCatalogTitleAppendSchema,adminCatalogTitleAppendedSchema,
   adminCatalogWorkAuthorAppendSchema,adminCatalogWorkAuthorAppendedSchema,
   adminCatalogEditionMetadataPatchSchema,adminCatalogEditionMetadataUpdatedSchema,
+  adminCatalogRelationRemoveSchema,
   adminCatalogRevisionDiffQuerySchema,adminCatalogRevisionDiffSchema,
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
@@ -38,7 +39,7 @@ export class CatalogClientError extends Error {
   }
 }
 type CatalogCollection='authors'|'works';
-type CatalogVerb='GET'|'POST'|'PATCH';
+type CatalogVerb='GET'|'POST'|'PATCH'|'DELETE';
 
 export function requireSecureCatalogBrowser():void{
   if(typeof window==='undefined'||window.location.protocol!=='https:'){
@@ -224,6 +225,31 @@ export async function appendAdminWorkAuthor(id:string,input:AdminCatalogWorkAuth
   if(!parsed.success)throw new CatalogClientError('invalid');
   const raw=await request('/v1/admin/catalog/works/'+checkedId(id)+'/authors',
     'POST',201,parsed.data);
+  return parse(raw,value=>adminCatalogWorkAuthorAppendedSchema.parse(value));
+}
+
+/** Deleting an optional relation is a guarded, versioned edit, never a
+ * canonical author/text deletion. Unknown/stale responses never auto-retry. */
+export async function removeAdminWorkTitle(
+  workId:string,titleId:string,input:{expectedVersion:number},
+){
+  const parsed=adminCatalogRelationRemoveSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const raw=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/titles/'+checkedId(titleId),
+    'DELETE',200,parsed.data,
+  );
+  return parse(raw,value=>adminCatalogTitleAppendedSchema.parse(value));
+}
+export async function removeAdminWorkAuthor(
+  workId:string,authorId:string,input:{expectedVersion:number},
+){
+  const parsed=adminCatalogRelationRemoveSchema.safeParse(input);
+  if(!parsed.success)throw new CatalogClientError('invalid');
+  const raw=await request(
+    '/v1/admin/catalog/works/'+checkedId(workId)+'/authors/'+checkedId(authorId),
+    'DELETE',200,parsed.data,
+  );
   return parse(raw,value=>adminCatalogWorkAuthorAppendedSchema.parse(value));
 }
 

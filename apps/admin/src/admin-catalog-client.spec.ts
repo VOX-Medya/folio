@@ -3,6 +3,7 @@ import {
   CatalogClientError,catalogErrorText,createAdminAuthor,createAdminWork,
   getAdminAuthor,getAdminWork,patchAdminAuthor,patchAdminWork,
   appendAdminWorkEdition,appendAdminWorkTitle,appendAdminWorkAuthor,
+  removeAdminWorkTitle,removeAdminWorkAuthor,
   patchAdminEdition,getAdminRevisionDiff,getAdminRevisionList,
   getAdminRightsLedger,
   searchAdminAuthors,searchAdminWorks,requireSecureCatalogBrowser,
@@ -476,4 +477,70 @@ describe('admin catalog browser privacy/transport contract',()=>{
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+});
+
+describe('safe draft relation unlink client',()=>{
+  it('requires exact IDs, fresh HMAC-CSRF and 200 JSON for versioned DELETE',async()=>{
+    const calls:Array<{url:string;method:string;body:unknown;csrf:string|undefined}>=[];
+    const f=vi.fn(async(url:string,init:RequestInit)=>{
+      if(url==='/v1/auth/web/csrf')return bootstrap();
+      calls.push({
+        url,method:String(init.method),body:JSON.parse(String(init.body)) as unknown,
+        csrf:(init.headers as Record<string,string>)['x-folio-csrf'],
+      });
+      if(url.endsWith('/titles/'+authorId)){
+        return json({id:authorId,workId,metadataVersion:4});
+      }
+      if(url.endsWith('/authors/'+authorId)){
+        return json({workId,authorId,metadataVersion:5});
+      }
+      throw Error('Unrecognized network call');
+    });
+    vi.stubGlobal('fetch',f);
+    expect(await removeAdminWorkTitle(workId,authorId,{expectedVersion:3}))
+      .toEqual({id:authorId,workId,metadataVersion:4});
+    expect(await removeAdminWorkAuthor(workId,authorId,{expectedVersion:4}))
+      .toEqual({workId,authorId,metadataVersion:5});
+    expect(calls).toEqual([
+      {url:'/v1/admin/catalog/works/'+workId+'/titles/'+authorId,
+        method:'DELETE',body:{expectedVersion:3},csrf:'B'.repeat(43)},
+      {url:'/v1/admin/catalog/works/'+workId+'/authors/'+authorId,
+        method:'DELETE',body:{expectedVersion:4},csrf:'B'.repeat(43)},
+    ]);
+    expect(f).toHaveBeenCalledTimes(4);
+    const requestOptions=f.mock.calls.filter(c=>c[0]!=='/v1/auth/web/csrf');
+    for(const [,init] of requestOptions){
+      expect(init).toMatchObject({
+        method:'DELETE',mode:'same-origin',credentials:'same-origin',
+        cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',
+      });
+      expect(init.headers).not.toHaveProperty('Authorization');
+      expect(init.headers).not.toHaveProperty('x-user-id');
+      expect(init.headers).not.toHaveProperty('x-request-id');
+    }
+  });
+
+  it('never sends malformed, obsolete or unauthorized removal retries',async()=>{
+    const f=vi.fn().mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'CONFLICT'}},409))
+      .mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({error:{code:'FORBIDDEN'}},403))
+      .mockResolvedValueOnce(bootstrap())
+      .mockResolvedValueOnce(json({
+        id:authorId,workId,metadataVersion:7,publicationStatus:'published',
+      }));
+    vi.stubGlobal('fetch',f);
+    await expect(removeAdminWorkTitle(workId,authorId,{expectedVersion:4}))
+      .rejects.toMatchObject({kind:'conflict'});
+    await expect(removeAdminWorkAuthor(workId,authorId,{expectedVersion:4}))
+      .rejects.toMatchObject({kind:'forbidden'});
+    await expect(removeAdminWorkTitle(workId,authorId,{expectedVersion:6}))
+      .rejects.toMatchObject({kind:'unexpected'});
+    await expect(removeAdminWorkAuthor(workId,'../private',{expectedVersion:4}))
+      .rejects.toMatchObject({kind:'invalid'});
+    await expect(removeAdminWorkTitle(workId,authorId,{
+      expectedVersion:6,rightsApproved:true,
+    } as never)).rejects.toMatchObject({kind:'invalid'});
+    expect(f).toHaveBeenCalledTimes(6);
+  });
 });

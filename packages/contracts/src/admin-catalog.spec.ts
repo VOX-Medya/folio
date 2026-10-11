@@ -13,6 +13,7 @@ import {
   adminCatalogRevisionListQuerySchema,adminCatalogRevisionListSchema,
   adminCatalogRightsLedgerQuerySchema,adminCatalogRightsLedgerSchema,
   adminCatalogTitleAppendedSchema,adminCatalogWorkAuthorAppendedSchema,
+  adminCatalogRelationRemoveSchema,
   authorCreateSchema,workCreateSchema,
 } from './index.js';
 
@@ -373,4 +374,19 @@ describe('admin-only canonical metadata search contracts',()=>{
     }).items[0]?.reviewStatus).toBe('withdrawn');
   });
 
+});
+
+describe('versioned optional catalog relation unlink contract',()=>{
+  it('requires only the current canonical parent metadataVersion',()=>{
+    expect(adminCatalogRelationRemoveSchema.parse({expectedVersion:4}))
+      .toEqual({expectedVersion:4});
+    for(const value of [
+      {},{expectedVersion:-1},{expectedVersion:2147483647},
+      {expectedVersion:'4'},{expectedVersion:3,actorId:id},
+      {expectedVersion:3,deleteCanonicalAuthor:true},
+      {expectedVersion:3,publicationStatus:'published'},
+      {expectedVersion:3,rightsApproved:true},
+      {expectedVersion:3,removeSourceText:true},
+    ])expect(adminCatalogRelationRemoveSchema.safeParse(value).success).toBe(false);
+  });
 });
