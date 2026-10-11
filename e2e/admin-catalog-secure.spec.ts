@@ -674,7 +674,8 @@ test('real HTTPS rights:read claim ledger is paginated, read-only and evicts rev
   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   await page.getByRole('button',{name:'EN',exact:true}).click();
-  await expect(ledger).toContainText('Rights and territory claims');
+  await expect(page.getByRole('region',{name:'Rights and territory claims'}))
+    .toContainText('Rights and territory claims');
   await page.getByRole('button',{name:'Rights ledger'}).click();
   await expect(ledger).toHaveCount(0);
 });
@@ -927,7 +928,8 @@ test('HTTPS Paperbound match reviewer requires explicit decision, blocks stale r
   const width=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);
   expect(width).toBeLessThanOrEqual(1);
   await page.getByRole('button',{name:'EN',exact:true}).click();
-  await expect(review).toContainText('Work identity review');
+  await expect(page.getByRole('region',{name:'Work identity review'}))
+    .toContainText('Work identity review');
 });
 
 test('incoming package claim UX stays private, versioned and explicitly unverified',async({page})=>{
@@ -1033,8 +1035,9 @@ test('incoming package claim UX stays private, versioned and explicitly unverifi
   expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth))
     .toBeLessThanOrEqual(1);
   await page.getByRole('button',{name:'EN',exact:true}).click();
-  await expect(review).toContainText('Incoming package identity reviews');
-  await expect(review).toContainText('Import remains blocked.');
+  const englishReview=page.getByRole('region',{name:'Incoming package identity reviews'});
+  await expect(englishReview).toContainText('Incoming package identity reviews');
+  await expect(englishReview).toContainText('Import remains blocked.');
 });
 
 test('DRAFT metadata relation edits and empty edition removal require versioned confirmation at 390px',async({page})=>{
