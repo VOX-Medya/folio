@@ -20,6 +20,7 @@ export type {SemanticDiffBlock,SemanticDiffChange} from './content-diff.js';
 export {submitRightsEvidence,reviewRightsEvidence,verifyRightsForAction,getVerifiedAdminRightsLedger,submitVerifiedAdminRightsEvidence,reviewVerifiedAdminRightsEvidence,getVerifiedAdminRightsDecision,getVerifiedAdminRightsEvidence} from './rights.js';
 export {createPreparedTranslationLink,verifyPreparedTranslationEdges,resolveTranslationSwitch} from './translation.js';
 export {registerPreparedAudioAsset,registerPreparedAudioVariant,replacePreparedAudioSegment,getPreparedAudioVariant} from './audio.js';
+export {attachVerifiedPreparedAudio} from './prepared-audio-attach.js';
 export {proposeVerifiedAdminWorkMatchReview,decideVerifiedAdminWorkMatchReview,listVerifiedAdminWorkMatchReviews} from './canonical-work-match-review.js';
 export {proposeVerifiedAdminImportCandidateReview,decideVerifiedAdminImportCandidateReview,listVerifiedAdminImportCandidateReviews} from './import-candidate-review.js';
 export {preparedImportSchema,canonicalJson,payloadHash,previewPreparedCatalogImport,stagePreparedCatalogImport,resumeStagedCatalogMetadata,getStagedCatalogImportStatus} from './import-staging.js';
