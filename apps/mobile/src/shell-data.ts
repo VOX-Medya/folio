@@ -45,10 +45,10 @@ export const screenCopy={
 /** Direct-link placeholders never trust route IDs as evidence of catalog access. */
 export const readingRouteCopy={
   book:{
-    tr:{heading:'Eser ayrıntıları',message:'Eser bilgileri henüz sunucuya bağlanmadı.',
+    tr:{heading:'Eser ayrıntıları',message:'Eser bilgileri yalnız yayımlanmış katalogdan yüklenir.',
       detail:'Yalnız yayımlanmış ve telif izinleri doğrulanmış eserler gösterilecek.',
       invalid:'Geçersiz eser bağlantısı.',back:'Kitaplara dön'},
-    en:{heading:'Book details',message:'Book details are not connected to the server yet.',
+    en:{heading:'Book details',message:'Book details are loaded only from the published catalog.',
       detail:'Only published books with verified rights will be shown.',
       invalid:'Invalid book link.',back:'Back to books'},
   },

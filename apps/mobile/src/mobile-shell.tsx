@@ -10,6 +10,7 @@ import type {ResponsiveMode} from '@folio/ui-tokens';
 import {mobileSections,readingRouteCopy,screenCopy,validReadingRouteId} from './shell-data';
 import type {FolioLocale,MobileSection,ReadingRouteKind} from './shell-data';
 import {WebSignInPanel} from './web-sign-in';
+import {PublishedBookPanel} from './published-book';
 
 interface Settings {locale:FolioLocale;setLocale:(next:FolioLocale)=>void;}
 const SettingsContext=createContext<Settings|undefined>(undefined);
@@ -164,14 +165,16 @@ export function MobileShell({section,route}:{section:MobileSection;route?:{kind:
                 ? <View testID={validId?'folio-'+route.kind+'-route':'folio-invalid-reading-route'}
                     style={{backgroundColor:colors.surface,borderColor:colors.line,
                       borderWidth:1,borderRadius:18,padding:20,gap:14}}>
-                  <Text testID="folio-reading-route-notice"
-                    style={{fontSize:15,lineHeight:23,color:colors.accessibleMuted}}>
-                    {validId
-                      ?locale==='tr'
-                        ?'Bu rota henüz kitap veya özel okuma verisi yüklemez.'
-                        :'This route does not load book or private reading data yet.'
-                      :locale==='tr'?'Bağlantı kimliği doğrulanamadı.':'The link identifier is invalid.'}
-                  </Text>
+                  {validId&&route.kind==='book'
+                    ? <PublishedBookPanel workId={route.id as string} locale={locale} colors={colors}/>
+                    : <Text testID="folio-reading-route-notice"
+                        style={{fontSize:15,lineHeight:23,color:colors.accessibleMuted}}>
+                      {validId
+                        ?locale==='tr'
+                          ?'Okuyucu henüz içerik sunucusuna bağlanmadı.'
+                          :'The reader is not connected to the content server yet.'
+                        :locale==='tr'?'Bağlantı kimliği doğrulanamadı.':'The link identifier is invalid.'}
+                    </Text>}
                   <Link href="/catalog" asChild>
                     <Pressable testID="folio-route-return" accessibilityRole="link"
                       accessibilityLabel={routeScreen?.back}

@@ -773,3 +773,15 @@ export const webLoginRequestSchema=z.object({
 // Browser-only same-origin HttpOnly cookie client, distinct from native bearer.
 export {loginWebSession,fetchWebSessionCsrf,logoutWebSession,fetchWebDeviceSessions,revokeWebDeviceSession,fetchWebOnboarding,updateWebOnboarding,WebSessionHttpError} from './web-session-client.js';
 export type {WebSessionClientRequest} from './web-session-client.js';
+
+/** Public catalog metadata: no source text, raw storage references or rights evidence. */
+export const publishedBookDetailSchema=z.object({
+  id:z.uuid(),title:z.string().min(1),originalLanguage:z.enum(['tr','en']),
+  authors:z.array(z.object({id:z.uuid(),name:z.string().min(1)}).strict()).max(50),
+  editions:z.array(z.object({
+    id:z.uuid(),language:z.enum(['tr','en']),label:z.string().min(1),
+    revisionId:z.uuid(),audioAvailable:z.boolean(),
+  }).strict()).min(1).max(50),
+}).strict();
+export type PublishedBookDetail=z.infer<typeof publishedBookDetailSchema>;
+export {fetchPublishedBookDetail,PublishedBookHttpError} from './published-book-client.js';

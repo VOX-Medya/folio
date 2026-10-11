@@ -5120,6 +5120,119 @@
           "admin-catalog"
         ]
       }
+    },
+    "/v1/catalog/works/{workId}": {
+      "get": {
+        "operationId": "PublishedCatalogController_detail",
+        "parameters": [
+          {
+            "name": "workId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "title",
+                    "originalLanguage",
+                    "authors",
+                    "editions"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "originalLanguage": {
+                      "type": "string",
+                      "enum": [
+                        "tr",
+                        "en"
+                      ]
+                    },
+                    "authors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "editions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "language",
+                          "label",
+                          "revisionId",
+                          "audioAvailable"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "language": {
+                            "type": "string",
+                            "enum": [
+                              "tr",
+                              "en"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "revisionId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "audioAvailable": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Published catalog book metadata in the trusted server territory",
+        "tags": [
+          "public-catalog"
+        ]
+      }
     }
   },
   "info": {
