@@ -14,12 +14,13 @@ import { PublishedCatalogModule } from './modules/catalog/public-catalog.module.
 import { ShelfModule } from './modules/account/shelf.module.js';
 import { ReadingPositionModule } from './modules/account/reading-position.module.js';
 import { OwnProfileModule } from './modules/account/own-profile.module.js';
+import { FriendsModule } from './modules/account/friends.module.js';
 
 export {ApiExceptionFilter, RequestIdMiddleware, UserOwnershipGuard} from './common/http.js';
 export {HealthController, CapabilitiesController, ReadinessController, DbReadinessService} from './modules/system/system.module.js';
 
 /** A single modular monolith. Product modules join only when their guarded routes exist. */
-@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule,AdminTotpModule,AdminCatalogModule,PublishedCatalogModule,ShelfModule,ReadingPositionModule,OwnProfileModule]})
+@Module({imports: [SystemModule,AccountOnboardingModule,WebAuthModule,AdminTotpModule,AdminCatalogModule,PublishedCatalogModule,ShelfModule,ReadingPositionModule,OwnProfileModule,FriendsModule]})
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes('*');
