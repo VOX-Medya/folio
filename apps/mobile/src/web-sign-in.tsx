@@ -8,6 +8,7 @@ import {
 import type {DeviceSessionInventory} from '@folio/contracts';
 import type {FolioLocale} from './shell-data';
 import {WebOnboardingPanel} from './web-onboarding';
+import {OwnProfilePanel} from './own-profile';
 
 type Palette=typeof paperbound.mobile.light|typeof paperbound.mobile.dark;
 type Phase='checking'|'signedOut'|'signedIn'|'busy'|'unavailable';
@@ -254,6 +255,9 @@ export function WebSignInPanel({locale,colors,onLocaleSaved}:{locale:FolioLocale
             ?'Oturum sona erdi. Tekrar giriş yap.'
             :'Your session expired. Sign in again.');
         }}/>} 
+      {origin&&<OwnProfilePanel origin={origin} locale={locale} colors={colors}
+        onLocaleSaved={onLocaleSaved}
+        onSessionExpired={()=>{clearDevices();setPhase('signedOut');}}/>}
       <View style={{gap:10}}>
         <Pressable testID="folio-device-sessions-load" accessibilityRole="button"
           accessibilityLabel={locale==='tr'?'Cihaz oturumlarını yükle':'Load device sessions'}
