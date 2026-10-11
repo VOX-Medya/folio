@@ -49,7 +49,10 @@ export async function searchPublicCatalog(
 /** Browser uses server-verified HttpOnly cookie only. Native bearer is #30. */
 export async function fetchOwnWebShelf(baseUrl:string,options?:PublicOptions):Promise<ShelfList>{
   const base=origin(baseUrl);
-  await fetchWebSessionCsrf({baseUrl:base,fetcher:options?.fetcher,signal:options?.signal});
+  await fetchWebSessionCsrf({baseUrl:base,
+    ...(options?.fetcher?{fetcher:options.fetcher}:{}),
+    ...(options?.signal?{signal:options.signal}:{}),
+  });
   const response=await (options?.fetcher??fetch)(
     base+'/v1/me/shelf',init('GET','same-origin',options?.signal));
   return (await parse(response,shelfListSchema)) as ShelfList;
@@ -59,7 +62,10 @@ export async function saveOwnWebShelf(baseUrl:string,rawWorkId:unknown,rawStatus
   const base=origin(baseUrl);
   const workId=publishedCatalogItemSchema.shape.id.parse(rawWorkId);
   const body=shelfUpdateSchema.parse(rawStatus);
-  const csrf=await fetchWebSessionCsrf({baseUrl:base,fetcher:options?.fetcher,signal:options?.signal});
+  const csrf=await fetchWebSessionCsrf({baseUrl:base,
+    ...(options?.fetcher?{fetcher:options.fetcher}:{}),
+    ...(options?.signal?{signal:options.signal}:{}),
+  });
   const response=await (options?.fetcher??fetch)(
     base+'/v1/me/shelf/'+encodeURIComponent(workId),
     init('PUT','same-origin',options?.signal,csrf,JSON.stringify(body)));
@@ -75,7 +81,10 @@ export async function saveOwnWebShelf(baseUrl:string,rawWorkId:unknown,rawStatus
 export async function removeOwnWebShelf(baseUrl:string,rawWorkId:unknown,options?:PublicOptions){
   const base=origin(baseUrl);
   const workId=publishedCatalogItemSchema.shape.id.parse(rawWorkId);
-  const csrf=await fetchWebSessionCsrf({baseUrl:base,fetcher:options?.fetcher,signal:options?.signal});
+  const csrf=await fetchWebSessionCsrf({baseUrl:base,
+    ...(options?.fetcher?{fetcher:options.fetcher}:{}),
+    ...(options?.signal?{signal:options.signal}:{}),
+  });
   const response=await (options?.fetcher??fetch)(
     base+'/v1/me/shelf/'+encodeURIComponent(workId),
     init('DELETE','same-origin',options?.signal,csrf));
