@@ -82,3 +82,4 @@ export {AuthRateLimitExceeded,prepareAuthAttemptBuckets,consumeAuthAttemptRateLi
 export {listVerifiedDeviceSessions,revokeVerifiedDeviceSession} from './device-sessions.js';
 
 export {setVerifiedAdminPublication,permitsPublication} from './publication.js';
+export {getPublishedBookDetail,hasCurrentCatalogGrant} from './published-book.js';
