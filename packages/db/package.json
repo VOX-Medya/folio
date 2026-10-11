@@ -39,7 +39,8 @@
     "db:auth-smoke": "tsx scripts/auth-smoke.ts",
     "db:onboarding-smoke": "tsx scripts/onboarding-smoke.ts",
     "db:auth-rate-smoke": "tsx scripts/auth-rate-smoke.ts",
-    "db:session-cap-smoke": "tsx scripts/session-cap-smoke.ts"
+    "db:session-cap-smoke": "tsx scripts/session-cap-smoke.ts",
+    "db:folioctl-smoke": "tsx scripts/folioctl-single-book-smoke.ts"
   },
   "dependencies": {
     "@folio/contracts": "workspace:*",
